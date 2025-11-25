@@ -1,13 +1,14 @@
+use async_trait::async_trait;
+use bincode::{deserialize, serialize};
 use chirps_core::backend::MessageBackend;
 use chirps_core::config::NodeConfig;
 use chirps_core::error::TransportError;
 use chirps_wire::frame::Frame;
 use chirps_wire::node_id::NodeId;
-use async_trait::async_trait;
-use bincode::{deserialize, serialize};
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream, ServerConfig};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use rcgen::generate_simple_self_signed;
+use rustls::{Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -15,10 +16,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
 use tokio::time::sleep;
 use tracing::{info, warn};
-use rustls::{Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore};
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
@@ -121,7 +121,11 @@ impl QuicBackend {
                 if shutdown_rx.try_recv().is_ok() {
                     break;
                 }
-                match endpoint.connect_with(ClientConfig::new(client_config.clone()), addr, DEFAULT_SERVER_NAME) {
+                match endpoint.connect_with(
+                    ClientConfig::new(client_config.clone()),
+                    addr,
+                    DEFAULT_SERVER_NAME,
+                ) {
                     Ok(connecting) => match connecting.await {
                         Ok(connection) => {
                             info!("connected to seed {addr}");
@@ -129,7 +133,15 @@ impl QuicBackend {
                             let incoming_tx = incoming_tx.clone();
                             let mut shutdown_rx = shutdown_rx.resubscribe();
                             tokio::spawn(async move {
-                                if let Err(err) = handle_connection(connection, local_id, connections, incoming_tx, &mut shutdown_rx).await {
+                                if let Err(err) = handle_connection(
+                                    connection,
+                                    local_id,
+                                    connections,
+                                    incoming_tx,
+                                    &mut shutdown_rx,
+                                )
+                                .await
+                                {
                                     warn!("seed connection handler failed: {err}");
                                 }
                             });
@@ -152,9 +164,9 @@ impl MessageBackend for QuicBackend {
     async fn send(&self, target: NodeId, frame: Frame) -> Result<(), TransportError> {
         let conn = {
             let map = self.connections.read().await;
-            map.get(&target)
-                .cloned()
-                .ok_or_else(|| TransportError::Connection(format!("peer {target:?} not connected")))?            
+            map.get(&target).cloned().ok_or_else(|| {
+                TransportError::Connection(format!("peer {target:?} not connected"))
+            })?
         };
         send_frame(&conn, &self.node_id, frame).await
     }
@@ -209,7 +221,10 @@ async fn handle_connection(
     send_handshake(&connection, local_id).await?;
     let remote_id = recv_handshake(&connection).await?;
 
-    connections.write().await.insert(remote_id, connection.clone());
+    connections
+        .write()
+        .await
+        .insert(remote_id, connection.clone());
 
     loop {
         select! {
@@ -248,7 +263,9 @@ async fn recv_handshake(connection: &Connection) -> Result<NodeId, TransportErro
     match connection.accept_uni().await {
         Ok(mut recv) => match read_wire_message(&mut recv).await? {
             WireMessage::Handshake(node_id) => Ok(node_id),
-            _ => Err(TransportError::Connection("unexpected message during handshake".into())),
+            _ => Err(TransportError::Connection(
+                "unexpected message during handshake".into(),
+            )),
         },
         Err(err) => Err(TransportError::Connection(err.to_string())),
     }
@@ -259,14 +276,14 @@ async fn send_frame(
     from: &NodeId,
     frame: Frame,
 ) -> Result<(), TransportError> {
-    let env = WireMessage::Frame(FrameEnvelope {
-        from: *from,
-        frame,
-    });
+    let env = WireMessage::Frame(FrameEnvelope { from: *from, frame });
     send_wire_message(connection, env).await
 }
 
-async fn send_wire_message(connection: &Connection, msg: WireMessage) -> Result<(), TransportError> {
+async fn send_wire_message(
+    connection: &Connection,
+    msg: WireMessage,
+) -> Result<(), TransportError> {
     let bytes = serialize(&msg).map_err(|e| TransportError::Send(e.to_string()))?;
     let mut stream = connection
         .open_uni()
@@ -307,7 +324,9 @@ fn build_tls_configs(
     let server_config = ServerConfig::with_single_cert(cert_chain.clone(), priv_key)?;
 
     let mut roots = RootCertStore::empty();
-    roots.add(&Certificate(cert_der)).map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
+    roots
+        .add(&Certificate(cert_der))
+        .map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
 
     let mut client_crypto = RustlsClientConfig::builder()
         .with_safe_defaults()

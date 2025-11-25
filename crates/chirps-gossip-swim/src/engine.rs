@@ -1,14 +1,14 @@
 use crate::types::{MembershipView, Peer, PeerState, Status};
-use crate::util::{calculate_fanout, check_timeouts, StatusChange};
+use crate::util::{StatusChange, calculate_fanout, check_timeouts};
 use async_trait::async_trait;
-use chirps_wire::frame::{Frame, MembershipUpdate, MemberStatus};
+use chirps_wire::frame::{Frame, MemberStatus, MembershipUpdate};
 use chirps_wire::node_id::NodeId;
 use rand::seq::IteratorRandom;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::time::{interval, Interval};
+use tokio::time::{Interval, interval};
 use tracing::warn;
 
 /// Transport abstraction used by the gossip engine.
@@ -16,7 +16,9 @@ use tracing::warn;
 pub trait Transport: Send + Sync {
     async fn send(&self, target: NodeId, frame: Frame) -> Result<(), TransportError>;
     async fn broadcast(&self, frame: Frame) -> Result<usize, TransportError>;
-    async fn subscribe(&self) -> Result<tokio::sync::mpsc::Receiver<(NodeId, Frame)>, TransportError>;
+    async fn subscribe(
+        &self,
+    ) -> Result<tokio::sync::mpsc::Receiver<(NodeId, Frame)>, TransportError>;
     async fn close(&self) -> Result<(), TransportError>;
     fn connected_peers(&self) -> Vec<(NodeId, SocketAddr)>;
 }
@@ -53,7 +55,13 @@ pub enum GossipError {
 #[derive(Debug)]
 struct PendingPing {
     target: NodeId,
-    sent_at: Instant,
+    stage: PingStage,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PingStage {
+    Direct { sent_at: Instant },
+    Indirect { requested_at: Instant },
 }
 
 /// SWIM-style gossip engine.
@@ -91,7 +99,7 @@ impl GossipEngine {
     pub async fn tick(&mut self) -> Result<Vec<StatusChange>, GossipError> {
         self.ticker.tick().await;
         let now = Instant::now();
-        let mut changes = self.detect_ping_timeouts(now);
+        let mut changes = self.process_pending(now).await?;
         changes.extend(self.apply_timeouts(now));
         self.send_pings().await?;
         Ok(changes)
@@ -102,7 +110,13 @@ impl GossipEngine {
         self.touch_peer(from, addr, Status::Alive);
         if let Err(err) = self
             .backend
-            .send(from, Frame::Ack { seq, from: self.node_id })
+            .send(
+                from,
+                Frame::Ack {
+                    seq,
+                    from: self.node_id,
+                },
+            )
             .await
         {
             warn!("failed to send ack to {from:?}: {err}");
@@ -124,15 +138,33 @@ impl GossipEngine {
         self.pending.remove(&seq);
     }
 
+    /// Handle an incoming PingReq: forward Ping to target on behalf of the requester.
+    pub async fn handle_ping_req(
+        &mut self,
+        from: NodeId,
+        seq: u64,
+        target: NodeId,
+        addr: SocketAddr,
+    ) {
+        self.touch_peer(from, addr, Status::Alive);
+        if let Err(err) = self.backend.send(target, Frame::Ping { seq, from }).await {
+            warn!("failed to forward ping to {target:?} for {from:?}: {err}");
+        }
+    }
+
     /// Apply membership updates learned from gossip.
     pub fn apply_membership_update(&mut self, updates: &[MembershipUpdate]) {
         for upd in updates {
             let status: Status = upd.status.clone().into();
-            let entry = self.membership.peers.entry(upd.node_id).or_insert_with(|| Peer {
-                node_id: upd.node_id,
-                addr: upd.addr,
-                state: PeerState::new(upd.incarnation, status.clone()),
-            });
+            let entry = self
+                .membership
+                .peers
+                .entry(upd.node_id)
+                .or_insert_with(|| Peer {
+                    node_id: upd.node_id,
+                    addr: upd.addr,
+                    state: PeerState::new(upd.incarnation, status.clone()),
+                });
             if upd.incarnation >= entry.state.incarnation {
                 entry.state.incarnation = upd.incarnation;
                 entry.state.status = status;
@@ -140,33 +172,6 @@ impl GossipEngine {
                 entry.state.last_seen = Instant::now();
             }
         }
-    }
-
-    fn detect_ping_timeouts(&mut self, now: Instant) -> Vec<StatusChange> {
-        let mut changes = Vec::new();
-        let timeout = self.config.ping_timeout;
-        let mut expired = Vec::new();
-        for (seq, pending) in self.pending.iter() {
-            if now.saturating_duration_since(pending.sent_at) >= timeout {
-                expired.push(*seq);
-                if let Some(peer) = self.membership.peers.get_mut(&pending.target) {
-                    if peer.state.status == Status::Alive {
-                        peer.state.status = Status::Suspect;
-                        peer.state.suspect_since = Some(pending.sent_at);
-                        changes.push(StatusChange::new(
-                            pending.target,
-                            Status::Alive,
-                            Status::Suspect,
-                            peer.state.incarnation,
-                        ));
-                    }
-                }
-            }
-        }
-        for seq in expired {
-            self.pending.remove(&seq);
-        }
-        changes
     }
 
     fn apply_timeouts(&mut self, now: Instant) -> Vec<StatusChange> {
@@ -181,8 +186,16 @@ impl GossipEngine {
     async fn send_pings(&mut self) -> Result<(), GossipError> {
         let targets = self.select_targets();
         for target in targets {
+            if self
+                .pending
+                .values()
+                .any(|pending| pending.target == target)
+            {
+                continue; // already awaiting a response
+            }
             self.seq = self.seq.wrapping_add(1);
             let seq = self.seq;
+            let sent_at = Instant::now();
             let frame = Frame::Ping {
                 seq,
                 from: self.node_id,
@@ -195,12 +208,9 @@ impl GossipEngine {
                 seq,
                 PendingPing {
                     target,
-                    sent_at: Instant::now(),
+                    stage: PingStage::Direct { sent_at },
                 },
             );
-            if let Some(peer) = self.membership.peers.get_mut(&target) {
-                peer.state.last_seen = Instant::now();
-            }
             // Gossip membership to the same target
             let updates: Vec<MembershipUpdate> = self
                 .membership
@@ -226,15 +236,64 @@ impl GossipEngine {
         Ok(())
     }
 
+    async fn process_pending(&mut self, now: Instant) -> Result<Vec<StatusChange>, GossipError> {
+        let mut to_request = Vec::new();
+        let mut to_suspect = Vec::new();
+
+        for (seq, pending) in self.pending.iter_mut() {
+            match pending.stage {
+                PingStage::Direct { sent_at } => {
+                    if now.saturating_duration_since(sent_at) >= self.config.ping_timeout {
+                        to_request.push((*seq, pending.target));
+                        pending.stage = PingStage::Indirect { requested_at: now };
+                    }
+                }
+                PingStage::Indirect { requested_at } => {
+                    if now.saturating_duration_since(requested_at)
+                        >= self.config.indirect_ping_timeout
+                    {
+                        to_suspect.push((*seq, pending.target));
+                    }
+                }
+            }
+        }
+
+        for (seq, target) in to_request {
+            self.send_ping_req(seq, target).await?;
+        }
+
+        let mut changes = Vec::new();
+        for (seq, target) in to_suspect {
+            if let Some(peer) = self.membership.peers.get_mut(&target) {
+                if peer.state.status == Status::Alive {
+                    peer.state.status = Status::Suspect;
+                    peer.state.suspect_since = Some(now);
+                    changes.push(StatusChange::new(
+                        target,
+                        Status::Alive,
+                        Status::Suspect,
+                        peer.state.incarnation,
+                    ));
+                }
+            }
+            self.pending.remove(&seq);
+        }
+
+        Ok(changes)
+    }
+
     fn select_targets(&self) -> Vec<NodeId> {
-        let total_nodes = self.membership.peers.len() + 1; // include self
+        let candidate_ids: Vec<NodeId> = self
+            .membership
+            .peers
+            .iter()
+            .filter(|(_, peer)| !matches!(peer.state.status, Status::Dead))
+            .map(|(id, _)| *id)
+            .collect();
+        let total_nodes = candidate_ids.len() + 1; // include self
         let fanout = calculate_fanout(total_nodes, self.config.fanout);
         let mut rng = rand::thread_rng();
-        self.membership
-            .peers
-            .keys()
-            .cloned()
-            .choose_multiple(&mut rng, fanout)
+        candidate_ids.into_iter().choose_multiple(&mut rng, fanout)
     }
 
     fn touch_peer(&mut self, node_id: NodeId, addr: SocketAddr, status: Status) {
@@ -256,6 +315,40 @@ impl GossipEngine {
     pub fn membership(&self) -> MembershipView {
         self.membership.clone()
     }
+
+    async fn send_ping_req(&self, seq: u64, target: NodeId) -> Result<(), GossipError> {
+        let helpers = self.select_indirect_targets(target);
+        for helper in helpers {
+            let frame = Frame::PingReq {
+                seq,
+                from: self.node_id,
+                target,
+            };
+            if let Err(err) = self.backend.send(helper, frame).await {
+                warn!("failed to send pingreq to {helper:?} for {target:?}: {err}");
+            }
+        }
+        Ok(())
+    }
+
+    fn select_indirect_targets(&self, target: NodeId) -> Vec<NodeId> {
+        let candidates: Vec<NodeId> = self
+            .membership
+            .peers
+            .iter()
+            .filter_map(|(id, peer)| {
+                if *id != target && !matches!(peer.state.status, Status::Dead) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let total_nodes = candidates.len() + 1;
+        let fanout = calculate_fanout(total_nodes, self.config.fanout);
+        let mut rng = rand::thread_rng();
+        candidates.into_iter().choose_multiple(&mut rng, fanout)
+    }
 }
 
 fn member_status(status: &Status) -> MemberStatus {
@@ -269,17 +362,20 @@ fn member_status(status: &Status) -> MemberStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::mpsc;
 
     struct MockBackend {
         sent: Arc<AtomicUsize>,
+        frames: Arc<Mutex<Vec<(NodeId, Frame)>>>,
     }
 
     #[async_trait]
     impl Transport for MockBackend {
-        async fn send(&self, _target: NodeId, _frame: Frame) -> Result<(), TransportError> {
+        async fn send(&self, target: NodeId, frame: Frame) -> Result<(), TransportError> {
             self.sent.fetch_add(1, Ordering::SeqCst);
+            self.frames.lock().unwrap().push((target, frame));
             Ok(())
         }
 
@@ -329,6 +425,7 @@ mod tests {
         };
         let backend = Arc::new(MockBackend {
             sent: Arc::new(AtomicUsize::new(0)),
+            frames: Arc::new(Mutex::new(Vec::new())),
         });
         let mut engine = GossipEngine::new(node, config(), backend.clone(), membership);
         let _ = engine.tick().await.unwrap();
@@ -350,6 +447,7 @@ mod tests {
         );
         let backend = Arc::new(MockBackend {
             sent: Arc::new(AtomicUsize::new(0)),
+            frames: Arc::new(Mutex::new(Vec::new())),
         });
         let mut engine = GossipEngine::new(node, config(), backend, membership);
 
@@ -364,5 +462,97 @@ mod tests {
         }
         let changes = engine.tick().await.unwrap();
         assert!(changes.iter().any(|c| c.to == Status::Dead));
+    }
+
+    #[tokio::test]
+    async fn ping_timeout_requests_indirect_and_marks_suspect() {
+        let node = NodeId::new();
+        let target = NodeId::new();
+        let helper = NodeId::new();
+        let mut membership = MembershipView::new();
+        membership.peers.insert(
+            target,
+            Peer {
+                node_id: target,
+                addr: "127.0.0.1:9100".parse().unwrap(),
+                state: PeerState::new(0, Status::Alive),
+            },
+        );
+        membership.peers.insert(
+            helper,
+            Peer {
+                node_id: helper,
+                addr: "127.0.0.1:9101".parse().unwrap(),
+                state: PeerState::new(0, Status::Alive),
+            },
+        );
+
+        let cfg = GossipConfig {
+            ping_timeout: Duration::from_millis(5),
+            indirect_ping_timeout: Duration::from_millis(15),
+            suspect_to_dead_timeout: Duration::from_millis(40),
+            gossip_interval: Duration::from_millis(5),
+            fanout: Some(2),
+        };
+
+        let backend = Arc::new(MockBackend {
+            sent: Arc::new(AtomicUsize::new(0)),
+            frames: Arc::new(Mutex::new(Vec::new())),
+        });
+        let mut engine = GossipEngine::new(node, cfg, backend.clone(), membership);
+
+        // first tick -> send direct ping
+        engine.tick().await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(7)).await; // exceed ping_timeout
+        engine.tick().await.unwrap(); // trigger PingReq to helper
+
+        tokio::time::sleep(Duration::from_millis(20)).await; // exceed indirect timeout
+        let changes = engine.tick().await.unwrap(); // mark suspect
+
+        let frames = backend.frames.lock().unwrap();
+        assert!(
+            frames.iter().any(|(to, frame)| *to == helper
+                && matches!(frame, Frame::PingReq { target: t, .. } if *t == target)),
+            "expected PingReq to helper"
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.node_id == target && c.to == Status::Suspect)
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_ping_req_forwards_ping_from_requester() {
+        let node = NodeId::new();
+        let requester = NodeId::new();
+        let target = NodeId::new();
+        let mut membership = MembershipView::new();
+        membership.peers.insert(
+            target,
+            Peer {
+                node_id: target,
+                addr: "127.0.0.1:9200".parse().unwrap(),
+                state: PeerState::new(0, Status::Alive),
+            },
+        );
+
+        let backend = Arc::new(MockBackend {
+            sent: Arc::new(AtomicUsize::new(0)),
+            frames: Arc::new(Mutex::new(Vec::new())),
+        });
+        let mut engine = GossipEngine::new(node, config(), backend.clone(), membership);
+
+        engine
+            .handle_ping_req(requester, 10, target, "127.0.0.1:9300".parse().unwrap())
+            .await;
+
+        let frames = backend.frames.lock().unwrap();
+        assert!(
+            frames.iter().any(|(to, frame)| *to == target
+                && matches!(frame, Frame::Ping { seq, from } if *seq == 10 && *from == requester)),
+            "expected forwarded ping to target with requester as source"
+        );
     }
 }

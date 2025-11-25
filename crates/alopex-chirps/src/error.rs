@@ -15,7 +15,7 @@ pub enum MeshError {
     Gossip(#[from] GossipError),
     #[error("peer not found: {0:?}")]
     PeerNotFound(NodeId),
-    #[error("operation timed out")] 
+    #[error("operation timed out")]
     Timeout,
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),

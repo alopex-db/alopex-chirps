@@ -108,7 +108,7 @@ pub fn check_timeouts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{PeerState};
+    use crate::types::PeerState;
     use std::net::SocketAddr;
 
     fn peer(node_id: NodeId, addr: SocketAddr, state: PeerState) -> Peer {

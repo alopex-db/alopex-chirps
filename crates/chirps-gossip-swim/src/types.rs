@@ -1,5 +1,5 @@
-use chirps_wire::node_id::NodeId;
 use chirps_wire::frame::MemberStatus;
+use chirps_wire::node_id::NodeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;

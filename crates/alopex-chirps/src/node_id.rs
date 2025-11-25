@@ -2,9 +2,9 @@ use crate::error::MeshError;
 pub use chirps_wire::node_id::NodeId;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::path::Path;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 
 /// Loads a `NodeId` from the given path, or creates a new one if it doesn't exist.
 ///
@@ -69,7 +69,6 @@ mod tests {
             let perms = metadata.permissions();
             assert_eq!(perms.mode() & 0o777, 0o600);
         }
-        
 
         // 2. Load the existing NodeId
         let (node_id2, incarnation2) = load_or_create_node_id(&path).unwrap();

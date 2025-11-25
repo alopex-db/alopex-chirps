@@ -1,15 +1,18 @@
 use crate::backend::MessageBackend;
 use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
-use crate::node_id::{load_or_create_node_id, NodeId};
-use chirps_gossip_swim::engine::{GossipConfig, GossipEngine, Transport as GossipTransport, TransportError as GossipTransportError};
+use crate::node_id::{NodeId, load_or_create_node_id};
+use chirps_gossip_swim::engine::{
+    GossipConfig, GossipEngine, Transport as GossipTransport,
+    TransportError as GossipTransportError,
+};
 use chirps_gossip_swim::types::{MembershipView, Status};
 use chirps_gossip_swim::util::StatusChange;
 use chirps_transport_quic::QuicBackend;
 use chirps_wire::frame::Frame;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 
 /// Public handle for interacting with the mesh.
@@ -51,7 +54,11 @@ impl MeshHandle {
     where
         F: Fn(NodeId) + Send + Sync + 'static,
     {
-        self.inner.join_handlers.lock().unwrap().push(Arc::new(handler));
+        self.inner
+            .join_handlers
+            .lock()
+            .unwrap()
+            .push(Arc::new(handler));
     }
 
     /// Registers a node leave handler.
@@ -188,16 +195,29 @@ fn spawn_frame_loop(mesh: Arc<Mesh>) -> JoinHandle<()> {
             }
         };
         while let Some((from, frame)) = rx.recv().await {
+            let addr = mesh
+                .backend
+                .connected_peers()
+                .into_iter()
+                .find(|(id, _)| *id == from)
+                .map(|(_, addr)| addr)
+                .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 0)));
             match frame {
                 Frame::Ping { seq, .. } => {
                     let mut gossip = mesh.gossip.lock().await;
-                    gossip
-                        .handle_ping(from, seq, SocketAddr::from(([0, 0, 0, 0], 0)))
-                        .await;
+                    gossip.handle_ping(from, seq, addr).await;
                 }
                 Frame::Ack { seq, .. } => {
                     let mut gossip = mesh.gossip.lock().await;
-                    gossip.handle_ack(from, seq, SocketAddr::from(([0, 0, 0, 0], 0)));
+                    gossip.handle_ack(from, seq, addr);
+                }
+                Frame::PingReq {
+                    seq,
+                    from: requester,
+                    target,
+                } => {
+                    let mut gossip = mesh.gossip.lock().await;
+                    gossip.handle_ping_req(requester, seq, target, addr).await;
                 }
                 Frame::Gossip(msg) => {
                     let mut gossip = mesh.gossip.lock().await;

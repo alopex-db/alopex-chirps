@@ -1,8 +1,8 @@
-pub mod node_id;
-pub mod config;
 pub mod backend;
+pub mod config;
 pub mod error;
 pub mod mesh;
+pub mod node_id;
 
 use crate::config::NodeConfig;
 use crate::error::MeshError;
