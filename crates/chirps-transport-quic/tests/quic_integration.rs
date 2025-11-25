@@ -20,7 +20,15 @@ fn config(bind_addr: SocketAddr, seeds: Vec<SocketAddr>) -> Arc<NodeConfig> {
 }
 
 async fn wait_for_connected(backend: &QuicBackend, expected: usize) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    wait_for_connected_with_timeout(backend, expected, Duration::from_secs(3)).await;
+}
+
+async fn wait_for_connected_with_timeout(
+    backend: &QuicBackend,
+    expected: usize,
+    timeout: Duration,
+) {
+    let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if backend.connected_peers().len() >= expected {
             break;
@@ -191,6 +199,89 @@ async fn broadcast_delivers_to_connected_peers() -> anyhow::Result<()> {
     match frame {
         Frame::User(user) => assert_eq!(user.payload, b"hello"),
         other => panic!("expected User frame, got {other:?}"),
+    }
+
+    backend_a.close().await?;
+    backend_b.close().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reconnects_when_seed_becomes_available() -> anyhow::Result<()> {
+    let node_a = NodeId::new();
+    let node_b = NodeId::new();
+
+    let addr_a = match free_addr() {
+        Ok(a) => a,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            eprintln!("skip reconnects_when_seed_becomes_available: cannot bind socket ({e})");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let addr_b = match free_addr() {
+        Ok(a) => a,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            eprintln!("skip reconnects_when_seed_becomes_available: cannot bind socket ({e})");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let backend_b = match QuicBackend::new(node_b, config(addr_b, vec![addr_a])).await {
+        Ok(b) => b,
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("Permission denied") || msg.contains("Operation not permitted") {
+                eprintln!("skip reconnects_when_seed_becomes_available: network denied ({msg})");
+                return Ok(());
+            }
+            return Err(e);
+        }
+    };
+
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let backend_a = match QuicBackend::new(node_a, config(addr_a, vec![])).await {
+        Ok(b) => b,
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("Permission denied") || msg.contains("Operation not permitted") {
+                eprintln!("skip reconnects_when_seed_becomes_available: network denied ({msg})");
+                return Ok(());
+            }
+            return Err(e);
+        }
+    };
+
+    let mut rx_a = backend_a.subscribe().await?;
+    let mut _rx_b = backend_b.subscribe().await?;
+
+    backend_b.reconnect_to_seeds().await?;
+
+    wait_for_connected_with_timeout(&backend_a, 1, Duration::from_secs(10)).await;
+    wait_for_connected_with_timeout(&backend_b, 1, Duration::from_secs(10)).await;
+
+    backend_b
+        .send(
+            node_a,
+            Frame::Ping {
+                seq: 42,
+                from: node_b,
+            },
+        )
+        .await?;
+
+    let (from, frame) = tokio::time::timeout(Duration::from_secs(2), rx_a.recv())
+        .await?
+        .expect("peer A should receive ping after reconnect");
+    assert_eq!(from, node_b);
+    match frame {
+        Frame::Ping { seq, from } => {
+            assert_eq!(seq, 42);
+            assert_eq!(from, node_b);
+        }
+        other => panic!("expected Ping, got {other:?}"),
     }
 
     backend_a.close().await?;

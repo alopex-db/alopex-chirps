@@ -6,7 +6,6 @@ use chirps_core::error::TransportError;
 use chirps_wire::frame::Frame;
 use chirps_wire::node_id::NodeId;
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream, ServerConfig};
-use rand::{Rng, thread_rng};
 use rcgen::generate_simple_self_signed;
 use rustls::{Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore};
 use serde::{Deserialize, Serialize};
@@ -14,11 +13,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::select;
 use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
-use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::warn;
+
+mod reconnect;
+
+use reconnect::{ReconnectCommand, start_seed_reconnector};
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
@@ -42,6 +43,7 @@ pub struct QuicBackend {
     incoming_tx: mpsc::Sender<(NodeId, Frame)>,
     incoming_rx: Arc<Mutex<Option<mpsc::Receiver<(NodeId, Frame)>>>>,
     shutdown: broadcast::Sender<()>,
+    reconnect_tx: mpsc::Sender<ReconnectCommand>,
 }
 
 impl QuicBackend {
@@ -52,20 +54,28 @@ impl QuicBackend {
 
         let (incoming_tx, incoming_rx) = mpsc::channel(1024);
         let (shutdown, _) = broadcast::channel(4);
+        let connections = Arc::new(RwLock::new(HashMap::new()));
+        let reconnect_tx = start_seed_reconnector(
+            config.seeds.clone(),
+            endpoint.clone(),
+            client_config.clone(),
+            Arc::clone(&connections),
+            incoming_tx.clone(),
+            shutdown.clone(),
+            node_id,
+        );
         let backend = QuicBackend {
             node_id,
             endpoint: endpoint.clone(),
-            connections: Arc::new(RwLock::new(HashMap::new())),
+            connections,
             incoming_tx,
             incoming_rx: Arc::new(Mutex::new(Some(incoming_rx))),
             shutdown,
+            reconnect_tx,
         };
 
         backend.spawn_accept_loop();
-
-        for seed in config.seeds.iter().cloned() {
-            backend.spawn_seed_connector(seed, client_config.clone());
-        }
+        let _ = backend.reconnect_tx.try_send(ReconnectCommand::Trigger);
 
         Ok(backend)
     }
@@ -106,56 +116,12 @@ impl QuicBackend {
         });
     }
 
-    fn spawn_seed_connector(&self, addr: SocketAddr, client_config: Arc<RustlsClientConfig>) {
-        let endpoint = self.endpoint.clone();
-        let connections = Arc::clone(&self.connections);
-        let incoming_tx = self.incoming_tx.clone();
-        let mut shutdown_rx = self.shutdown.subscribe();
-        let local_id = self.node_id;
-
-        tokio::spawn(async move {
-            let mut backoff = Duration::from_millis(200);
-            let max_backoff = Duration::from_secs(5);
-
-            loop {
-                if shutdown_rx.try_recv().is_ok() {
-                    break;
-                }
-                match endpoint.connect_with(
-                    ClientConfig::new(client_config.clone()),
-                    addr,
-                    DEFAULT_SERVER_NAME,
-                ) {
-                    Ok(connecting) => match connecting.await {
-                        Ok(connection) => {
-                            info!("connected to seed {addr}");
-                            let connections = Arc::clone(&connections);
-                            let incoming_tx = incoming_tx.clone();
-                            let mut shutdown_rx = shutdown_rx.resubscribe();
-                            tokio::spawn(async move {
-                                if let Err(err) = handle_connection(
-                                    connection,
-                                    local_id,
-                                    connections,
-                                    incoming_tx,
-                                    &mut shutdown_rx,
-                                )
-                                .await
-                                {
-                                    warn!("seed connection handler failed: {err}");
-                                }
-                            });
-                            break;
-                        }
-                        Err(err) => warn!("connect to seed {addr} failed: {err}"),
-                    },
-                    Err(err) => warn!("connect setup to seed {addr} failed: {err}"),
-                }
-                let jitter = thread_rng().gen_range(0..100);
-                sleep(backoff + Duration::from_millis(jitter)).await;
-                backoff = (backoff * 2).min(max_backoff);
-            }
-        });
+    /// 手動トリガーでシードへの再接続を促す。
+    pub async fn reconnect_to_seeds(&self) -> Result<(), TransportError> {
+        self.reconnect_tx
+            .send(ReconnectCommand::Trigger)
+            .await
+            .map_err(|_| TransportError::Connection("reconnect worker stopped".into()))
     }
 }
 

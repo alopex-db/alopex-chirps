@@ -15,14 +15,14 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 
-/// Public handle for interacting with the mesh.
+/// メッシュへ外部から操作するためのハンドル。
 #[derive(Clone)]
 pub struct MeshHandle {
     inner: Arc<Mesh>,
 }
 
 impl MeshHandle {
-    /// Sends a frame to a specific peer.
+    /// 指定したピアへフレームを送信する。
     pub async fn send_to(&self, target: NodeId, frame: Frame) -> Result<(), MeshError> {
         self.inner
             .backend
@@ -31,7 +31,7 @@ impl MeshHandle {
             .map_err(MeshError::from)
     }
 
-    /// Broadcasts a frame to connected peers.
+    /// 接続済みの全ピアへフレームをブロードキャストする。
     pub async fn broadcast(&self, frame: Frame) -> Result<usize, MeshError> {
         self.inner
             .backend
@@ -40,7 +40,7 @@ impl MeshHandle {
             .map_err(MeshError::from)
     }
 
-    /// Subscribes to incoming frames; returns a receiver of `(from, frame)` tuples.
+    /// 受信フレーム購読を開始し、`(from, frame)` を受け取るチャネルを返す。
     pub async fn subscribe(&self) -> Result<mpsc::Receiver<(NodeId, Frame)>, MeshError> {
         self.inner
             .backend
@@ -49,7 +49,7 @@ impl MeshHandle {
             .map_err(MeshError::from)
     }
 
-    /// Registers a node join handler.
+    /// ノード参加イベントハンドラを登録する。
     pub fn on_node_join<F>(&self, handler: F)
     where
         F: Fn(NodeId) + Send + Sync + 'static,
@@ -61,7 +61,7 @@ impl MeshHandle {
             .push(Arc::new(handler));
     }
 
-    /// Registers a node leave handler.
+    /// ノード離脱イベントハンドラを登録する。
     pub fn on_node_leave<F>(&self, handler: F)
     where
         F: Fn(NodeId) + Send + Sync + 'static,
@@ -73,7 +73,7 @@ impl MeshHandle {
             .push(Arc::new(handler));
     }
 
-    /// Registers a status change handler.
+    /// ステータス変更イベントハンドラを登録する。
     pub fn on_status_change<F>(&self, handler: F)
     where
         F: Fn(NodeId) + Send + Sync + 'static,
@@ -84,9 +84,14 @@ impl MeshHandle {
             .unwrap()
             .push(Arc::new(handler));
     }
+
+    /// 自ノードの `NodeId` を返す。
+    pub fn node_id(&self) -> NodeId {
+        self.inner.node_id
+    }
 }
 
-/// Mesh orchestrates transport and gossip subsystems.
+/// QUICトランスポートとSWIMゴシップを束ねるメッシュ本体。
 pub struct Mesh {
     pub(crate) node_id: NodeId,
     pub(crate) incarnation: u64,
@@ -100,7 +105,7 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    /// Starts the mesh system with the provided configuration.
+    /// 指定された設定でメッシュを起動する。NodeId永続化→トランスポート→ゴシップの順に初期化する。
     pub async fn start(config: NodeConfig) -> Result<MeshHandle, MeshError> {
         let config = Arc::new(config);
         let (node_id, incarnation) = load_or_create_node_id(&config.node_id_path)?;

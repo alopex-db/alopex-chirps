@@ -31,24 +31,20 @@ It is completely independent from AlopexDB or jjvm — those are *users* of Chir
 
 ---
 
-## Example
+## クイックスタート（ローカル3ノード）
 
-```rust
-use alopex_chirps::{Mesh, NodeConfig};
+1. リポジトリ直下から `cd chirps`
+2. 自己署名TLSで3ノードをローカル起動するサンプルを実行
 
-#[tokio::main]
-async fn main() {
-    let config = NodeConfig::new().with_seeds(vec![
-        "192.168.0.10:42000".parse().unwrap(),
-    ]);
-
-    let mut mesh = Mesh::start(config).await.unwrap();
-
-    mesh.subscribe(|from, payload| {
-        println!("chirp from {from}: {:?}", payload);
-    });
-
-    mesh.broadcast(b"alopex says hello").await.unwrap();
-}
+```bash
+cargo run --example simple-mesh
 ```
 
+このサンプルは以下を行います。
+
+- 127.0.0.1 上で3ノードを起動し、Node A をシードに Node B/C が接続
+- イベントハンドラで join/leave/status_change をログ出力
+- `broadcast` で全ピアへメッセージ送信
+- `send_to` で特定ピアへ直接メッセージ送信
+
+`examples/simple-mesh.rs` を参照すれば、`start` / `broadcast` / `send_to` / イベント購読の使い方を最小コードで確認できます。

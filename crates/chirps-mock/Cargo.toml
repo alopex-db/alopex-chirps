@@ -4,3 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-trait = "0.1"
+chirps-core = { path = "../chirps-core" }
+chirps-wire = { path = "../chirps-wire" }
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
+anyhow = "1.0"

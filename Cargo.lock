@@ -154,6 +154,13 @@ dependencies = [
 [[package]]
 name = "chirps-mock"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chirps-core",
+ "chirps-wire",
+ "tokio",
+]
 
 [[package]]
 name = "chirps-transport-quic"
