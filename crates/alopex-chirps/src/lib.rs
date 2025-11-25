@@ -1,14 +1,15 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod node_id;
+pub mod config;
+pub mod backend;
+pub mod error;
+pub mod mesh;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use crate::config::NodeConfig;
+use crate::error::MeshError;
+use crate::mesh::Mesh;
+pub use crate::mesh::MeshHandle;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+/// Starts a new `Mesh` instance.
+pub async fn start(config: NodeConfig) -> Result<MeshHandle, MeshError> {
+    Mesh::start(config).await
 }

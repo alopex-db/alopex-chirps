@@ -5,6 +5,7 @@ members = [
     "crates/chirps-gossip-swim",
     "crates/chirps-wire",
     "crates/chirps-mock",
+    "crates/chirps-core",
 ]
 resolver = "2"
 

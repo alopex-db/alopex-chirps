@@ -3,4 +3,19 @@ name = "alopex-chirps"
 version = "0.1.0"
 edition = "2024"
 
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [dependencies]
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+anyhow = "1.0"
+thiserror = "1.0"
+tokio = { version = "1.35", features = ["time", "sync", "macros", "rt", "rt-multi-thread"] }
+async-trait = "0.1"
+chirps-wire = { path = "../chirps-wire" }
+chirps-core = { path = "../chirps-core" }
+chirps-transport-quic = { path = "../chirps-transport-quic" }
+chirps-gossip-swim = { path = "../chirps-gossip-swim" }
+
+[dev-dependencies]
+tempfile = "3"
