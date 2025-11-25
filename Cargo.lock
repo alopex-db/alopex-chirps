@@ -124,6 +124,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "chirps-e2e"
+version = "0.1.0"
+dependencies = [
+ "alopex-chirps",
+ "anyhow",
+ "async-trait",
+ "chirps-gossip-swim",
+ "chirps-transport-quic",
+ "chirps-wire",
+ "rcgen",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "chirps-gossip-swim"
 version = "0.1.0"
 dependencies = [

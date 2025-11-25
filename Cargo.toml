@@ -6,6 +6,7 @@ members = [
     "crates/chirps-wire",
     "crates/chirps-mock",
     "crates/chirps-core",
+    "tests/e2e",
 ]
 resolver = "2"
 
