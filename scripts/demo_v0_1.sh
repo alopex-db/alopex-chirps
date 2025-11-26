@@ -17,7 +17,7 @@ echo "== Step 1: simple-mesh 例で 3 ノードの基本動作を確認 =="
 echo " - NodeId 永続化（temp dir）"
 echo " - QUIC/TLS セッション確立"
 echo " - send_to / broadcast とイベントログ出力"
-cargo run --manifest-path "$ROOT_DIR/Cargo.toml" --example simple-mesh
+cargo run --manifest-path "$ROOT_DIR/Cargo.toml" -p alopex-chirps --example simple-mesh
 
 echo ""
 echo "== Step 2: QUIC 基本テスト (ping/ack, broadcast, 再接続) =="
