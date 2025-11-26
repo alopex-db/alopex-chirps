@@ -46,6 +46,13 @@ async fn main() -> anyhow::Result<()> {
     println!("node B = {:?}", mesh_b.node_id());
     println!("node C = {:?}", mesh_c.node_id());
 
+    // 現在のメンバーシップをスナップショットで確認
+    let membership = mesh_a.membership().await?;
+    println!("[A] membership snapshot:");
+    for (id, peer) in membership.peers.iter() {
+        println!("  - {id:?} @ {} status={:?}", peer.addr, peer.state.status);
+    }
+
     // イベントハンドラ登録（join/leave/ステータス変化）
     mesh_a.on_node_join(|id| println!("[A] join: {id:?}"));
     mesh_a.on_node_leave(|id| println!("[A] leave: {id:?}"));

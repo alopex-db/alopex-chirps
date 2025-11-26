@@ -94,6 +94,12 @@ impl MeshHandle {
         self.inner.node_id
     }
 
+    /// 現在のメンバーシップビューを取得する。
+    pub async fn membership(&self) -> MembershipView {
+        let gossip = self.inner.gossip.lock().await;
+        gossip.membership()
+    }
+
     /// メッシュ内部のメトリクスをスナップショットで返す。
     pub fn metrics(&self) -> MeshMetricsSnapshot {
         self.inner.metrics_snapshot()
