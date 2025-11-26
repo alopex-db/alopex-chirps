@@ -30,6 +30,10 @@ pub struct NodeConfig {
     pub suspect_to_dead_timeout: Duration,
     /// Interval for periodic gossip ticks.
     pub gossip_interval: Duration,
+    /// Timeout for send/broadcast operations.
+    pub broadcast_timeout: Duration,
+    /// Maximum number of in-flight send/broadcast requests.
+    pub send_queue_capacity: usize,
     /// Fanout for gossip messages. If None, it's calculated as `max(3, ceil(sqrt(N)))`.
     pub fanout: Option<usize>,
     /// Number of convergence rounds for gossip.
@@ -49,6 +53,8 @@ impl Default for NodeConfig {
             indirect_ping_timeout: Duration::from_secs(3),
             suspect_to_dead_timeout: Duration::from_secs(6),
             gossip_interval: Duration::from_millis(200),
+            broadcast_timeout: Duration::from_millis(200),
+            send_queue_capacity: 1024,
             fanout: None,
             convergence_rounds: 3,
             node_id_path: PathBuf::from(".chirps_node_id"),

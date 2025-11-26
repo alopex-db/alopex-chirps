@@ -13,6 +13,8 @@ pub enum TransportError {
     Subscribe(String),
     #[error("transport IO error: {0}")]
     Io(String),
+    #[error("transport timeout: {0}")]
+    Timeout(String),
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),
 }

@@ -11,9 +11,13 @@ use chirps_gossip_swim::util::StatusChange;
 use chirps_transport_quic::QuicBackend;
 use chirps_wire::frame::Frame;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
+use tracing::info;
 
 /// メッシュへ外部から操作するためのハンドル。
 #[derive(Clone)]
@@ -89,6 +93,11 @@ impl MeshHandle {
     pub fn node_id(&self) -> NodeId {
         self.inner.node_id
     }
+
+    /// メッシュ内部のメトリクスをスナップショットで返す。
+    pub fn metrics(&self) -> MeshMetricsSnapshot {
+        self.inner.metrics_snapshot()
+    }
 }
 
 /// QUICトランスポートとSWIMゴシップを束ねるメッシュ本体。
@@ -102,6 +111,23 @@ pub struct Mesh {
     leave_handlers: std::sync::Mutex<Vec<Arc<dyn Fn(NodeId) + Send + Sync>>>,
     status_handlers: std::sync::Mutex<Vec<Arc<dyn Fn(NodeId) + Send + Sync>>>,
     _tasks: Vec<JoinHandle<()>>,
+    metrics: Arc<MeshMetrics>,
+}
+
+#[derive(Default)]
+struct MeshMetrics {
+    joins: AtomicU64,
+    leaves: AtomicU64,
+    status_events: AtomicU64,
+    delivered_frames: AtomicU64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MeshMetricsSnapshot {
+    pub joins: u64,
+    pub leaves: u64,
+    pub status_events: u64,
+    pub delivered_frames: u64,
 }
 
 impl Mesh {
@@ -146,6 +172,7 @@ impl Mesh {
             leave_handlers: std::sync::Mutex::new(Vec::new()),
             status_handlers: std::sync::Mutex::new(Vec::new()),
             _tasks: Vec::new(),
+            metrics: Arc::new(MeshMetrics::default()),
         });
 
         let mut tasks = Vec::new();
@@ -160,18 +187,36 @@ impl Mesh {
     }
 
     fn emit_status(&self, change: StatusChange) {
+        self.metrics.status_events.fetch_add(1, Ordering::Relaxed);
         if change.to == Status::Alive && change.from != Status::Alive {
+            self.metrics.joins.fetch_add(1, Ordering::Relaxed);
             for h in self.join_handlers.lock().unwrap().iter() {
                 h(change.node_id);
             }
         }
         if change.to == Status::Dead {
+            self.metrics.leaves.fetch_add(1, Ordering::Relaxed);
             for h in self.leave_handlers.lock().unwrap().iter() {
                 h(change.node_id);
             }
         }
+        info!(
+            peer = ?change.node_id,
+            from = ?change.from,
+            to = ?change.to,
+            "status change emitted"
+        );
         for h in self.status_handlers.lock().unwrap().iter() {
             h(change.node_id);
+        }
+    }
+
+    fn metrics_snapshot(&self) -> MeshMetricsSnapshot {
+        MeshMetricsSnapshot {
+            joins: self.metrics.joins.load(Ordering::Relaxed),
+            leaves: self.metrics.leaves.load(Ordering::Relaxed),
+            status_events: self.metrics.status_events.load(Ordering::Relaxed),
+            delivered_frames: self.metrics.delivered_frames.load(Ordering::Relaxed),
         }
     }
 }
@@ -200,6 +245,9 @@ fn spawn_frame_loop(mesh: Arc<Mesh>) -> JoinHandle<()> {
             }
         };
         while let Some((from, frame)) = rx.recv().await {
+            mesh.metrics
+                .delivered_frames
+                .fetch_add(1, Ordering::Relaxed);
             let addr = mesh
                 .backend
                 .connected_peers()

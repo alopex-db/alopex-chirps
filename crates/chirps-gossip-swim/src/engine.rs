@@ -6,10 +6,13 @@ use chirps_wire::node_id::NodeId;
 use rand::seq::IteratorRandom;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use std::time::{Duration, Instant};
 use tokio::time::{Interval, interval};
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 /// Transport abstraction used by the gossip engine.
 #[async_trait]
@@ -31,6 +34,20 @@ pub struct GossipConfig {
     pub suspect_to_dead_timeout: Duration,
     pub gossip_interval: Duration,
     pub fanout: Option<usize>,
+}
+
+#[derive(Default)]
+struct GossipMetrics {
+    sent: AtomicU64,
+    received: AtomicU64,
+    status_events: AtomicU64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GossipMetricsSnapshot {
+    pub sent: u64,
+    pub received: u64,
+    pub status_events: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -73,6 +90,7 @@ pub struct GossipEngine {
     pending: HashMap<u64, PendingPing>,
     seq: u64,
     ticker: Interval,
+    metrics: Arc<GossipMetrics>,
 }
 
 impl GossipEngine {
@@ -92,6 +110,7 @@ impl GossipEngine {
             pending: HashMap::new(),
             seq: 0,
             ticker,
+            metrics: Arc::new(GossipMetrics::default()),
         }
     }
 
@@ -107,6 +126,8 @@ impl GossipEngine {
 
     /// Handle an incoming Ping: reply Ack and update last_seen.
     pub async fn handle_ping(&mut self, from: NodeId, seq: u64, addr: SocketAddr) {
+        self.metrics.received.fetch_add(1, Ordering::Relaxed);
+        debug!(from = ?from, seq, "received ping");
         self.touch_peer(from, addr, Status::Alive);
         if let Err(err) = self
             .backend
@@ -120,11 +141,15 @@ impl GossipEngine {
             .await
         {
             warn!("failed to send ack to {from:?}: {err}");
+        } else {
+            self.metrics.sent.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     /// Handle an incoming Ack: mark peer alive and clear pending if present.
     pub fn handle_ack(&mut self, from: NodeId, seq: u64, addr: SocketAddr) {
+        self.metrics.received.fetch_add(1, Ordering::Relaxed);
+        debug!(from = ?from, seq, "received ack");
         if let Some(peer) = self.membership.peers.get_mut(&from) {
             if matches!(peer.state.status, Status::Dead) {
                 return; // ignore late ack from dead peers
@@ -146,9 +171,13 @@ impl GossipEngine {
         target: NodeId,
         addr: SocketAddr,
     ) {
+        self.metrics.received.fetch_add(1, Ordering::Relaxed);
         self.touch_peer(from, addr, Status::Alive);
         if let Err(err) = self.backend.send(target, Frame::Ping { seq, from }).await {
             warn!("failed to forward ping to {target:?} for {from:?}: {err}");
+        } else {
+            self.metrics.sent.fetch_add(1, Ordering::Relaxed);
+            debug!(target = ?target, helper = ?from, seq, "forwarded ping");
         }
     }
 
@@ -166,21 +195,41 @@ impl GossipEngine {
                     state: PeerState::new(upd.incarnation, status.clone()),
                 });
             if upd.incarnation >= entry.state.incarnation {
+                let previous = entry.state.status.clone();
                 entry.state.incarnation = upd.incarnation;
                 entry.state.status = status;
                 entry.addr = upd.addr;
                 entry.state.last_seen = Instant::now();
+                if previous != entry.state.status {
+                    self.metrics.status_events.fetch_add(1, Ordering::Relaxed);
+                    info!(
+                        peer = ?upd.node_id,
+                        from = ?previous,
+                        to = ?entry.state.status,
+                        "status updated via gossip"
+                    );
+                }
             }
         }
     }
 
     fn apply_timeouts(&mut self, now: Instant) -> Vec<StatusChange> {
-        check_timeouts(
+        let changes = check_timeouts(
             &mut self.membership.peers,
             now,
             self.config.indirect_ping_timeout,
             self.config.suspect_to_dead_timeout,
-        )
+        );
+        for change in &changes {
+            self.metrics.status_events.fetch_add(1, Ordering::Relaxed);
+            info!(
+                peer = ?change.node_id,
+                from = ?change.from,
+                to = ?change.to,
+                "status transitioned by timeout"
+            );
+        }
+        changes
     }
 
     async fn send_pings(&mut self) -> Result<(), GossipError> {
@@ -314,6 +363,15 @@ impl GossipEngine {
     /// Returns current membership view (read-only clone).
     pub fn membership(&self) -> MembershipView {
         self.membership.clone()
+    }
+
+    /// 現在のメトリクスを取得する。
+    pub fn metrics(&self) -> GossipMetricsSnapshot {
+        GossipMetricsSnapshot {
+            sent: self.metrics.sent.load(Ordering::Relaxed),
+            received: self.metrics.received.load(Ordering::Relaxed),
+            status_events: self.metrics.status_events.load(Ordering::Relaxed),
+        }
     }
 
     async fn send_ping_req(&self, seq: u64, target: NodeId) -> Result<(), GossipError> {
@@ -462,6 +520,11 @@ mod tests {
         }
         let changes = engine.tick().await.unwrap();
         assert!(changes.iter().any(|c| c.to == Status::Dead));
+        let metrics = engine.metrics();
+        assert!(
+            metrics.status_events >= 1,
+            "status events should be counted"
+        );
     }
 
     #[tokio::test]

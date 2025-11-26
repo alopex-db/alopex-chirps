@@ -9,8 +9,8 @@ pub enum MeshError {
     Persistence(#[from] std::io::Error),
     #[error("config error: {0}")]
     Config(String),
-    #[error(transparent)]
-    Transport(#[from] TransportError),
+    #[error("transport error: {0}")]
+    Transport(TransportError),
     #[error(transparent)]
     Gossip(#[from] GossipError),
     #[error("peer not found: {0:?}")]
@@ -24,5 +24,14 @@ pub enum MeshError {
 impl MeshError {
     pub fn config<T: ToString>(msg: T) -> Self {
         MeshError::Config(msg.to_string())
+    }
+}
+
+impl From<TransportError> for MeshError {
+    fn from(err: TransportError) -> Self {
+        match err {
+            TransportError::Timeout(_) => MeshError::Timeout,
+            other => MeshError::Transport(other),
+        }
     }
 }
