@@ -15,6 +15,8 @@ pub enum TransportError {
     Io(String),
     #[error("transport timeout: {0}")]
     Timeout(String),
+    #[error("invalid stream kind: {0}")]
+    InvalidStreamKind(u8),
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),
 }

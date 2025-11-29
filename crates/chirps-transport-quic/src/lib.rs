@@ -22,19 +22,40 @@ use tokio::sync::{Mutex, RwLock, broadcast, mpsc, oneshot};
 use tokio::time;
 use tracing::{info, warn};
 
+mod priority;
 mod reconnect;
 
+use priority::Priority;
 use reconnect::{ReconnectCommand, start_seed_reconnector};
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
 const SEND_RETRY_ATTEMPTS: usize = 1;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StreamKind {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum StreamKind {
     Control = 0,
     Gossip = 1,
     User = 2,
+    Raft = 3,
+    RaftSnapshot = 4,
+}
+
+impl StreamKind {
+    pub(crate) fn priority(&self) -> Priority {
+        match self {
+            StreamKind::Control | StreamKind::Raft => Priority::High,
+            StreamKind::Gossip | StreamKind::RaftSnapshot | StreamKind::User => Priority::Normal,
+        }
+    }
+
+    pub(crate) fn requires_ack(&self) -> bool {
+        matches!(
+            self,
+            StreamKind::Control | StreamKind::Raft | StreamKind::RaftSnapshot
+        )
+    }
 }
 
 impl TryFrom<u8> for StreamKind {
@@ -45,7 +66,9 @@ impl TryFrom<u8> for StreamKind {
             0 => Ok(StreamKind::Control),
             1 => Ok(StreamKind::Gossip),
             2 => Ok(StreamKind::User),
-            other => Err(TransportError::Io(format!("unknown stream kind: {other}"))),
+            3 => Ok(StreamKind::Raft),
+            4 => Ok(StreamKind::RaftSnapshot),
+            other => Err(TransportError::InvalidStreamKind(other)),
         }
     }
 }
@@ -401,7 +424,10 @@ async fn handle_incoming_stream(
         Ok((StreamKind::Control, WireMessage::Handshake(id))) => {
             connections.write().await.insert(id, connection);
         }
-        Ok((StreamKind::Gossip | StreamKind::User, WireMessage::Frame(env))) => {
+        Ok((
+            StreamKind::Gossip | StreamKind::User | StreamKind::Raft | StreamKind::RaftSnapshot,
+            WireMessage::Frame(env),
+        )) => {
             let _ = incoming_tx.send((env.from, env.frame)).await;
             metrics.received.fetch_add(1, Ordering::Relaxed);
         }
