@@ -24,9 +24,13 @@ use tracing::{info, warn};
 
 mod priority;
 mod reconnect;
+mod retransmit;
 
 use priority::Priority;
 use reconnect::{ReconnectCommand, start_seed_reconnector};
+pub use retransmit::{
+    BufferError, BufferStats, BufferedMessage, RetransmissionBuffer, RetransmitConfig,
+};
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
