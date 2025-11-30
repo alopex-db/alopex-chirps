@@ -12,6 +12,8 @@ use crate::{ExtendedTransportMetrics, StreamKind, TransportError};
 
 const MAX_ENVELOPE_SIZE: usize = 128 * 1024; // defensive cap
 
+/// NOTE: Temporary envelope for receive-side decoding. Task 10 will align this with
+/// chirps-wire FrameEnvelopeV2 (29-byte header incl. timestamp/payload_len).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FrameEnvelopeV2 {
     pub kind: u8,
@@ -54,7 +56,13 @@ impl ReceiveHandler {
         let env: FrameEnvelopeV2 =
             deserialize(&bytes).map_err(|e| TransportError::Io(e.to_string()))?;
 
-        let kind = StreamKind::try_from(env.kind)?;
+        let kind = match StreamKind::try_from(env.kind) {
+            Ok(k) => k,
+            Err(err) => {
+                warn!("invalid stream kind {} from peer {peer:?}: {err}", env.kind);
+                return Err(err);
+            }
+        };
 
         {
             let mut dedup = self.dedup_table.lock().await;

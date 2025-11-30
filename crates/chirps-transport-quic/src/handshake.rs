@@ -61,18 +61,10 @@ pub fn negotiate(
         });
     }
 
-    let priority_streams =
-        local.capabilities.priority_streams && remote.capabilities.priority_streams;
-    let retransmission = local.capabilities.retransmission && remote.capabilities.retransmission;
-    let qos = local.capabilities.qos && remote.capabilities.qos;
-
-    if !(priority_streams && retransmission && qos) {
-        return Err(HandshakeError::IncompatibleCapabilities);
-    }
-
     Ok(NegotiatedCapabilities {
-        priority_streams,
-        retransmission,
-        qos,
+        priority_streams: local.capabilities.priority_streams
+            && remote.capabilities.priority_streams,
+        retransmission: local.capabilities.retransmission && remote.capabilities.retransmission,
+        qos: local.capabilities.qos && remote.capabilities.qos,
     })
 }
