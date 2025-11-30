@@ -257,18 +257,29 @@ impl QosController {
     }
 
     pub async fn throttle_snapshot(&self, size: usize) -> Result<(), QosError> {
-        // Placeholder: will be fully implemented with retry/timeout in Task 6.
-        if let Err(wait) = self.snapshot_bucket.try_consume(size as u64) {
-            // Simulate throttle by sleeping once for the required wait duration.
-            if wait > self.config.bandwidth.throttle_timeout {
-                return Err(QosError::ThrottleTimeout);
+        let mut attempts = 0;
+        let mut waited = Duration::ZERO;
+        loop {
+            match self.snapshot_bucket.try_consume(size as u64) {
+                Ok(_) => {
+                    self.metrics
+                        .snapshot_throttle_wait_ms
+                        .fetch_add(waited.as_millis() as u64, Ordering::Relaxed);
+                    return Ok(());
+                }
+                Err(delay) => {
+                    attempts += 1;
+                    waited += delay;
+                    if waited > self.config.bandwidth.throttle_timeout || attempts >= 3 {
+                        self.metrics
+                            .snapshot_throttle_wait_ms
+                            .fetch_add(waited.as_millis() as u64, Ordering::Relaxed);
+                        return Err(QosError::ThrottleTimeout);
+                    }
+                    tokio::time::sleep(delay).await;
+                }
             }
-            tokio::time::sleep(wait).await;
-            self.snapshot_bucket
-                .try_consume(size as u64)
-                .map_err(|_| QosError::ThrottleTimeout)?;
         }
-        Ok(())
     }
 
     pub fn metrics(&self) -> &QosMetrics {
