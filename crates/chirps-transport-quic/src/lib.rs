@@ -63,7 +63,8 @@ impl StreamKind {
     pub(crate) fn priority(&self) -> Priority {
         match self {
             StreamKind::Control | StreamKind::Raft => Priority::High,
-            StreamKind::Gossip | StreamKind::RaftSnapshot | StreamKind::User => Priority::Normal,
+            StreamKind::Gossip | StreamKind::RaftSnapshot => Priority::Normal,
+            StreamKind::User => Priority::Low,
         }
     }
 

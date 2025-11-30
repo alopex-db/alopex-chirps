@@ -2,7 +2,6 @@ use chirps_wire::envelope::{FRAME_ENVELOPE_V2_HEADER_SIZE, FrameEnvelopeV2};
 use chirps_wire::frame::Frame;
 use chirps_wire::node_id::NodeId;
 use quinn::RecvStream;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use tracing::warn;

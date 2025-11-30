@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 use bincode::serialized_size;
 use chirps_wire::frame::Frame;
 
-use crate::{StreamKind, priority::Priority};
+use crate::{
+    StreamKind,
+    priority::{PriorityScheduler, ScheduledMessage, SchedulerConfig},
+};
 
 const SOFT_LIMIT_RATIO: f32 = 0.90;
 const HARD_LIMIT_RATIO: f32 = 1.00;
@@ -110,6 +113,7 @@ pub struct QosController {
     metrics: QosMetrics,
     config: QosConfig,
     snapshot_bucket: TokenBucket,
+    scheduler: PriorityScheduler<QueuedFrame>,
 }
 
 impl QosController {
@@ -127,10 +131,7 @@ impl QosController {
         ] {
             metrics.queue_utilization.insert(kind, AtomicU64::new(0));
             let (max_bytes, max_items) = queue_limits_for_kind(limits, kind);
-            queues.insert(
-                kind,
-                StreamQueue::new(max_bytes, max_items, kind.priority()),
-            );
+            queues.insert(kind, StreamQueue::new(max_bytes, max_items));
         }
 
         let bucket = TokenBucket::new(
@@ -143,18 +144,21 @@ impl QosController {
             metrics,
             config,
             snapshot_bucket: bucket,
+            scheduler: PriorityScheduler::new(SchedulerConfig::default()),
         }
     }
 
-    pub fn enqueue(&mut self, kind: StreamKind, frame: Frame) -> Result<(), QosError> {
+    pub async fn enqueue(&mut self, kind: StreamKind, frame: Frame) -> Result<(), QosError> {
+        let size = frame_size(&frame)?;
+
+        if kind == StreamKind::RaftSnapshot {
+            self.throttle_snapshot(size).await?;
+        }
+
         let queue = self
             .queues
             .get_mut(&kind)
             .ok_or(QosError::InvalidStreamKind)?;
-
-        let size = serialized_size(&frame)
-            .map(|s| s as usize)
-            .map_err(|e| QosError::Serialize(e.to_string()))?;
 
         let prospective_bytes = queue.current_bytes.saturating_add(size);
         let prospective_items = queue.current_items + 1;
@@ -194,7 +198,12 @@ impl QosController {
 
         queue.current_bytes = prospective_bytes;
         queue.current_items = prospective_items;
-        queue.items.push_back(frame);
+
+        let priority = kind.priority();
+        self.scheduler.enqueue(
+            ScheduledMessage::new(priority, size, QueuedFrame { kind, frame }),
+            priority,
+        );
 
         let util = utilization_ratio(queue.current_bytes, queue.current_items, queue);
         self.metrics
@@ -210,34 +219,22 @@ impl QosController {
     }
 
     pub fn dequeue(&mut self) -> Option<(StreamKind, Frame)> {
-        // Priority ordering: Raft/Control > RaftSnapshot/Gossip > User
-        let order = [
-            StreamKind::Raft,
-            StreamKind::Control,
-            StreamKind::RaftSnapshot,
-            StreamKind::Gossip,
-            StreamKind::User,
-        ];
-
-        for kind in order {
+        if let Some(next) = self.scheduler.dequeue() {
+            let kind = next.payload.kind;
             if let Some(queue) = self.queues.get_mut(&kind) {
-                if let Some(frame) = queue.items.pop_front() {
-                    queue.current_items = queue.current_items.saturating_sub(1);
-                    let size = serialized_size(&frame).unwrap_or(0) as usize;
-                    queue.current_bytes = queue.current_bytes.saturating_sub(size);
+                queue.current_items = queue.current_items.saturating_sub(1);
+                queue.current_bytes = queue.current_bytes.saturating_sub(next.size_bytes);
 
-                    let util = utilization_ratio(queue.current_bytes, queue.current_items, queue);
-                    self.metrics
-                        .queue_utilization
-                        .get(&kind)
-                        .map(|m| m.store((util * 100.0) as u64, Ordering::Relaxed));
-                    if util < RECOVERY_RATIO {
-                        queue.backpressured = false;
-                    }
-
-                    return Some((kind, frame));
+                let util = utilization_ratio(queue.current_bytes, queue.current_items, queue);
+                self.metrics
+                    .queue_utilization
+                    .get(&kind)
+                    .map(|m| m.store((util * 100.0) as u64, Ordering::Relaxed));
+                if util < RECOVERY_RATIO {
+                    queue.backpressured = false;
                 }
             }
+            return Some((kind, next.payload.frame));
         }
         None
     }
@@ -288,25 +285,21 @@ impl QosController {
 }
 
 struct StreamQueue {
-    items: VecDeque<Frame>,
     current_bytes: usize,
     current_items: usize,
     max_bytes: usize,
     max_items: usize,
     backpressured: bool,
-    priority: Priority,
 }
 
 impl StreamQueue {
-    fn new(max_bytes: usize, max_items: usize, priority: Priority) -> Self {
+    fn new(max_bytes: usize, max_items: usize) -> Self {
         StreamQueue {
-            items: VecDeque::new(),
             current_bytes: 0,
             current_items: 0,
             max_bytes,
             max_items,
             backpressured: false,
-            priority,
         }
     }
 }
@@ -325,6 +318,18 @@ fn utilization_ratio(bytes: usize, items: usize, queue: &StreamQueue) -> f32 {
     let byte_ratio = bytes as f32 / queue.max_bytes as f32;
     let item_ratio = items as f32 / queue.max_items as f32;
     byte_ratio.max(item_ratio)
+}
+
+#[derive(Clone)]
+struct QueuedFrame {
+    kind: StreamKind,
+    frame: Frame,
+}
+
+fn frame_size(frame: &Frame) -> Result<usize, QosError> {
+    serialized_size(frame)
+        .map(|s| s as usize)
+        .map_err(|e| QosError::Serialize(e.to_string()))
 }
 
 /// Simple token bucket used for snapshot throttling (expanded in Task 6).
