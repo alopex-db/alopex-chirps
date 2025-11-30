@@ -32,13 +32,14 @@ impl FrameEnvelopeV2 {
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(FRAME_ENVELOPE_V2_HEADER_SIZE + self.payload_len as usize);
+        let body = bincode::serialize(&self.frame).expect("failed to serialize frame");
+        let payload_len = body.len() as u32;
+        let mut buf = Vec::with_capacity(FRAME_ENVELOPE_V2_HEADER_SIZE + payload_len as usize);
         buf.push(self.kind);
         buf.extend_from_slice(&self.seq.to_be_bytes());
         buf.extend_from_slice(&self.ack_seq.to_be_bytes());
         buf.extend_from_slice(&self.timestamp.to_be_bytes());
-        buf.extend_from_slice(&self.payload_len.to_be_bytes());
-        let body = bincode::serialize(&self.frame).expect("failed to serialize frame");
+        buf.extend_from_slice(&payload_len.to_be_bytes());
         buf.extend_from_slice(&body);
         buf
     }
