@@ -22,11 +22,18 @@ use tokio::sync::{Mutex, RwLock, broadcast, mpsc, oneshot};
 use tokio::time;
 use tracing::{info, warn};
 
+mod handshake;
+mod metrics;
 mod priority;
 mod qos;
 mod reconnect;
 mod retransmit;
 
+pub use handshake::{
+    Capabilities, HandshakeError, HandshakeMessage, MIN_COMPATIBLE_VERSION, NegotiatedCapabilities,
+    PROTOCOL_VERSION,
+};
+pub use metrics::{ExtendedTransportMetrics, LatencySnapshot, MetricsSnapshot};
 use priority::Priority;
 pub use qos::{
     BandwidthConfig, QosConfig, QosController, QosError, QosMetrics, QueueLimits, TokenBucket,
