@@ -3,8 +3,8 @@ use bincode::{deserialize, serialize};
 use chirps_core::backend::MessageBackend;
 use chirps_core::config::NodeConfig;
 use chirps_core::error::TransportError;
-use chirps_wire::frame::Frame;
 use chirps_wire::node_id::NodeId;
+use chirps_wire::{envelope::FrameEnvelopeV2, frame::Frame};
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream, ServerConfig};
 use rcgen::generate_simple_self_signed;
 use rustls::{Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore};
@@ -142,6 +142,9 @@ pub struct QuicBackend {
     send_tx: mpsc::Sender<SendCommand>,
     send_timeout: Duration,
     metrics: Arc<TransportCounters>,
+    retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: Arc<ExtendedTransportMetrics>,
+    receive_handler: Arc<ReceiveHandler>,
 }
 
 impl QuicBackend {
@@ -155,12 +158,21 @@ impl QuicBackend {
         let (shutdown, _) = broadcast::channel(4);
         let connections = Arc::new(RwLock::new(HashMap::new()));
         let metrics = Arc::new(TransportCounters::default());
+        let metrics_ext = Arc::new(ExtendedTransportMetrics::new());
+        let retransmit_buffer = Arc::new(RwLock::new(RetransmissionBuffer::new(
+            RetransmitConfig::default(),
+        )));
+        let receive_handler = Arc::new(ReceiveHandler::new(
+            Arc::clone(&retransmit_buffer),
+            incoming_tx.clone(),
+            Arc::clone(&metrics_ext),
+        ));
         let reconnect_tx = start_seed_reconnector(
             config.seeds.clone(),
             endpoint.clone(),
             client_config.clone(),
             Arc::clone(&connections),
-            incoming_tx.clone(),
+            Arc::clone(&receive_handler),
             shutdown.clone(),
             node_id,
             Arc::clone(&metrics),
@@ -176,12 +188,18 @@ impl QuicBackend {
             send_tx,
             send_timeout: config.broadcast_timeout,
             metrics: Arc::clone(&metrics),
+            retransmit_buffer: Arc::clone(&retransmit_buffer),
+            metrics_ext: Arc::clone(&metrics_ext),
+            receive_handler: Arc::clone(&receive_handler),
         };
 
         backend.spawn_accept_loop();
         spawn_send_loop(
             Arc::clone(&backend.connections),
             Arc::clone(&metrics),
+            Arc::clone(&backend.retransmit_buffer),
+            Arc::clone(&backend.metrics_ext),
+            Arc::clone(&backend.receive_handler),
             send_rx,
             backend.shutdown.subscribe(),
             backend.node_id,
@@ -195,7 +213,7 @@ impl QuicBackend {
     fn spawn_accept_loop(&self) {
         let endpoint = self.endpoint.clone();
         let connections = Arc::clone(&self.connections);
-        let incoming_tx = self.incoming_tx.clone();
+        let receive_handler = Arc::clone(&self.receive_handler);
         let mut shutdown_rx = self.shutdown.subscribe();
         let local_id = self.node_id;
         let metrics = Arc::clone(&self.metrics);
@@ -210,11 +228,11 @@ impl QuicBackend {
                                 match connecting.await {
                                     Ok(connection) => {
                                         let connections = Arc::clone(&connections);
-                                        let incoming_tx = incoming_tx.clone();
+                                        let handler = Arc::clone(&receive_handler);
                                         let mut shutdown_rx = shutdown_rx.resubscribe();
                                         let metrics = Arc::clone(&metrics);
                                         tokio::spawn(async move {
-                                            if let Err(err) = handle_connection(connection, local_id, connections, incoming_tx, metrics, &mut shutdown_rx).await {
+                                            if let Err(err) = handle_connection(connection, local_id, connections, handler, metrics, &mut shutdown_rx).await {
                                                 warn!("connection handler failed: {err}");
                                             }
                                         });
@@ -312,7 +330,7 @@ async fn handle_connection(
     connection: Connection,
     local_id: NodeId,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
-    incoming_tx: mpsc::Sender<(NodeId, Frame)>,
+    receive_handler: Arc<ReceiveHandler>,
     metrics: Arc<TransportCounters>,
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) -> Result<(), TransportError> {
@@ -338,15 +356,16 @@ async fn handle_connection(
             }
             next = connection.accept_uni() => match next {
                 Ok(recv) => {
-                    let connections = Arc::clone(&connections);
-                    let incoming_tx = incoming_tx.clone();
-                    let connection = connection.clone();
+                    let handler = Arc::clone(&receive_handler);
                     let metrics = Arc::clone(&metrics);
                     tokio::spawn(async move {
-                        if let Err(err) = handle_incoming_stream(recv, connection, connections, incoming_tx, metrics)
-                        .await
-                        {
-                            warn!("failed to read stream: {err}");
+                        match handler.handle_stream(remote_id, recv).await {
+                            Ok(_) => {
+                                metrics.received.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(err) => {
+                                warn!("failed to read stream: {err}");
+                            }
                         }
                     });
                 }
@@ -404,6 +423,25 @@ async fn send_wire_message(
         .map_err(|e| TransportError::Send(e.to_string()))?;
     stream
         .write_u8(kind as u8)
+        .await
+        .map_err(|e| TransportError::Send(e.to_string()))?;
+    stream
+        .write_all(&bytes)
+        .await
+        .map_err(|e| TransportError::Send(e.to_string()))?;
+    stream
+        .finish()
+        .await
+        .map_err(|e| TransportError::Send(e.to_string()))
+}
+
+async fn send_envelope(
+    connection: &Connection,
+    envelope: FrameEnvelopeV2,
+) -> Result<(), TransportError> {
+    let bytes = envelope.encode();
+    let mut stream = connection
+        .open_uni()
         .await
         .map_err(|e| TransportError::Send(e.to_string()))?;
     stream
@@ -480,6 +518,9 @@ fn map_queue_error(err: mpsc::error::TrySendError<SendCommand>) -> TransportErro
 fn spawn_send_loop(
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     metrics: Arc<TransportCounters>,
+    retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: Arc<ExtendedTransportMetrics>,
+    receive_handler: Arc<ReceiveHandler>,
     mut rx: mpsc::Receiver<SendCommand>,
     mut shutdown_rx: broadcast::Receiver<()>,
     node_id: NodeId,
@@ -491,12 +532,12 @@ fn spawn_send_loop(
                 _ = shutdown_rx.recv() => break,
                 cmd = rx.recv() => match cmd {
                     Some(SendCommand::Unicast { target, frame, respond_to }) => {
-                        let send_res = send_with_retry(&connections, &metrics, node_id, target, frame, timeout).await;
+                        let send_res = send_with_retry(&connections, &metrics, &retransmit_buffer, &metrics_ext, &receive_handler, node_id, target, frame, timeout).await;
                         let _ = respond_to.send(send_res);
                     }
                     Some(SendCommand::Broadcast { frame, respond_to }) => {
                         let send_res =
-                            broadcast_with_retry(&connections, &metrics, node_id, frame, timeout).await;
+                            broadcast_with_retry(&connections, &metrics, &retransmit_buffer, &metrics_ext, &receive_handler, node_id, frame, timeout).await;
                         let _ = respond_to.send(send_res);
                     }
                     None => break,
@@ -509,6 +550,9 @@ fn spawn_send_loop(
 async fn send_with_retry(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
     metrics: &Arc<TransportCounters>,
+    retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: &Arc<ExtendedTransportMetrics>,
+    receive_handler: &Arc<ReceiveHandler>,
     node_id: NodeId,
     target: NodeId,
     frame: Frame,
@@ -519,7 +563,16 @@ async fn send_with_retry(
         let frame_clone = frame.clone();
         match time::timeout(
             timeout,
-            send_to_peer(connections, metrics, node_id, target, frame_clone),
+            send_to_peer(
+                connections,
+                metrics,
+                retransmit_buffer,
+                metrics_ext,
+                receive_handler,
+                node_id,
+                target,
+                frame_clone,
+            ),
         )
         .await
         {
@@ -546,6 +599,9 @@ async fn send_with_retry(
 async fn broadcast_with_retry(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
     metrics: &Arc<TransportCounters>,
+    retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: &Arc<ExtendedTransportMetrics>,
+    receive_handler: &Arc<ReceiveHandler>,
     node_id: NodeId,
     frame: Frame,
     timeout: Duration,
@@ -555,7 +611,15 @@ async fn broadcast_with_retry(
         let frame_clone = frame.clone();
         match time::timeout(
             timeout,
-            broadcast_to_peers(connections, metrics, node_id, frame_clone),
+            broadcast_to_peers(
+                connections,
+                metrics,
+                retransmit_buffer,
+                metrics_ext,
+                receive_handler,
+                node_id,
+                frame_clone,
+            ),
         )
         .await
         {
@@ -582,6 +646,9 @@ async fn broadcast_with_retry(
 async fn send_to_peer(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
     metrics: &Arc<TransportCounters>,
+    retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: &Arc<ExtendedTransportMetrics>,
+    receive_handler: &Arc<ReceiveHandler>,
     node_id: NodeId,
     target: NodeId,
     frame: Frame,
@@ -592,9 +659,28 @@ async fn send_to_peer(
             .cloned()
             .ok_or_else(|| TransportError::Connection(format!("peer {target:?} not connected")))?
     };
-    let res = send_frame(&conn, &node_id, frame).await;
-    if res.is_ok() {
+    let kind = stream_kind_for_frame(&frame);
+    let seq = {
+        let mut buf = retransmit_buffer.write().await;
+        match buf.buffer(target, frame.clone()) {
+            Ok(seq) => seq,
+            Err(e) => {
+                return Err(TransportError::Send(format!(
+                    "retransmit buffer error: {e:?}"
+                )));
+            }
+        }
+    };
+    let ack_seq = receive_handler.get_ack_seq_for_peer(target).await;
+    let payload_len = bincode::serialized_size(&frame).unwrap_or(0) as u32;
+    let envelope =
+        chirps_wire::envelope::FrameEnvelopeV2::new(kind as u8, seq, ack_seq, payload_len, frame);
+    let start = tokio::time::Instant::now();
+    let res = send_envelope(&conn, envelope).await;
+    if let Ok(()) = res {
+        let elapsed = start.elapsed();
         metrics.sent.fetch_add(1, Ordering::Relaxed);
+        metrics_ext.record_send(kind, Some(elapsed.as_micros() as u64));
     }
     res
 }
@@ -602,20 +688,33 @@ async fn send_to_peer(
 async fn broadcast_to_peers(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
     metrics: &Arc<TransportCounters>,
+    retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: &Arc<ExtendedTransportMetrics>,
+    receive_handler: &Arc<ReceiveHandler>,
     node_id: NodeId,
     frame: Frame,
 ) -> Result<usize, TransportError> {
-    let peers: Vec<Connection> = {
+    let peers: Vec<(NodeId, Connection)> = {
         let map = connections.read().await;
-        map.values().cloned().collect()
+        map.iter().map(|(id, conn)| (*id, conn.clone())).collect()
     };
     let mut sent = 0;
-    for conn in peers {
-        if let Err(err) = send_frame(&conn, &node_id, frame.clone()).await {
+    for (peer_id, _conn) in peers {
+        if let Err(err) = send_to_peer(
+            connections,
+            metrics,
+            retransmit_buffer,
+            metrics_ext,
+            receive_handler,
+            node_id,
+            peer_id,
+            frame.clone(),
+        )
+        .await
+        {
             warn!("broadcast send failed: {err}");
         } else {
             sent += 1;
-            metrics.sent.fetch_add(1, Ordering::Relaxed);
         }
     }
     Ok(sent)
