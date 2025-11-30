@@ -13,6 +13,48 @@ pub struct BufferStats {
     pub unacked_count: usize,
 }
 
+/// Track last-seen sequence numbers per peer to perform receive-side deduplication.
+#[derive(Default)]
+pub struct DeduplicationTable {
+    last_seen: std::collections::HashMap<NodeId, u64>,
+    window_size: usize,
+}
+
+impl DeduplicationTable {
+    pub fn new() -> Self {
+        DeduplicationTable {
+            last_seen: std::collections::HashMap::new(),
+            window_size: 1000,
+        }
+    }
+
+    pub fn with_window(window_size: usize) -> Self {
+        DeduplicationTable {
+            last_seen: std::collections::HashMap::new(),
+            window_size,
+        }
+    }
+
+    /// Returns true if this seq is new and updates the last-seen value; false if duplicate/old.
+    pub fn check_and_update(&mut self, peer: NodeId, seq: u64) -> bool {
+        let entry = self.last_seen.entry(peer).or_insert(0);
+        if seq <= *entry {
+            false
+        } else {
+            *entry = seq;
+            true
+        }
+    }
+
+    pub fn last_seen_seq(&self, peer: NodeId) -> u64 {
+        self.last_seen.get(&peer).copied().unwrap_or(0)
+    }
+
+    pub fn remove_peer(&mut self, peer: NodeId) {
+        self.last_seen.remove(&peer);
+    }
+}
+
 #[derive(Debug)]
 pub enum BufferError {
     Serialize(String),

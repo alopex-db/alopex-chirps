@@ -23,10 +23,14 @@ use tokio::time;
 use tracing::{info, warn};
 
 mod priority;
+mod qos;
 mod reconnect;
 mod retransmit;
 
 use priority::Priority;
+pub use qos::{
+    BandwidthConfig, QosConfig, QosController, QosError, QosMetrics, QueueLimits, TokenBucket,
+};
 use reconnect::{ReconnectCommand, start_seed_reconnector};
 pub use retransmit::{
     BufferError, BufferStats, BufferedMessage, RetransmissionBuffer, RetransmitConfig,
