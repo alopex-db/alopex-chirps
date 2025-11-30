@@ -1,4 +1,4 @@
-use bincode::deserialize;
+use chirps_wire::envelope::{FRAME_ENVELOPE_V2_HEADER_SIZE, FrameEnvelopeV2};
 use chirps_wire::frame::Frame;
 use chirps_wire::node_id::NodeId;
 use quinn::RecvStream;
@@ -10,17 +10,7 @@ use tracing::warn;
 use crate::retransmit::{DeduplicationTable, RetransmissionBuffer};
 use crate::{ExtendedTransportMetrics, StreamKind, TransportError};
 
-const MAX_ENVELOPE_SIZE: usize = 128 * 1024; // defensive cap
-
-/// NOTE: Temporary envelope for receive-side decoding. Task 10 will align this with
-/// chirps-wire FrameEnvelopeV2 (29-byte header incl. timestamp/payload_len).
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct FrameEnvelopeV2 {
-    pub kind: u8,
-    pub seq: u64,
-    pub ack_seq: u64,
-    pub frame: Frame,
-}
+const MAX_ENVELOPE_SIZE: usize = 256 * 1024; // defensive cap
 
 pub struct ReceiveHandler {
     dedup_table: tokio::sync::Mutex<DeduplicationTable>,
@@ -53,8 +43,11 @@ impl ReceiveHandler {
             .await
             .map_err(|e| TransportError::Io(e.to_string()))?;
 
-        let env: FrameEnvelopeV2 =
-            deserialize(&bytes).map_err(|e| TransportError::Io(e.to_string()))?;
+        if bytes.len() < FRAME_ENVELOPE_V2_HEADER_SIZE {
+            return Err(TransportError::Io("empty stream".into()));
+        }
+
+        let env = FrameEnvelopeV2::decode(&bytes).map_err(|e| TransportError::Io(e))?;
 
         let kind = match StreamKind::try_from(env.kind) {
             Ok(k) => k,

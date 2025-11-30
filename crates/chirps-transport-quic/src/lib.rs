@@ -39,7 +39,7 @@ use priority::Priority;
 pub use qos::{
     BandwidthConfig, QosConfig, QosController, QosError, QosMetrics, QueueLimits, TokenBucket,
 };
-pub use receive::{FrameEnvelopeV2, ReceiveHandler};
+pub use receive::ReceiveHandler;
 use reconnect::{ReconnectCommand, start_seed_reconnector};
 pub use retransmit::{
     BufferError, BufferStats, BufferedMessage, RetransmissionBuffer, RetransmitConfig,
