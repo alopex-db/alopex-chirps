@@ -1,3 +1,4 @@
+use bincode::serialized_size;
 use chirps_wire::node_id::NodeId;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rand::{Rng, thread_rng};
@@ -11,7 +12,10 @@ use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
 use tokio::time::{interval, sleep};
 use tracing::{info, warn};
 
-use super::{DEFAULT_SERVER_NAME, ReceiveHandler, TransportCounters, handle_connection};
+use super::{
+    DEFAULT_SERVER_NAME, ExtendedTransportMetrics, NegotiatedCapabilities, ReceiveHandler,
+    RetransmissionBuffer, TransportCounters, handle_connection,
+};
 
 #[derive(Debug)]
 pub enum ReconnectCommand {
@@ -24,6 +28,9 @@ pub fn start_seed_reconnector(
     client_config: Arc<RustlsClientConfig>,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     receive_handler: Arc<ReceiveHandler>,
+    peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: Arc<ExtendedTransportMetrics>,
     shutdown: broadcast::Sender<()>,
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
@@ -40,6 +47,9 @@ pub fn start_seed_reconnector(
         let client_config = Arc::clone(&client_config);
         let connections = Arc::clone(&connections);
         let handler = Arc::clone(&receive_handler);
+        let peer_capabilities = Arc::clone(&peer_capabilities);
+        let retransmit_buffer = Arc::clone(&retransmit_buffer);
+        let metrics_ext = Arc::clone(&metrics_ext);
         let shutdown = shutdown.clone();
         let metrics = Arc::clone(&metrics);
         async move {
@@ -54,6 +64,9 @@ pub fn start_seed_reconnector(
                             Arc::clone(&client_config),
                             Arc::clone(&connections),
                             Arc::clone(&handler),
+                            Arc::clone(&peer_capabilities),
+                            Arc::clone(&retransmit_buffer),
+                            Arc::clone(&metrics_ext),
                             shutdown.clone(),
                             local_id,
                             Arc::clone(&metrics),
@@ -67,6 +80,9 @@ pub fn start_seed_reconnector(
                             Arc::clone(&client_config),
                             Arc::clone(&connections),
                             Arc::clone(&handler),
+                            Arc::clone(&peer_capabilities),
+                            Arc::clone(&retransmit_buffer),
+                            Arc::clone(&metrics_ext),
                             shutdown.clone(),
                             local_id,
                             Arc::clone(&metrics),
@@ -88,6 +104,9 @@ async fn launch_attempts(
     client_config: Arc<RustlsClientConfig>,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     receive_handler: Arc<ReceiveHandler>,
+    peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: Arc<ExtendedTransportMetrics>,
     shutdown: broadcast::Sender<()>,
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
@@ -110,6 +129,9 @@ async fn launch_attempts(
             Arc::clone(&client_config),
             Arc::clone(&connections),
             Arc::clone(&receive_handler),
+            Arc::clone(&peer_capabilities),
+            Arc::clone(&retransmit_buffer),
+            Arc::clone(&metrics_ext),
             shutdown.clone(),
             local_id,
             Arc::clone(&metrics),
@@ -124,6 +146,9 @@ async fn reconnect_seed(
     client_config: Arc<RustlsClientConfig>,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     receive_handler: Arc<ReceiveHandler>,
+    peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
+    metrics_ext: Arc<ExtendedTransportMetrics>,
     shutdown: broadcast::Sender<()>,
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
@@ -153,13 +178,19 @@ async fn reconnect_seed(
                     info!("connected to seed {seed}");
                     let connections = Arc::clone(&connections);
                     let handler = Arc::clone(&receive_handler);
+                    let peer_capabilities = Arc::clone(&peer_capabilities);
+                    let retransmit_buffer = Arc::clone(&retransmit_buffer);
+                    let metrics_ext = Arc::clone(&metrics_ext);
                     let mut handler_shutdown = shutdown.subscribe();
                     let metrics = Arc::clone(&metrics);
                     if let Err(err) = handle_connection(
                         connection,
                         local_id,
                         connections,
+                        peer_capabilities,
                         handler,
+                        retransmit_buffer,
+                        metrics_ext,
                         metrics,
                         &mut handler_shutdown,
                     )
