@@ -1,5 +1,6 @@
 use chirps_wire::node_id::NodeId;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 pub const PROTOCOL_VERSION: u16 = 0x0004;
 pub const MIN_COMPATIBLE_VERSION: u16 = 0x0004;
@@ -55,6 +56,12 @@ pub fn negotiate(
 ) -> Result<NegotiatedCapabilities, HandshakeError> {
     if !local.is_compatible() || !remote.is_compatible() || remote.version < MIN_COMPATIBLE_VERSION
     {
+        warn!(
+            event = "version_mismatch",
+            remote_version = remote.version,
+            local_version = local.version,
+            "version_mismatch"
+        );
         return Err(HandshakeError::VersionMismatch {
             local: local.version,
             remote: remote.version,
@@ -67,4 +74,54 @@ pub fn negotiate(
         retransmission: local.capabilities.retransmission && remote.capabilities.retransmission,
         qos: local.capabilities.qos && remote.capabilities.qos,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tracing_test::traced_test;
+
+    #[traced_test]
+    #[test]
+    fn rejects_v0_3_with_version_mismatch_log() {
+        let local = HandshakeMessage::new(NodeId::new());
+        let mut remote = HandshakeMessage::new(NodeId::new());
+        remote.version = 0x0003;
+
+        let res = negotiate(&local, &remote);
+        match res {
+            Err(HandshakeError::VersionMismatch { local, remote }) => {
+                assert_eq!(local, PROTOCOL_VERSION);
+                assert_eq!(remote, 0x0003);
+            }
+            other => panic!("expected version mismatch, got {other:?}"),
+        }
+        assert!(logs_contain("version_mismatch"));
+        assert!(logs_contain("remote_version=3"));
+    }
+
+    #[test]
+    fn is_compatible_boundary() {
+        let mut msg = HandshakeMessage::new(NodeId::new());
+        msg.version = MIN_COMPATIBLE_VERSION;
+        assert!(msg.is_compatible());
+        msg.version = MIN_COMPATIBLE_VERSION - 1;
+        assert!(!msg.is_compatible());
+    }
+
+    #[traced_test]
+    #[test]
+    fn negotiates_capabilities_by_intersection() {
+        let mut local = HandshakeMessage::new(NodeId::new());
+        let mut remote = HandshakeMessage::new(NodeId::new());
+        remote.capabilities.priority_streams = false;
+        remote.capabilities.retransmission = true;
+        remote.capabilities.qos = true;
+
+        let negotiated = negotiate(&local, &remote).expect("compatible");
+        assert_eq!(negotiated.priority_streams, false);
+        assert_eq!(negotiated.retransmission, true);
+        assert_eq!(negotiated.qos, true);
+        assert!(!logs_contain("version_mismatch"));
+    }
 }
