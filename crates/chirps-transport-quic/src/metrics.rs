@@ -3,6 +3,7 @@ use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{StreamKind, telemetry::ensure_metrics_recorder};
+use tracing::debug;
 
 const MAX_SAMPLES: usize = 1000;
 
@@ -188,6 +189,7 @@ impl ExtendedTransportMetrics {
                 hist.add_sample(latency);
             }
         }
+        debug!(event = "record_send", kind = ?kind, latency_us = latency_us.unwrap_or(0), "record_send");
     }
 
     pub fn record_receive(&self, kind: StreamKind, latency_us: Option<u64>) {
@@ -218,6 +220,7 @@ impl ExtendedTransportMetrics {
                 hist.add_sample(latency);
             }
         }
+        debug!(event = "record_receive", kind = ?kind, latency_us = latency_us.unwrap_or(0), "record_receive");
     }
     pub fn record_retransmit(&self, count: u64, buffer_bytes: Option<u64>) {
         self.retransmission_total
@@ -228,12 +231,14 @@ impl ExtendedTransportMetrics {
             self.retransmission_buffer_bytes
                 .store(bytes, Ordering::Relaxed);
         }
+        debug!(event = "record_retransmit", count, buffer_bytes = buffer_bytes.unwrap_or(0), "record_retransmit");
     }
 
     pub fn record_drop(&self) {
         self.message_dropped_total.fetch_add(1, Ordering::Relaxed);
         ensure_metrics_recorder();
         metrics::counter!("chirps_message_dropped_total").increment(1);
+        debug!(event = "record_drop", "record_drop");
     }
 
     pub fn record_backpressure(&self) {
@@ -241,12 +246,14 @@ impl ExtendedTransportMetrics {
             .fetch_add(1, Ordering::Relaxed);
         ensure_metrics_recorder();
         metrics::counter!("chirps_backpressure_triggered_total").increment(1);
+        debug!(event = "record_backpressure", "record_backpressure");
     }
 
     pub fn record_queue_overflow(&self) {
         self.queue_overflow_total.fetch_add(1, Ordering::Relaxed);
         ensure_metrics_recorder();
         metrics::counter!("chirps_queue_overflow_total").increment(1);
+        debug!(event = "record_queue_overflow", "record_queue_overflow");
     }
 
     pub fn record_duplicate(&self) {
@@ -254,6 +261,7 @@ impl ExtendedTransportMetrics {
             .fetch_add(1, Ordering::Relaxed);
         ensure_metrics_recorder();
         metrics::counter!("chirps_duplicate_received_total").increment(1);
+        debug!(event = "record_duplicate", "record_duplicate");
     }
 
     pub fn update_queue_utilization(&self, kind: StreamKind, percent: u64) {
@@ -267,6 +275,7 @@ impl ExtendedTransportMetrics {
             .fetch_add(millis, Ordering::Relaxed);
         ensure_metrics_recorder();
         metrics::counter!("chirps_snapshot_throttle_wait_ms").increment(millis);
+        debug!(event = "add_throttle_wait", millis, "add_throttle_wait");
     }
 
     pub fn snapshot(&self) -> MetricsSnapshot {
@@ -292,5 +301,124 @@ impl ExtendedTransportMetrics {
         snap.duplicate_received_total = self.duplicate_received_total.load(Ordering::Relaxed);
         snap.snapshot_throttle_wait_ms = self.snapshot_throttle_wait_ms.load(Ordering::Relaxed);
         snap
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+    use tracing_test::traced_test;
+
+    #[test]
+    fn latency_percentiles_compute_expected_values() {
+        let hist = LatencyHistogram::default();
+        let samples = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+        for s in &samples {
+            hist.add_sample(*s);
+        }
+        let snap = hist.snapshot();
+        assert_eq!(snap.count, samples.len());
+        // With floor indexing: idx=5 => 60 for p50; p95/p99 resolve to max.
+        assert_eq!(snap.p50, 60);
+        assert_eq!(snap.p95, 100);
+        assert_eq!(snap.p99, 100);
+    }
+
+    #[test]
+    fn latency_ring_buffer_eviction() {
+        let hist = LatencyHistogram::default();
+        for i in 0..(MAX_SAMPLES as u64 + 10) {
+            hist.add_sample(i);
+        }
+        let snap = hist.snapshot();
+        assert_eq!(snap.count, MAX_SAMPLES);
+    }
+
+    #[traced_test]
+    #[test]
+    fn counters_increment_and_logs_emit() {
+        let metrics = ExtendedTransportMetrics::new();
+        metrics.record_send(StreamKind::Raft, Some(100));
+        metrics.record_receive(StreamKind::RaftSnapshot, Some(200));
+        metrics.record_retransmit(2, Some(1024));
+        metrics.record_drop();
+        metrics.record_backpressure();
+        metrics.record_queue_overflow();
+        metrics.record_duplicate();
+        metrics.update_queue_utilization(StreamKind::User, 77);
+        metrics.add_throttle_wait(55);
+
+        let snap = metrics.snapshot();
+        assert_eq!(*snap.stream_sent.get(&StreamKind::Raft).unwrap(), 1);
+        assert_eq!(
+            *snap.stream_received.get(&StreamKind::RaftSnapshot).unwrap(),
+            1
+        );
+        assert_eq!(snap.retransmission_total, 2);
+        assert_eq!(snap.retransmission_buffer_bytes, 1024);
+        assert_eq!(snap.message_dropped_total, 1);
+        assert_eq!(snap.backpressure_triggered_total, 1);
+        assert_eq!(snap.queue_overflow_total, 1);
+        assert_eq!(snap.duplicate_received_total, 1);
+        assert_eq!(
+            *snap.queue_utilization.get(&StreamKind::User).unwrap(),
+            77
+        );
+        assert_eq!(snap.snapshot_throttle_wait_ms, 55);
+        assert!(logs_contain("record_send"));
+        assert!(logs_contain("record_receive"));
+        assert!(logs_contain("record_retransmit"));
+    }
+
+    #[test]
+    fn snapshot_returns_consistent_state() {
+        let metrics = ExtendedTransportMetrics::new();
+        metrics.record_send(StreamKind::Control, None);
+        metrics.record_receive(StreamKind::Control, None);
+        let snap1 = metrics.snapshot();
+        let snap2 = metrics.snapshot();
+        assert_eq!(snap1.stream_sent, snap2.stream_sent);
+        assert_eq!(snap1.stream_received, snap2.stream_received);
+    }
+
+    #[test]
+    fn concurrent_updates_are_safe() {
+        let metrics = Arc::new(ExtendedTransportMetrics::new());
+        let mut threads = Vec::new();
+        for _ in 0..4 {
+            let m = metrics.clone();
+            threads.push(thread::spawn(move || {
+                for _ in 0..10_000 {
+                    m.record_send(StreamKind::User, None);
+                    m.record_receive(StreamKind::User, None);
+                }
+            }));
+        }
+        for t in threads {
+            t.join().unwrap();
+        }
+        let snap = metrics.snapshot();
+        assert_eq!(*snap.stream_sent.get(&StreamKind::User).unwrap(), 40_000);
+        assert_eq!(
+            *snap.stream_received.get(&StreamKind::User).unwrap(),
+            40_000
+        );
+    }
+
+    #[test]
+    fn histogram_handles_empty_and_single_sample() {
+        let hist = LatencyHistogram::default();
+        let empty = hist.snapshot();
+        assert_eq!(empty.count, 0);
+        assert_eq!(empty.p50, 0);
+
+        hist.add_sample(123);
+        let single = hist.snapshot();
+        assert_eq!(single.count, 1);
+        assert_eq!(single.p50, 123);
+        assert_eq!(single.p95, 123);
+        assert_eq!(single.p99, 123);
     }
 }
