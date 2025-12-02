@@ -104,12 +104,24 @@ impl MeshHandle {
     pub fn metrics(&self) -> MeshMetricsSnapshot {
         self.inner.metrics_snapshot()
     }
+
+    /// ノードのインカーネーション番号（永続化されたNodeIdに対応）を返す。
+    pub fn incarnation(&self) -> u64 {
+        self.inner.incarnation
+    }
+
+    /// Mesh 起動時に使用した設定を共有参照で返す。
+    pub fn config(&self) -> Arc<NodeConfig> {
+        Arc::clone(&self.inner.config)
+    }
 }
 
 /// QUICトランスポートとSWIMゴシップを束ねるメッシュ本体。
 pub struct Mesh {
     pub(crate) node_id: NodeId,
+    #[allow(dead_code)]
     pub(crate) incarnation: u64,
+    #[allow(dead_code)]
     pub(crate) config: Arc<NodeConfig>,
     pub(crate) backend: Arc<dyn MessageBackend>,
     gossip: Arc<Mutex<GossipEngine>>,

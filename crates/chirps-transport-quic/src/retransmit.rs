@@ -78,7 +78,6 @@ pub struct BufferedMessage {
     pub timestamp: Instant,
 }
 
-#[derive(Default)]
 struct PeerBuffer {
     messages: VecDeque<BufferedMessage>,
     total_bytes: usize,
@@ -87,7 +86,6 @@ struct PeerBuffer {
 }
 
 impl PeerBuffer {
-    #[allow(dead_code)]
     fn new() -> Self {
         PeerBuffer {
             messages: VecDeque::new(),
@@ -95,6 +93,12 @@ impl PeerBuffer {
             next_seq: 1,
             acked_seq: 0,
         }
+    }
+}
+
+impl Default for PeerBuffer {
+    fn default() -> Self {
+        PeerBuffer::new()
     }
 }
 

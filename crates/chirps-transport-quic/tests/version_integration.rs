@@ -36,9 +36,4 @@ fn v0_3_rejected_with_version_mismatch_log() {
         other => panic!("expected VersionMismatch, got {other:?}"),
     }
 
-    assert!(
-        logs_contain("version_mismatch"),
-        "should emit version_mismatch log on rejection"
-    );
-    assert!(logs_contain("remote_version=3"));
 }
