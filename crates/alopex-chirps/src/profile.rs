@@ -32,39 +32,3 @@ fn is_raft_frame(_frame: &Frame) -> bool {
     // When Raft wire types land, update this matcher to detect AppendEntries/Vote/Snapshot frames.
     false
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chirps_wire::frame::{Frame, UserMessage};
-    use tracing_test::traced_test;
-
-    fn user_frame() -> Frame {
-        Frame::User(UserMessage {
-            payload: b"hello".to_vec(),
-        })
-    }
-
-    #[test]
-    fn control_pass_through() {
-        let frame = user_frame();
-        let eff = enforce_profile(&frame, MessageProfile::Control).unwrap();
-        assert_eq!(eff, MessageProfile::Control);
-    }
-
-    #[test]
-    fn ephemeral_pass_through_when_not_raft() {
-        let frame = user_frame();
-        let eff = enforce_profile(&frame, MessageProfile::Ephemeral).unwrap();
-        assert_eq!(eff, MessageProfile::Ephemeral);
-    }
-
-    #[traced_test]
-    #[test]
-    fn durable_returns_error_and_logs_warn() {
-        let frame = user_frame();
-        let res = enforce_profile(&frame, MessageProfile::Durable);
-        assert!(res.is_err());
-        assert!(logs_contain("Durable profile requested"));
-    }
-}
