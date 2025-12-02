@@ -1,3 +1,14 @@
+//! QUIC transport for Chirps v0.4 with priority scheduling, retransmission, QoS, and versioned handshakes.
+//!
+//! Key concepts:
+//! - [`StreamKind`] models control, gossip, user, Raft, and snapshot streams with per-kind priority.
+//! - [`QosController`] applies backpressure and bandwidth throttling (e.g., snapshot token bucket).
+//! - [`RetransmissionBuffer`] retains in-flight frames for reconnect replay with sequence/ack handling.
+//! - [`ExtendedTransportMetrics`] exposes counters and latency histograms.
+//! - [`HandshakeMessage`] enforces protocol versions (v0.4) and negotiates capabilities.
+//!
+//! Use [`QuicBackend`] via the `MessageBackend` trait to send/broadcast frames and subscribe to incoming messages.
+
 use async_trait::async_trait;
 use bincode::{deserialize, serialize, serialized_size};
 use chirps_core::backend::MessageBackend;
@@ -57,11 +68,17 @@ const SEND_RETRY_ATTEMPTS: usize = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
+/// Transport stream categories with priority and reliability semantics.
 pub enum StreamKind {
+    /// Control plane traffic (highest priority, reliable).
     Control = 0,
+    /// Gossip traffic for membership.
     Gossip = 1,
+    /// User application traffic (lowest priority).
     User = 2,
+    /// Raft consensus traffic (high priority, reliable).
     Raft = 3,
+    /// Raft snapshot/install traffic (normal priority, throttled).
     RaftSnapshot = 4,
 }
 
@@ -137,6 +154,7 @@ enum SendCommand {
     },
 }
 
+/// QUIC transport backend implementing the `MessageBackend` trait with QoS, retransmission, and versioned handshakes.
 pub struct QuicBackend {
     node_id: NodeId,
     endpoint: Endpoint,
@@ -156,10 +174,12 @@ pub struct QuicBackend {
 }
 
 impl QuicBackend {
+    /// Create a backend using default transport config (v0.4) and provided node config.
     pub async fn new(node_id: NodeId, config: Arc<NodeConfig>) -> anyhow::Result<Self> {
         Self::new_with_config(node_id, config, TransportConfigV04::default()).await
     }
 
+    /// Create a backend with explicit transport configuration (priority, retransmit, QoS, handshake settings).
     pub async fn new_with_config(
         node_id: NodeId,
         config: Arc<NodeConfig>,

@@ -30,7 +30,7 @@ impl Default for TransportConfigV04 {
     }
 }
 
-/// 優先度制御の基本パラメータ。
+/// 優先度制御の基本パラメータ。weights は [High, Normal, Low] の順でデフォルト [4,2,1]。
 #[derive(Clone, Debug)]
 pub struct PriorityConfig {
     pub enabled: bool,
@@ -46,7 +46,7 @@ impl Default for PriorityConfig {
     }
 }
 
-/// 再送バッファの容量制御設定。
+/// 再送バッファの容量制御設定。デフォルトは 32MB / 10,000 件 / TTL 60 秒。
 #[derive(Debug, Clone)]
 pub struct RetransmitConfig {
     pub max_buffer_bytes: usize,
@@ -64,7 +64,7 @@ impl Default for RetransmitConfig {
     }
 }
 
-/// QoS とバックプレッシャーの設定。
+/// QoS とバックプレッシャーの設定。bandwidth と queue_limits を内包する。
 #[derive(Clone, Debug)]
 pub struct QosConfig {
     pub enabled: bool,
@@ -82,7 +82,7 @@ impl Default for QosConfig {
     }
 }
 
-/// ストリーム種別ごとのキュー上限。
+/// ストリーム種別ごとのキュー上限。Raft/Control/Snapshot は raft_* を共有。
 #[derive(Clone, Debug)]
 pub struct QueueLimits {
     pub raft_max_bytes: usize,
@@ -106,7 +106,7 @@ impl Default for QueueLimits {
     }
 }
 
-/// 帯域・スロットルの設定。
+/// 帯域・スロットルの設定。snapshot_bandwidth_limit は RaftSnapshot に適用する帯域上限 (デフォルト 50MB/s)。
 #[derive(Clone, Debug)]
 pub struct BandwidthConfig {
     pub raft_ratio: f32,

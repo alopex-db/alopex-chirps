@@ -3,6 +3,7 @@ use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{StreamKind, telemetry::ensure_metrics_recorder};
+/// Transport metrics with per-stream counters, queue utilization, and latency histograms.
 use tracing::debug;
 
 const MAX_SAMPLES: usize = 1000;
@@ -96,6 +97,7 @@ impl LatencyHistogram {
 }
 
 #[derive(Debug, Default, Clone)]
+/// Read-only snapshot of transport counters and latency histograms.
 pub struct MetricsSnapshot {
     pub stream_sent: HashMap<StreamKind, u64>,
     pub stream_received: HashMap<StreamKind, u64>,
@@ -110,6 +112,7 @@ pub struct MetricsSnapshot {
     pub latency: HashMap<StreamKind, LatencySnapshot>,
 }
 
+/// Live metrics registry with atomic counters and per-stream latency histograms.
 pub struct ExtendedTransportMetrics {
     pub stream_sent: HashMap<StreamKind, AtomicU64>,
     pub stream_received: HashMap<StreamKind, AtomicU64>,

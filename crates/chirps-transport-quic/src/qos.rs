@@ -48,6 +48,7 @@ pub enum QosError {
     Serialize(String),
 }
 
+/// Per-stream QoS manager that applies backpressure, snapshot throttling, and priority scheduling.
 pub struct QosController {
     queues: HashMap<StreamKind, StreamQueue>,
     metrics: QosMetrics,
