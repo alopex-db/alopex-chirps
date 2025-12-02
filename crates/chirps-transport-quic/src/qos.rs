@@ -12,6 +12,7 @@ use crate::{
     events::{TransportEvent, emit_event},
     priority::{PriorityScheduler, ScheduledMessage, SchedulerConfig},
 };
+use tracing::debug;
 
 const SOFT_LIMIT_RATIO: f32 = 0.90;
 const HARD_LIMIT_RATIO: f32 = 1.00;
@@ -120,6 +121,16 @@ impl QosController {
                     queue_limit: queue.max_items,
                 });
             }
+            debug!(
+                event = "backpressure",
+                stream_kind = ?kind,
+                utilization = util,
+                queue_size = prospective_items,
+                limit_items = queue.max_items,
+                limit_bytes = queue.max_bytes,
+                hard = true,
+                "backpressure_triggered"
+            );
             return Err(QosError::QueueFull {
                 kind,
                 size: prospective_items,
@@ -143,6 +154,16 @@ impl QosController {
                     queue_limit: queue.max_items,
                 });
             }
+            debug!(
+                event = "backpressure",
+                stream_kind = ?kind,
+                utilization = util,
+                queue_size = prospective_items,
+                limit_items = queue.max_items,
+                limit_bytes = queue.max_bytes,
+                hard = false,
+                "backpressure_triggered"
+            );
             return Err(QosError::QueueFull {
                 kind,
                 size: prospective_items,
@@ -216,6 +237,13 @@ impl QosController {
                     self.metrics
                         .snapshot_throttle_wait_ms
                         .fetch_add(waited.as_millis() as u64, Ordering::Relaxed);
+                    debug!(
+                        event = "snapshot_throttle",
+                        size_bytes = size,
+                        waited_ms = waited.as_millis(),
+                        attempts,
+                        "throttle_snapshot_ok"
+                    );
                     return Ok(());
                 }
                 Err(delay) => {
@@ -225,8 +253,22 @@ impl QosController {
                         self.metrics
                             .snapshot_throttle_wait_ms
                             .fetch_add(waited.as_millis() as u64, Ordering::Relaxed);
+                        debug!(
+                            event = "snapshot_throttle",
+                            size_bytes = size,
+                            waited_ms = waited.as_millis(),
+                            attempts,
+                            "throttle_snapshot_timeout"
+                        );
                         return Err(QosError::ThrottleTimeout);
                     }
+                    debug!(
+                        event = "snapshot_throttle",
+                        size_bytes = size,
+                        wait_ms = delay.as_millis(),
+                        attempts,
+                        "throttle_wait"
+                    );
                     tokio::time::sleep(delay).await;
                 }
             }
@@ -342,5 +384,124 @@ impl TokenBucket {
             self.tokens.store(new, Ordering::Relaxed);
             *guard = now;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chirps_wire::frame::{Frame, UserMessage};
+    use crate::BandwidthConfig;
+    use tracing_test::traced_test;
+
+    fn user_frame(len: usize) -> Frame {
+        Frame::User(UserMessage {
+            payload: vec![0u8; len],
+        })
+    }
+
+    fn user_limits(bytes: usize, items: usize) -> QueueLimits {
+        QueueLimits {
+            raft_max_bytes: 1_000_000,
+            raft_max_items: 1000,
+            user_max_bytes: bytes,
+            user_max_items: items,
+            gossip_max_bytes: 1_000_000,
+            gossip_max_items: 1000,
+        }
+    }
+
+    fn qos_with_limits(bytes: usize, items: usize, bandwidth: BandwidthConfig) -> QosController {
+        let mut cfg = QosConfig::default();
+        cfg.queue_limits = user_limits(bytes, items);
+        cfg.bandwidth = bandwidth;
+        QosController::new(cfg)
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn soft_backpressure_triggers_metrics_and_logs() {
+        let frame = user_frame(32);
+        let size = serialized_size(&frame).unwrap() as usize;
+        let max_bytes = ((size as f32) * 1.05) as usize; // ~95% utilization on first enqueue
+        let mut qos = qos_with_limits(max_bytes, 100, BandwidthConfig::default());
+
+        let err = qos.enqueue(StreamKind::User, frame).await.unwrap_err();
+        match err {
+            QosError::QueueFull { .. } => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        assert_eq!(
+            qos.metrics.backpressure_triggered_total.load(Ordering::Relaxed),
+            1
+        );
+        assert!(qos.is_backpressured(StreamKind::User));
+        assert!(logs_contain("backpressure_triggered"));
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn hard_overflow_increments_overflow_metrics_and_logs() {
+        let frame = user_frame(16);
+        let size = serialized_size(&frame).unwrap() as usize;
+        let max_bytes = size; // hard limit hit on first enqueue
+        let mut qos = qos_with_limits(max_bytes, 1, BandwidthConfig::default());
+
+        let err = qos.enqueue(StreamKind::User, frame).await.unwrap_err();
+        match err {
+            QosError::QueueFull { limit, .. } => assert_eq!(limit, 1),
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        assert_eq!(
+            qos.metrics.queue_overflow_total.load(Ordering::Relaxed),
+            1
+        );
+        assert!(logs_contain("backpressure_triggered"));
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn hysteresis_recovers_after_dequeue() {
+        let frame = user_frame(8);
+        let size = serialized_size(&frame).unwrap() as usize;
+        let max_bytes = size * 3;
+        let mut qos = qos_with_limits(max_bytes, 10, BandwidthConfig::default());
+
+        qos.enqueue(StreamKind::User, frame.clone()).await.unwrap();
+        qos.enqueue(StreamKind::User, frame.clone()).await.unwrap();
+        assert!(qos.enqueue(StreamKind::User, frame.clone()).await.is_err());
+        assert!(qos.is_backpressured(StreamKind::User));
+
+        let _ = qos.dequeue();
+        assert!(!qos.is_backpressured(StreamKind::User));
+    }
+
+    #[test]
+    fn token_bucket_returns_wait_duration() {
+        let bucket = TokenBucket::new(100, 50);
+        bucket.try_consume(60).expect("should have capacity");
+        let err = bucket.try_consume(100).unwrap_err();
+        assert!(err > Duration::ZERO);
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn throttle_snapshot_timeout_emits_log_and_metrics() {
+        let mut bandwidth = BandwidthConfig::default();
+        bandwidth.snapshot_bandwidth_limit = 100;
+        bandwidth.throttle_timeout = Duration::from_millis(5);
+        let mut qos = qos_with_limits(10_000, 10, bandwidth);
+
+        let res = qos.throttle_snapshot(500).await;
+        assert!(matches!(res, Err(QosError::ThrottleTimeout)));
+        assert!(
+            qos.metrics
+                .snapshot_throttle_wait_ms
+                .load(Ordering::Relaxed)
+                > 0
+        );
+        assert!(logs_contain("throttle_snapshot_timeout"));
     }
 }
