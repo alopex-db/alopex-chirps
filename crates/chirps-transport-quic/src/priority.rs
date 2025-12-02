@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use tracing::debug;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Priority {
     High = 0,
@@ -77,6 +79,12 @@ impl<T> PriorityScheduler<T> {
         let idx = priority.index();
         msg.priority = priority;
         self.queues[idx].push_back(msg);
+        debug!(
+            ?priority,
+            size_bytes = self.queues[idx].back().map(|m| m.size_bytes).unwrap_or(0),
+            queue_len = self.queues[idx].len(),
+            "priority_enqueue"
+        );
     }
 
     pub fn dequeue(&mut self) -> Option<ScheduledMessage<T>> {
@@ -87,6 +95,13 @@ impl<T> PriorityScheduler<T> {
             if self.should_add_quantum[idx] {
                 let weight = self.config.weights[idx] as i64;
                 self.deficit_counters[idx] += (self.config.quantum_bytes as i64) * weight;
+                debug!(
+                    priority = ?Priority::from_index(idx),
+                    added_quantum = self.config.quantum_bytes,
+                    weight,
+                    deficit = self.deficit_counters[idx],
+                    "priority_add_quantum"
+                );
             }
 
             if let Some(front) = self.queues[idx].front() {
@@ -101,7 +116,21 @@ impl<T> PriorityScheduler<T> {
                     if self.should_add_quantum[idx] {
                         self.current = (idx + 1) % self.queues.len();
                     }
+                    debug!(
+                        priority = ?Priority::from_index(idx),
+                        size_bytes = needed,
+                        deficit_remaining = self.deficit_counters[idx],
+                        queue_remaining = self.queues[idx].len(),
+                        "priority_dequeue"
+                    );
                     return Some(msg);
+                } else {
+                    debug!(
+                        priority = ?Priority::from_index(idx),
+                        needed,
+                        deficit = self.deficit_counters[idx],
+                        "priority_deficit_insufficient"
+                    );
                 }
             } else {
                 self.deficit_counters[idx] = 0;
@@ -137,18 +166,29 @@ impl<T> Default for PriorityScheduler<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StreamKind;
+    use tracing_test::traced_test;
 
-    fn msg(size: usize) -> ScheduledMessage<()> {
-        ScheduledMessage::new(Priority::Low, size, ())
+    fn msg(size: usize, priority: Priority) -> ScheduledMessage<()> {
+        ScheduledMessage::new(priority, size, ())
+    }
+
+    #[test]
+    fn stream_kind_priority_mapping_matches_design() {
+        assert_eq!(StreamKind::Control.priority(), Priority::High);
+        assert_eq!(StreamKind::Raft.priority(), Priority::High);
+        assert_eq!(StreamKind::Gossip.priority(), Priority::Normal);
+        assert_eq!(StreamKind::RaftSnapshot.priority(), Priority::Normal);
+        assert_eq!(StreamKind::User.priority(), Priority::Low);
     }
 
     #[test]
     fn dwrr_prefers_high_but_serves_low() {
         let mut sched = PriorityScheduler::new(SchedulerConfig::default());
         for _ in 0..7 {
-            sched.enqueue(msg(1024), Priority::High);
+            sched.enqueue(msg(1024, Priority::High), Priority::High);
         }
-        sched.enqueue(msg(1024), Priority::Low);
+        sched.enqueue(msg(1024, Priority::Low), Priority::Low);
 
         for _ in 0..4 {
             let next = sched.dequeue().expect("message expected");
@@ -172,16 +212,62 @@ mod tests {
     }
 
     #[test]
-    fn queue_lengths_report_per_priority() {
+    fn dwrr_respects_configurable_weights() {
+        let config = SchedulerConfig {
+            weights: [1, 1, 10],
+            quantum_bytes: 512,
+        };
+        let mut sched = PriorityScheduler::new(config);
+        sched.enqueue(msg(1024, Priority::High), Priority::High);
+        sched.enqueue(msg(512, Priority::Low), Priority::Low);
+        sched.enqueue(msg(512, Priority::Low), Priority::Low);
+
+        let first = sched.dequeue().expect("message expected");
+        assert_eq!(
+            first.priority,
+            Priority::Low,
+            "heavy weight should allow low priority to win when deficit insufficient for high"
+        );
+    }
+
+    #[test]
+    fn queue_lengths_report_per_priority_and_empty_handling() {
         let mut sched = PriorityScheduler::new(SchedulerConfig::default());
-        sched.enqueue(msg(512), Priority::High);
-        sched.enqueue(msg(512), Priority::Normal);
-        sched.enqueue(msg(512), Priority::Low);
+        sched.enqueue(msg(512, Priority::High), Priority::High);
+        sched.enqueue(msg(512, Priority::Normal), Priority::Normal);
+        sched.enqueue(msg(512, Priority::Low), Priority::Low);
 
         assert_eq!(sched.queue_lengths(), [1, 1, 1]);
-        let _ = sched.dequeue();
-        let _ = sched.dequeue();
-        let _ = sched.dequeue();
+        assert_eq!(sched.dequeue().unwrap().priority, Priority::High);
+        assert_eq!(sched.dequeue().unwrap().priority, Priority::Normal);
+        assert_eq!(sched.dequeue().unwrap().priority, Priority::Low);
         assert_eq!(sched.queue_lengths(), [0, 0, 0]);
+        assert!(sched.dequeue().is_none(), "empty scheduler should return None");
+    }
+
+    #[traced_test]
+    #[test]
+    fn emits_tracing_for_enqueue_and_dequeue() {
+        let mut sched = PriorityScheduler::new(SchedulerConfig::default());
+        sched.enqueue(msg(256, Priority::High), Priority::High);
+        sched.enqueue(msg(256, Priority::Low), Priority::Low);
+
+        assert!(
+            logs_contain("priority_enqueue"),
+            "enqueue should emit tracing debug logs"
+        );
+
+        let first = sched.dequeue().expect("message expected");
+        assert_eq!(first.priority, Priority::High);
+        let _ = sched.dequeue();
+
+        assert!(
+            logs_contain("priority_dequeue"),
+            "dequeue should emit tracing debug logs"
+        );
+        assert!(
+            logs_contain("priority=\"High\"") || logs_contain("priority=High"),
+            "log should include selected priority"
+        );
     }
 }
