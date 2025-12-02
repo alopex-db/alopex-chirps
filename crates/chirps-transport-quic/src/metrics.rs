@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::StreamKind;
+use crate::{StreamKind, telemetry::ensure_metrics_recorder};
 
 const MAX_SAMPLES: usize = 1000;
 
@@ -125,6 +125,9 @@ pub struct ExtendedTransportMetrics {
 
 impl ExtendedTransportMetrics {
     pub fn new() -> Self {
+        // Ensure a recorder exists even if caller forgot to init_metrics.
+        ensure_metrics_recorder();
+
         let mut stream_sent = HashMap::new();
         let mut stream_received = HashMap::new();
         let mut queue_utilization = HashMap::new();
@@ -161,6 +164,25 @@ impl ExtendedTransportMetrics {
         if let Some(counter) = self.stream_sent.get(&kind) {
             counter.fetch_add(1, Ordering::Relaxed);
         }
+        ensure_metrics_recorder();
+        match kind {
+            StreamKind::Control => {
+                metrics::counter!("chirps_stream_sent_total", "kind" => "Control").increment(1);
+            }
+            StreamKind::Raft => {
+                metrics::counter!("chirps_stream_sent_total", "kind" => "Raft").increment(1);
+            }
+            StreamKind::RaftSnapshot => {
+                metrics::counter!("chirps_stream_sent_total", "kind" => "RaftSnapshot")
+                    .increment(1);
+            }
+            StreamKind::Gossip => {
+                metrics::counter!("chirps_stream_sent_total", "kind" => "Gossip").increment(1);
+            }
+            StreamKind::User => {
+                metrics::counter!("chirps_stream_sent_total", "kind" => "User").increment(1);
+            }
+        }
         if let Some(latency) = latency_us {
             if let Some(hist) = self.stream_latency.get(&kind) {
                 hist.add_sample(latency);
@@ -172,16 +194,36 @@ impl ExtendedTransportMetrics {
         if let Some(counter) = self.stream_received.get(&kind) {
             counter.fetch_add(1, Ordering::Relaxed);
         }
+        ensure_metrics_recorder();
+        match kind {
+            StreamKind::Control => {
+                metrics::counter!("chirps_stream_received_total", "kind" => "Control").increment(1);
+            }
+            StreamKind::Raft => {
+                metrics::counter!("chirps_stream_received_total", "kind" => "Raft").increment(1);
+            }
+            StreamKind::RaftSnapshot => {
+                metrics::counter!("chirps_stream_received_total", "kind" => "RaftSnapshot")
+                    .increment(1);
+            }
+            StreamKind::Gossip => {
+                metrics::counter!("chirps_stream_received_total", "kind" => "Gossip").increment(1);
+            }
+            StreamKind::User => {
+                metrics::counter!("chirps_stream_received_total", "kind" => "User").increment(1);
+            }
+        }
         if let Some(latency) = latency_us {
             if let Some(hist) = self.stream_latency.get(&kind) {
                 hist.add_sample(latency);
             }
         }
     }
-
     pub fn record_retransmit(&self, count: u64, buffer_bytes: Option<u64>) {
         self.retransmission_total
             .fetch_add(count, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        metrics::counter!("chirps_retransmission_total").increment(count);
         if let Some(bytes) = buffer_bytes {
             self.retransmission_buffer_bytes
                 .store(bytes, Ordering::Relaxed);
@@ -190,20 +232,28 @@ impl ExtendedTransportMetrics {
 
     pub fn record_drop(&self) {
         self.message_dropped_total.fetch_add(1, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        metrics::counter!("chirps_message_dropped_total").increment(1);
     }
 
     pub fn record_backpressure(&self) {
         self.backpressure_triggered_total
             .fetch_add(1, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        metrics::counter!("chirps_backpressure_triggered_total").increment(1);
     }
 
     pub fn record_queue_overflow(&self) {
         self.queue_overflow_total.fetch_add(1, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        metrics::counter!("chirps_queue_overflow_total").increment(1);
     }
 
     pub fn record_duplicate(&self) {
         self.duplicate_received_total
             .fetch_add(1, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        metrics::counter!("chirps_duplicate_received_total").increment(1);
     }
 
     pub fn update_queue_utilization(&self, kind: StreamKind, percent: u64) {
@@ -215,6 +265,8 @@ impl ExtendedTransportMetrics {
     pub fn add_throttle_wait(&self, millis: u64) {
         self.snapshot_throttle_wait_ms
             .fetch_add(millis, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        metrics::counter!("chirps_snapshot_throttle_wait_ms").increment(millis);
     }
 
     pub fn snapshot(&self) -> MetricsSnapshot {

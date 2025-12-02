@@ -32,6 +32,7 @@ mod qos;
 mod receive;
 mod reconnect;
 mod retransmit;
+mod telemetry;
 
 pub use config::{
     BandwidthConfig, HandshakeConfig, PriorityConfig, QosConfig, QueueLimits, RetransmitConfig,
@@ -48,6 +49,7 @@ pub use qos::{QosController, QosError, QosMetrics, TokenBucket};
 pub use receive::ReceiveHandler;
 use reconnect::{ReconnectCommand, start_seed_reconnector};
 pub use retransmit::{BufferError, BufferStats, BufferedMessage, RetransmissionBuffer};
+pub use telemetry::{LogFormat, TelemetryConfig, init_metrics, init_test_tracing, init_tracing};
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
