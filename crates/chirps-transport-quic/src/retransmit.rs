@@ -8,6 +8,7 @@ use crate::{
     config::RetransmitConfig,
     events::{TransportEvent, emit_event},
 };
+use tracing::debug;
 
 #[derive(Debug, Clone, Default)]
 pub struct BufferStats {
@@ -109,26 +110,41 @@ impl RetransmissionBuffer {
     /// Buffer a frame for a peer, assigning a monotonically increasing sequence number.
     /// Returns the assigned sequence number. Drops oldest messages on overflow.
     pub fn buffer(&mut self, peer: NodeId, frame: Frame) -> Result<u64, BufferError> {
-        let peer_buf = self.buffers.entry(peer).or_insert_with(PeerBuffer::new);
-        let seq = peer_buf.next_seq;
-        peer_buf.next_seq = peer_buf
-            .next_seq
-            .checked_add(1)
-            .ok_or(BufferError::SequenceExhausted)?;
-
+        let seq;
         let size_bytes = serialized_size(&frame)
             .map(|s| s as usize)
             .map_err(|e| BufferError::Serialize(e.to_string()))?;
-        let msg = BufferedMessage {
-            seq,
-            frame,
-            size_bytes,
-            timestamp: Instant::now(),
-        };
-        peer_buf.total_bytes = peer_buf.total_bytes.saturating_add(msg.size_bytes);
-        peer_buf.messages.push_back(msg);
 
-        let _dropped = self.handle_overflow(peer);
+        {
+            let peer_buf = self.buffers.entry(peer).or_insert_with(PeerBuffer::new);
+            seq = peer_buf.next_seq;
+            peer_buf.next_seq = peer_buf
+                .next_seq
+                .checked_add(1)
+                .ok_or(BufferError::SequenceExhausted)?;
+
+            let msg = BufferedMessage {
+                seq,
+                frame,
+                size_bytes,
+                timestamp: Instant::now(),
+            };
+            peer_buf.total_bytes = peer_buf.total_bytes.saturating_add(msg.size_bytes);
+            peer_buf.messages.push_back(msg);
+        }
+
+        let dropped = self.handle_overflow(peer);
+        let stats = self.stats(peer);
+        debug!(
+            event = "retransmit_buffer",
+            ?peer,
+            seq,
+            size_bytes,
+            buffered = stats.buffered_count,
+            total_bytes = stats.buffered_bytes,
+            dropped,
+            "retransmit_buffer"
+        );
 
         Ok(seq)
     }
@@ -153,6 +169,15 @@ impl RetransmissionBuffer {
             }
         }
 
+        debug!(
+            event = "retransmit_ack",
+            ?peer,
+            ack_seq,
+            removed,
+            remaining = buf.messages.len(),
+            "retransmit_ack"
+        );
+
         removed
     }
 
@@ -164,11 +189,20 @@ impl RetransmissionBuffer {
         self.buffers
             .get(&peer)
             .map(|buf| {
-                buf.messages
+                let unacked: Vec<BufferedMessage> = buf
+                    .messages
                     .iter()
                     .filter(|m| m.seq > buf.acked_seq)
                     .cloned()
-                    .collect()
+                    .collect();
+                debug!(
+                    event = "retransmit_drain",
+                    ?peer,
+                    acked_seq = buf.acked_seq,
+                    returning = unacked.len(),
+                    "retransmit_drain"
+                );
+                unacked
             })
             .unwrap_or_default()
     }
@@ -238,5 +272,103 @@ impl RetransmissionBuffer {
     /// Get the last acknowledged sequence number for a peer (used as ack_seq when sending).
     pub fn get_ack_seq(&self, peer: NodeId) -> u64 {
         self.buffers.get(&peer).map(|b| b.acked_seq).unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tracing_test::traced_test;
+
+    fn frame_for(peer: NodeId, seq: u64) -> Frame {
+        Frame::Ping { seq, from: peer }
+    }
+
+    #[traced_test]
+    #[test]
+    fn assigns_monotonic_seq_and_logs_buffer() {
+        let mut buf = RetransmissionBuffer::new(RetransmitConfig::default());
+        let peer = NodeId::new();
+
+        let seq1 = buf.buffer(peer, frame_for(peer, 10)).unwrap();
+        let seq2 = buf.buffer(peer, frame_for(peer, 11)).unwrap();
+
+        assert_eq!(seq1, 1);
+        assert_eq!(seq2, 2);
+        assert!(logs_contain("retransmit_buffer"));
+        assert!(logs_contain("seq=1"));
+    }
+
+    #[traced_test]
+    #[test]
+    fn process_ack_clears_messages_and_logs() {
+        let mut buf = RetransmissionBuffer::new(RetransmitConfig::default());
+        let peer = NodeId::new();
+        let _ = buf.buffer(peer, frame_for(peer, 1)).unwrap();
+        let _ = buf.buffer(peer, frame_for(peer, 2)).unwrap();
+        let _ = buf.buffer(peer, frame_for(peer, 3)).unwrap();
+
+        let removed = buf.process_ack(peer, 2);
+        let stats = buf.stats(peer);
+
+        assert_eq!(removed, 2);
+        assert_eq!(stats.buffered_count, 1);
+        assert_eq!(stats.acked_seq, 2);
+        assert!(logs_contain("retransmit_ack"));
+        assert!(logs_contain("ack_seq=2"));
+    }
+
+    #[traced_test]
+    #[test]
+    fn drain_returns_unacked_in_order_and_logs() {
+        let mut buf = RetransmissionBuffer::new(RetransmitConfig::default());
+        let peer = NodeId::new();
+        let _ = buf.buffer(peer, frame_for(peer, 1)).unwrap();
+        let _ = buf.buffer(peer, frame_for(peer, 2)).unwrap();
+        let _ = buf.buffer(peer, frame_for(peer, 3)).unwrap();
+        let _ = buf.process_ack(peer, 1);
+
+        let drained = buf.drain_for_retransmit(peer);
+        let seqs: Vec<u64> = drained.into_iter().map(|m| m.seq).collect();
+
+        assert_eq!(seqs, vec![2, 3]);
+        assert!(logs_contain("retransmit_drain"));
+    }
+
+    #[traced_test]
+    #[test]
+    fn overflow_drops_oldest_and_warns() {
+        let mut config = RetransmitConfig::default();
+        config.max_messages_per_peer = 2;
+        config.max_buffer_bytes = 128;
+        config.message_ttl = Duration::from_secs(60);
+
+        let mut buf = RetransmissionBuffer::new(config);
+        let peer = NodeId::new();
+
+        let _ = buf.buffer(peer, frame_for(peer, 1)).unwrap();
+        let _ = buf.buffer(peer, frame_for(peer, 2)).unwrap();
+        let _ = buf.buffer(peer, frame_for(peer, 3)).unwrap();
+
+        let drained = buf.drain_for_retransmit(peer);
+        let seqs: Vec<u64> = drained.into_iter().map(|m| m.seq).collect();
+        assert_eq!(seqs, vec![2, 3]);
+        assert!(logs_contain("buffer_overflow"));
+    }
+
+    #[test]
+    fn deduplication_rejects_duplicates_and_tracks_last_seen() {
+        let mut table = DeduplicationTable::new();
+        let peer = NodeId::new();
+
+        assert!(table.check_and_update(peer, 10));
+        assert!(!table.check_and_update(peer, 9));
+        assert!(!table.check_and_update(peer, 10));
+        assert!(table.check_and_update(peer, 11));
+        assert_eq!(table.last_seen_seq(peer), 11);
+
+        table.remove_peer(peer);
+        assert_eq!(table.last_seen_seq(peer), 0);
     }
 }
