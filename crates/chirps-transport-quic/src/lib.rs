@@ -23,6 +23,8 @@ use tokio::time;
 use tokio::time::Instant;
 use tracing::{info, warn};
 
+mod config;
+mod events;
 mod handshake;
 mod metrics;
 mod priority;
@@ -31,20 +33,21 @@ mod receive;
 mod reconnect;
 mod retransmit;
 
+pub use config::{
+    BandwidthConfig, HandshakeConfig, PriorityConfig, QosConfig, QueueLimits, RetransmitConfig,
+    TransportConfigV04,
+};
+pub use events::{TransportEvent, emit_event};
 pub use handshake::{
     Capabilities, HandshakeError, HandshakeMessage, MIN_COMPATIBLE_VERSION, NegotiatedCapabilities,
     PROTOCOL_VERSION, negotiate,
 };
 pub use metrics::{ExtendedTransportMetrics, LatencySnapshot, MetricsSnapshot};
 use priority::Priority;
-pub use qos::{
-    BandwidthConfig, QosConfig, QosController, QosError, QosMetrics, QueueLimits, TokenBucket,
-};
+pub use qos::{QosController, QosError, QosMetrics, TokenBucket};
 pub use receive::ReceiveHandler;
 use reconnect::{ReconnectCommand, start_seed_reconnector};
-pub use retransmit::{
-    BufferError, BufferStats, BufferedMessage, RetransmissionBuffer, RetransmitConfig,
-};
+pub use retransmit::{BufferError, BufferStats, BufferedMessage, RetransmissionBuffer};
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
@@ -147,23 +150,32 @@ pub struct QuicBackend {
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
     metrics_ext: Arc<ExtendedTransportMetrics>,
     receive_handler: Arc<ReceiveHandler>,
+    handshake_config: HandshakeConfig,
 }
 
 impl QuicBackend {
     pub async fn new(node_id: NodeId, config: Arc<NodeConfig>) -> anyhow::Result<Self> {
+        Self::new_with_config(node_id, config, TransportConfigV04::default()).await
+    }
+
+    pub async fn new_with_config(
+        node_id: NodeId,
+        config: Arc<NodeConfig>,
+        transport_config: TransportConfigV04,
+    ) -> anyhow::Result<Self> {
         let (server_config, client_config) = build_tls_configs(&config)?;
         let mut endpoint = Endpoint::server(server_config, config.bind_addr)?;
         endpoint.set_default_client_config(ClientConfig::new(client_config.clone()));
 
         let (incoming_tx, incoming_rx) = mpsc::channel(1024);
-        let (send_tx, send_rx) = mpsc::channel(config.send_queue_capacity);
+        let (send_tx, send_rx) = mpsc::channel(transport_config.send_queue_capacity);
         let (shutdown, _) = broadcast::channel(4);
         let connections = Arc::new(RwLock::new(HashMap::new()));
         let peer_capabilities = Arc::new(RwLock::new(HashMap::new()));
         let metrics = Arc::new(TransportCounters::default());
         let metrics_ext = Arc::new(ExtendedTransportMetrics::new());
         let retransmit_buffer = Arc::new(RwLock::new(RetransmissionBuffer::new(
-            RetransmitConfig::default(),
+            transport_config.retransmit.clone(),
         )));
         let receive_handler = Arc::new(ReceiveHandler::new(
             Arc::clone(&retransmit_buffer),
@@ -182,6 +194,7 @@ impl QuicBackend {
             shutdown.clone(),
             node_id,
             Arc::clone(&metrics),
+            transport_config.handshake.clone(),
         );
         let backend = QuicBackend {
             node_id,
@@ -193,11 +206,12 @@ impl QuicBackend {
             shutdown,
             reconnect_tx,
             send_tx,
-            send_timeout: config.broadcast_timeout,
+            send_timeout: transport_config.send_timeout,
             metrics: Arc::clone(&metrics),
             retransmit_buffer: Arc::clone(&retransmit_buffer),
             metrics_ext: Arc::clone(&metrics_ext),
             receive_handler: Arc::clone(&receive_handler),
+            handshake_config: transport_config.handshake.clone(),
         };
 
         backend.spawn_accept_loop();
@@ -228,6 +242,7 @@ impl QuicBackend {
         let mut shutdown_rx = self.shutdown.subscribe();
         let local_id = self.node_id;
         let metrics = Arc::clone(&self.metrics);
+        let handshake_config = self.handshake_config.clone();
 
         tokio::spawn(async move {
             loop {
@@ -245,6 +260,7 @@ impl QuicBackend {
                                         let metrics_ext_inner = Arc::clone(&metrics_ext);
                                         let mut shutdown_rx = shutdown_rx.resubscribe();
                                         let metrics = Arc::clone(&metrics);
+                                        let hs_cfg = handshake_config.clone();
                                         tokio::spawn(async move {
                                             if let Err(err) = handle_connection(
                                                 connection,
@@ -256,6 +272,7 @@ impl QuicBackend {
                                                 metrics_ext_inner,
                                                 metrics,
                                                 &mut shutdown_rx,
+                                                hs_cfg,
                                             )
                                             .await
                                             {
@@ -362,11 +379,23 @@ async fn handle_connection(
     metrics_ext: Arc<ExtendedTransportMetrics>,
     metrics: Arc<TransportCounters>,
     shutdown_rx: &mut broadcast::Receiver<()>,
+    handshake_config: HandshakeConfig,
 ) -> Result<(), TransportError> {
     let local_msg = HandshakeMessage::new(local_id);
-    send_handshake(&connection, &local_msg).await?;
-    let remote_msg = recv_handshake(&connection).await?;
+    time::timeout(
+        handshake_config.timeout,
+        send_handshake(&connection, &local_msg),
+    )
+    .await
+    .map_err(|_| TransportError::Timeout("handshake send timed out".into()))??;
+    let remote_msg = time::timeout(handshake_config.timeout, recv_handshake(&connection))
+        .await
+        .map_err(|_| TransportError::Timeout("handshake recv timed out".into()))??;
     if !remote_msg.is_compatible() {
+        emit_event(TransportEvent::VersionMismatch {
+            remote_version: remote_msg.version,
+            local_version: local_msg.version,
+        });
         warn!(
             peer = ?remote_msg.node_id,
             remote_version = remote_msg.version,
@@ -375,9 +404,23 @@ async fn handle_connection(
         );
         return Err(TransportError::Connection("version mismatch".into()));
     }
-    let negotiated = negotiate(&local_msg, &remote_msg)
-        .map_err(|err| TransportError::Connection(format!("handshake failed: {err:?}")))?;
+    let negotiated = match negotiate(&local_msg, &remote_msg) {
+        Ok(n) => n,
+        Err(HandshakeError::VersionMismatch { local, remote }) => {
+            emit_event(TransportEvent::VersionMismatch {
+                remote_version: remote,
+                local_version: local,
+            });
+            return Err(TransportError::Connection("version mismatch".into()));
+        }
+        Err(err) => {
+            return Err(TransportError::Connection(format!(
+                "handshake failed: {err:?}"
+            )));
+        }
+    };
     let remote_id = remote_msg.node_id;
+    let peer_label = format!("{remote_id:?}");
 
     connections
         .write()
@@ -387,6 +430,11 @@ async fn handle_connection(
         .write()
         .await
         .insert(remote_id, negotiated.clone());
+    emit_event(TransportEvent::PeerConnected {
+        node_id: peer_label.clone(),
+        protocol_version: remote_msg.version,
+        capabilities: negotiated.clone(),
+    });
     info!(
         peer = ?remote_id,
         addr = ?connection.remote_address(),
@@ -401,11 +449,10 @@ async fn handle_connection(
         let messages = buf.drain_for_retransmit(remote_id);
         drop(buf);
         if !messages.is_empty() {
-            info!(
-                peer = ?remote_id,
-                message_count = messages.len(),
-                "retransmission_started"
-            );
+            emit_event(TransportEvent::RetransmissionStarted {
+                node_id: peer_label.clone(),
+                message_count: messages.len(),
+            });
             let start = Instant::now();
             let mut success = 0;
             let mut failed = 0;
@@ -429,19 +476,24 @@ async fn handle_connection(
                 }
             }
             metrics_ext.record_retransmit(attempts, None);
-            info!(
-                peer = ?remote_id,
-                success,
-                failed,
-                duration_ms = start.elapsed().as_millis(),
-                "retransmission_completed"
-            );
+            emit_event(TransportEvent::RetransmissionCompleted {
+                node_id: peer_label.clone(),
+                duration_ms: start.elapsed().as_millis() as u64,
+                success_count: success,
+                failed_count: failed,
+            });
         }
     }
 
     loop {
         select! {
             _ = shutdown_rx.recv() => {
+                let buffered = retransmit_buffer.read().await.stats(remote_id).buffered_count;
+                emit_event(TransportEvent::PeerDisconnected {
+                    node_id: peer_label.clone(),
+                    reason: "shutdown".into(),
+                    buffered_messages: buffered,
+                });
                 connections.write().await.remove(&remote_id);
                 info!(peer = ?remote_id, "connection closed");
                 break;
@@ -462,7 +514,13 @@ async fn handle_connection(
                     });
                 }
                 Err(err) => {
+                    let buffered = retransmit_buffer.read().await.stats(remote_id).buffered_count;
                     connections.write().await.remove(&remote_id);
+                    emit_event(TransportEvent::PeerDisconnected {
+                        node_id: peer_label.clone(),
+                        reason: err.to_string(),
+                        buffered_messages: buffered,
+                    });
                     return Err(TransportError::Connection(err.to_string()));
                 }
             },
@@ -766,9 +824,31 @@ async fn broadcast_with_retry(
     }
 }
 
+fn ensure_capabilities(
+    kind: StreamKind,
+    caps: &NegotiatedCapabilities,
+) -> Result<(), TransportError> {
+    if matches!(kind, StreamKind::Raft | StreamKind::RaftSnapshot) && !caps.priority_streams {
+        return Err(TransportError::Connection(
+            "peer lacks priority_streams capability".into(),
+        ));
+    }
+    if kind.requires_ack() && !caps.retransmission {
+        return Err(TransportError::Connection(
+            "peer lacks retransmission capability".into(),
+        ));
+    }
+    if !caps.qos && !matches!(kind, StreamKind::Control) {
+        return Err(TransportError::Connection(
+            "peer lacks qos capability".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn send_to_peer(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
-    _peer_capabilities: &Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    peer_capabilities: &Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     metrics: &Arc<TransportCounters>,
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
     metrics_ext: &Arc<ExtendedTransportMetrics>,
@@ -784,6 +864,13 @@ async fn send_to_peer(
             .ok_or_else(|| TransportError::Connection(format!("peer {target:?} not connected")))?
     };
     let kind = stream_kind_for_frame(&frame);
+    let caps = {
+        let map = peer_capabilities.read().await;
+        map.get(&target).cloned().ok_or_else(|| {
+            TransportError::Connection(format!("peer {target:?} capabilities unknown"))
+        })?
+    };
+    ensure_capabilities(kind, &caps)?;
     let seq = {
         let mut buf = retransmit_buffer.write().await;
         match buf.buffer(target, frame.clone()) {

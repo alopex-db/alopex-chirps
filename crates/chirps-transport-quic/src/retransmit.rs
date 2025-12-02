@@ -1,8 +1,13 @@
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bincode::serialized_size;
 use chirps_wire::{frame::Frame, node_id::NodeId};
+
+use crate::{
+    config::RetransmitConfig,
+    events::{TransportEvent, emit_event},
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct BufferStats {
@@ -59,23 +64,6 @@ impl DeduplicationTable {
 pub enum BufferError {
     Serialize(String),
     SequenceExhausted,
-}
-
-#[derive(Debug, Clone)]
-pub struct RetransmitConfig {
-    pub max_buffer_bytes: usize,
-    pub max_messages_per_peer: usize,
-    pub message_ttl: Duration,
-}
-
-impl Default for RetransmitConfig {
-    fn default() -> Self {
-        Self {
-            max_buffer_bytes: 32 * 1024 * 1024,
-            max_messages_per_peer: 10_000,
-            message_ttl: Duration::from_secs(60),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -215,6 +203,14 @@ impl RetransmissionBuffer {
             } else {
                 break;
             }
+        }
+
+        if dropped > 0 {
+            emit_event(TransportEvent::BufferOverflow {
+                node_id: format!("{peer:?}"),
+                dropped_count: dropped,
+                buffer_size: buf.total_bytes,
+            });
         }
 
         dropped

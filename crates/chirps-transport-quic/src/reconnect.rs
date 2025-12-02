@@ -1,4 +1,3 @@
-use bincode::serialized_size;
 use chirps_wire::node_id::NodeId;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rand::{Rng, thread_rng};
@@ -13,8 +12,8 @@ use tokio::time::{interval, sleep};
 use tracing::{info, warn};
 
 use super::{
-    DEFAULT_SERVER_NAME, ExtendedTransportMetrics, NegotiatedCapabilities, ReceiveHandler,
-    RetransmissionBuffer, TransportCounters, handle_connection,
+    DEFAULT_SERVER_NAME, ExtendedTransportMetrics, HandshakeConfig, NegotiatedCapabilities,
+    ReceiveHandler, RetransmissionBuffer, TransportCounters, handle_connection,
 };
 
 #[derive(Debug)]
@@ -34,6 +33,7 @@ pub fn start_seed_reconnector(
     shutdown: broadcast::Sender<()>,
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
+    handshake_config: HandshakeConfig,
 ) -> mpsc::Sender<ReconnectCommand> {
     let seeds = Arc::new(seeds);
     let inflight = Arc::new(Mutex::new(HashSet::new()));
@@ -70,6 +70,7 @@ pub fn start_seed_reconnector(
                             shutdown.clone(),
                             local_id,
                             Arc::clone(&metrics),
+                            handshake_config.clone(),
                             Arc::clone(&inflight),
                         ).await;
                     }
@@ -86,6 +87,7 @@ pub fn start_seed_reconnector(
                             shutdown.clone(),
                             local_id,
                             Arc::clone(&metrics),
+                            handshake_config.clone(),
                             Arc::clone(&inflight),
                         ).await;
                     }
@@ -110,6 +112,7 @@ async fn launch_attempts(
     shutdown: broadcast::Sender<()>,
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
+    handshake_config: HandshakeConfig,
     inflight: Arc<Mutex<HashSet<SocketAddr>>>,
 ) {
     for seed in seeds.iter().copied() {
@@ -135,6 +138,7 @@ async fn launch_attempts(
             shutdown.clone(),
             local_id,
             Arc::clone(&metrics),
+            handshake_config.clone(),
             Arc::clone(&inflight),
         ));
     }
@@ -152,6 +156,7 @@ async fn reconnect_seed(
     shutdown: broadcast::Sender<()>,
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
+    handshake_config: HandshakeConfig,
     inflight: Arc<Mutex<HashSet<SocketAddr>>>,
 ) {
     let mut shutdown_rx = shutdown.subscribe();
@@ -183,6 +188,7 @@ async fn reconnect_seed(
                     let metrics_ext = Arc::clone(&metrics_ext);
                     let mut handler_shutdown = shutdown.subscribe();
                     let metrics = Arc::clone(&metrics);
+                    let hs_cfg = handshake_config.clone();
                     if let Err(err) = handle_connection(
                         connection,
                         local_id,
@@ -193,6 +199,7 @@ async fn reconnect_seed(
                         metrics_ext,
                         metrics,
                         &mut handler_shutdown,
+                        hs_cfg,
                     )
                     .await
                     {

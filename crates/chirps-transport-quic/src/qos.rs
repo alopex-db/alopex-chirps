@@ -8,75 +8,14 @@ use chirps_wire::frame::Frame;
 
 use crate::{
     StreamKind,
+    config::{QosConfig, QueueLimits},
+    events::{TransportEvent, emit_event},
     priority::{PriorityScheduler, ScheduledMessage, SchedulerConfig},
 };
 
 const SOFT_LIMIT_RATIO: f32 = 0.90;
 const HARD_LIMIT_RATIO: f32 = 1.00;
 const RECOVERY_RATIO: f32 = 0.80;
-
-#[derive(Clone, Debug)]
-pub struct QosConfig {
-    pub enabled: bool,
-    pub bandwidth: BandwidthConfig,
-    pub queue_limits: QueueLimits,
-}
-
-impl Default for QosConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            bandwidth: BandwidthConfig::default(),
-            queue_limits: QueueLimits::default(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct QueueLimits {
-    pub raft_max_bytes: usize,
-    pub raft_max_items: usize,
-    pub user_max_bytes: usize,
-    pub user_max_items: usize,
-    pub gossip_max_bytes: usize,
-    pub gossip_max_items: usize,
-}
-
-impl Default for QueueLimits {
-    fn default() -> Self {
-        Self {
-            raft_max_bytes: 16 * 1024 * 1024,
-            raft_max_items: 10_000,
-            user_max_bytes: 64 * 1024 * 1024,
-            user_max_items: 50_000,
-            gossip_max_bytes: 8 * 1024 * 1024,
-            gossip_max_items: 5_000,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct BandwidthConfig {
-    pub raft_ratio: f32,
-    pub user_ratio: f32,
-    pub gossip_ratio: f32,
-    pub total_bandwidth: Option<u64>,
-    pub snapshot_bandwidth_limit: u64,
-    pub throttle_timeout: Duration,
-}
-
-impl Default for BandwidthConfig {
-    fn default() -> Self {
-        Self {
-            raft_ratio: 0.40,
-            user_ratio: 0.50,
-            gossip_ratio: 0.10,
-            total_bandwidth: None,
-            snapshot_bandwidth_limit: 50 * 1024 * 1024,
-            throttle_timeout: Duration::from_secs(5),
-        }
-    }
-}
 
 pub struct QosMetrics {
     pub backpressure_triggered_total: AtomicU64,
@@ -163,6 +102,7 @@ impl QosController {
         let prospective_bytes = queue.current_bytes.saturating_add(size);
         let prospective_items = queue.current_items + 1;
         let util = utilization_ratio(prospective_bytes, prospective_items, queue);
+        let was_backpressured = queue.backpressured;
 
         if util >= HARD_LIMIT_RATIO {
             self.metrics
@@ -173,6 +113,13 @@ impl QosController {
                 .queue_utilization
                 .get(&kind)
                 .map(|m| m.store((util * 100.0) as u64, Ordering::Relaxed));
+            if !was_backpressured {
+                emit_event(TransportEvent::BackpressureTriggered {
+                    stream_kind: format!("{kind:?}"),
+                    queue_size: prospective_items,
+                    queue_limit: queue.max_items,
+                });
+            }
             return Err(QosError::QueueFull {
                 kind,
                 size: prospective_items,
@@ -189,6 +136,13 @@ impl QosController {
                 .queue_utilization
                 .get(&kind)
                 .map(|m| m.store((util * 100.0) as u64, Ordering::Relaxed));
+            if !was_backpressured {
+                emit_event(TransportEvent::BackpressureTriggered {
+                    stream_kind: format!("{kind:?}"),
+                    queue_size: prospective_items,
+                    queue_limit: queue.max_items,
+                });
+            }
             return Err(QosError::QueueFull {
                 kind,
                 size: prospective_items,

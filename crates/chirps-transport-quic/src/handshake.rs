@@ -42,7 +42,7 @@ pub enum HandshakeError {
     IncompatibleCapabilities,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NegotiatedCapabilities {
     pub priority_streams: bool,
     pub retransmission: bool,
