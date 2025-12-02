@@ -46,7 +46,7 @@ impl ReceiveHandler {
             return Err(TransportError::Io("empty stream".into()));
         }
 
-        let env = FrameEnvelopeV2::decode(&bytes).map_err(|e| TransportError::Io(e))?;
+        let env = FrameEnvelopeV2::decode(&bytes).map_err(TransportError::Io)?;
 
         let kind = match StreamKind::try_from(env.kind) {
             Ok(k) => k,

@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default)]
 use chirps_core::backend::MessageBackend;
 use chirps_core::config::NodeConfig;
 use chirps_core::error::TransportError;

@@ -8,6 +8,7 @@
 //! - [`HandshakeMessage`] enforces protocol versions (v0.4) and negotiates capabilities.
 //!
 //! Use [`QuicBackend`] via the `MessageBackend` trait to send/broadcast frames and subscribe to incoming messages.
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 use async_trait::async_trait;
 use bincode::{deserialize, serialize, serialized_size};
@@ -160,6 +161,7 @@ pub struct QuicBackend {
     endpoint: Endpoint,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    #[allow(dead_code)]
     incoming_tx: mpsc::Sender<(NodeId, Frame)>,
     incoming_rx: Arc<Mutex<Option<mpsc::Receiver<(NodeId, Frame)>>>>,
     shutdown: broadcast::Sender<()>,
@@ -576,6 +578,7 @@ async fn recv_handshake(connection: &Connection) -> Result<HandshakeMessage, Tra
     }
 }
 
+#[allow(dead_code)]
 async fn send_frame(
     connection: &Connection,
     from: &NodeId,
@@ -644,6 +647,7 @@ async fn read_wire_message(
     Ok((kind, msg))
 }
 
+#[allow(dead_code)]
 async fn handle_incoming_stream(
     recv: RecvStream,
     connection: Connection,

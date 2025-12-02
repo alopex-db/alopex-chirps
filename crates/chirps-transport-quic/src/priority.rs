@@ -144,10 +144,12 @@ impl<T> PriorityScheduler<T> {
         None
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self, priority: Priority) -> bool {
         self.queues[priority.index()].is_empty()
     }
 
+    #[allow(dead_code)]
     pub fn queue_lengths(&self) -> [usize; 3] {
         [
             self.queues[0].len(),
@@ -197,11 +199,11 @@ mod tests {
 
         let mut low_seen = false;
         for _ in 0..4 {
-            if let Some(next) = sched.dequeue() {
-                if next.priority == Priority::Low {
-                    low_seen = true;
-                    break;
-                }
+            if let Some(next) = sched.dequeue()
+                && next.priority == Priority::Low
+            {
+                low_seen = true;
+                break;
             }
         }
 

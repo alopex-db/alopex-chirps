@@ -23,6 +23,7 @@ pub struct BufferStats {
 #[derive(Default)]
 pub struct DeduplicationTable {
     last_seen: std::collections::HashMap<NodeId, u64>,
+    #[allow(dead_code)]
     window_size: usize,
 }
 
@@ -34,6 +35,7 @@ impl DeduplicationTable {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_window(window_size: usize) -> Self {
         DeduplicationTable {
             last_seen: std::collections::HashMap::new(),
@@ -56,6 +58,7 @@ impl DeduplicationTable {
         self.last_seen.get(&peer).copied().unwrap_or(0)
     }
 
+    #[allow(dead_code)]
     pub fn remove_peer(&mut self, peer: NodeId) {
         self.last_seen.remove(&peer);
     }
@@ -84,6 +87,7 @@ struct PeerBuffer {
 }
 
 impl PeerBuffer {
+    #[allow(dead_code)]
     fn new() -> Self {
         PeerBuffer {
             messages: VecDeque::new(),
@@ -116,7 +120,7 @@ impl RetransmissionBuffer {
             .map_err(|e| BufferError::Serialize(e.to_string()))?;
 
         {
-            let peer_buf = self.buffers.entry(peer).or_insert_with(PeerBuffer::new);
+        let peer_buf = self.buffers.entry(peer).or_default();
             seq = peer_buf.next_seq;
             peer_buf.next_seq = peer_buf
                 .next_seq
@@ -277,6 +281,7 @@ impl RetransmissionBuffer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
     use std::time::Duration;
     use tracing_test::traced_test;

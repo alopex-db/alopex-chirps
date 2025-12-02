@@ -59,11 +59,11 @@ async fn user_messages_still_progress_under_raft_load() {
 
     let mut saw_user = false;
     for _ in 0..20 {
-        if let Some((kind, _)) = qos.dequeue() {
-            if kind == StreamKind::User {
-                saw_user = true;
-                break;
-            }
+        if let Some((kind, _)) = qos.dequeue()
+            && kind == StreamKind::User
+        {
+            saw_user = true;
+            break;
         }
     }
 

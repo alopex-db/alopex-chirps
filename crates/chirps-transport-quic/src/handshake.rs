@@ -112,16 +112,16 @@ mod tests {
     #[traced_test]
     #[test]
     fn negotiates_capabilities_by_intersection() {
-        let mut local = HandshakeMessage::new(NodeId::new());
+        let local = HandshakeMessage::new(NodeId::new());
         let mut remote = HandshakeMessage::new(NodeId::new());
         remote.capabilities.priority_streams = false;
         remote.capabilities.retransmission = true;
         remote.capabilities.qos = true;
 
         let negotiated = negotiate(&local, &remote).expect("compatible");
-        assert_eq!(negotiated.priority_streams, false);
-        assert_eq!(negotiated.retransmission, true);
-        assert_eq!(negotiated.qos, true);
+        assert!(!negotiated.priority_streams);
+        assert!(negotiated.retransmission);
+        assert!(negotiated.qos);
         assert!(!logs_contain("version_mismatch"));
     }
 }

@@ -111,10 +111,9 @@ impl QosController {
                 .queue_overflow_total
                 .fetch_add(1, Ordering::Relaxed);
             queue.backpressured = true;
-            self.metrics
-                .queue_utilization
-                .get(&kind)
-                .map(|m| m.store((util * 100.0) as u64, Ordering::Relaxed));
+            if let Some(m) = self.metrics.queue_utilization.get(&kind) {
+                m.store((util * 100.0) as u64, Ordering::Relaxed);
+            }
             if !was_backpressured {
                 emit_event(TransportEvent::BackpressureTriggered {
                     stream_kind: format!("{kind:?}"),
@@ -144,10 +143,9 @@ impl QosController {
             self.metrics
                 .backpressure_triggered_total
                 .fetch_add(1, Ordering::Relaxed);
-            self.metrics
-                .queue_utilization
-                .get(&kind)
-                .map(|m| m.store((util * 100.0) as u64, Ordering::Relaxed));
+            if let Some(m) = self.metrics.queue_utilization.get(&kind) {
+                m.store((util * 100.0) as u64, Ordering::Relaxed);
+            }
             if !was_backpressured {
                 emit_event(TransportEvent::BackpressureTriggered {
                     stream_kind: format!("{kind:?}"),
@@ -182,10 +180,9 @@ impl QosController {
         );
 
         let util = utilization_ratio(queue.current_bytes, queue.current_items, queue);
-        self.metrics
-            .queue_utilization
-            .get(&kind)
-            .map(|m| m.store((util * 100.0) as u64, Ordering::Relaxed));
+        if let Some(m) = self.metrics.queue_utilization.get(&kind) {
+            m.store((util * 100.0) as u64, Ordering::Relaxed);
+        }
 
         if util < RECOVERY_RATIO {
             queue.backpressured = false;
@@ -202,10 +199,9 @@ impl QosController {
                 queue.current_bytes = queue.current_bytes.saturating_sub(next.size_bytes);
 
                 let util = utilization_ratio(queue.current_bytes, queue.current_items, queue);
-                self.metrics
-                    .queue_utilization
-                    .get(&kind)
-                    .map(|m| m.store((util * 100.0) as u64, Ordering::Relaxed));
+                if let Some(m) = self.metrics.queue_utilization.get(&kind) {
+                    m.store((util * 100.0) as u64, Ordering::Relaxed);
+                }
                 if util < RECOVERY_RATIO {
                     queue.backpressured = false;
                 }
@@ -390,6 +386,7 @@ impl TokenBucket {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
     use chirps_wire::frame::{Frame, UserMessage};
     use crate::BandwidthConfig;
@@ -493,7 +490,7 @@ mod tests {
         let mut bandwidth = BandwidthConfig::default();
         bandwidth.snapshot_bandwidth_limit = 100;
         bandwidth.throttle_timeout = Duration::from_millis(5);
-        let mut qos = qos_with_limits(10_000, 10, bandwidth);
+        let qos = qos_with_limits(10_000, 10, bandwidth);
 
         let res = qos.throttle_snapshot(500).await;
         assert!(matches!(res, Err(QosError::ThrottleTimeout)));

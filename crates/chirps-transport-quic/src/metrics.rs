@@ -43,6 +43,7 @@ impl LatencyHistogram {
             guard.remove(0);
         }
         guard.push(value);
+        #[allow(clippy::manual_is_multiple_of)]
         if guard.len() % 100 == 0 {
             self.update_percentiles(&guard);
         }
@@ -187,10 +188,10 @@ impl ExtendedTransportMetrics {
                 metrics::counter!("chirps_stream_sent_total", "kind" => "User").increment(1);
             }
         }
-        if let Some(latency) = latency_us {
-            if let Some(hist) = self.stream_latency.get(&kind) {
-                hist.add_sample(latency);
-            }
+        if let Some(latency) = latency_us
+            && let Some(hist) = self.stream_latency.get(&kind)
+        {
+            hist.add_sample(latency);
         }
         debug!(event = "record_send", kind = ?kind, latency_us = latency_us.unwrap_or(0), "record_send");
     }
@@ -218,10 +219,10 @@ impl ExtendedTransportMetrics {
                 metrics::counter!("chirps_stream_received_total", "kind" => "User").increment(1);
             }
         }
-        if let Some(latency) = latency_us {
-            if let Some(hist) = self.stream_latency.get(&kind) {
-                hist.add_sample(latency);
-            }
+        if let Some(latency) = latency_us
+            && let Some(hist) = self.stream_latency.get(&kind)
+        {
+            hist.add_sample(latency);
         }
         debug!(event = "record_receive", kind = ?kind, latency_us = latency_us.unwrap_or(0), "record_receive");
     }
@@ -304,6 +305,12 @@ impl ExtendedTransportMetrics {
         snap.duplicate_received_total = self.duplicate_received_total.load(Ordering::Relaxed);
         snap.snapshot_throttle_wait_ms = self.snapshot_throttle_wait_ms.load(Ordering::Relaxed);
         snap
+    }
+}
+
+impl Default for ExtendedTransportMetrics {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
