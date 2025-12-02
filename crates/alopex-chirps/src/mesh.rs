@@ -17,7 +17,8 @@ use std::sync::{
 };
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{info, warn};
+use crate::profile::{MessageProfile, enforce_profile};
 
 /// メッシュへ外部から操作するためのハンドル。
 #[derive(Clone)]
@@ -28,6 +29,19 @@ pub struct MeshHandle {
 impl MeshHandle {
     /// 指定したピアへフレームを送信する。
     pub async fn send_to(&self, target: NodeId, frame: Frame) -> Result<(), MeshError> {
+        self.send_to_with_profile(target, frame, MessageProfile::Control)
+            .await
+    }
+
+    /// プロファイル付きで送信する。
+    pub async fn send_to_with_profile(
+        &self,
+        target: NodeId,
+        frame: Frame,
+        profile: MessageProfile,
+    ) -> Result<(), MeshError> {
+        let effective = enforce_profile(&frame, profile).map_err(MeshError::NotImplemented)?;
+        let frame = maybe_mark_control(frame, effective);
         self.inner
             .backend
             .send(target, frame)
@@ -37,6 +51,17 @@ impl MeshHandle {
 
     /// 接続済みの全ピアへフレームをブロードキャストする。
     pub async fn broadcast(&self, frame: Frame) -> Result<usize, MeshError> {
+        self.broadcast_with_profile(frame, MessageProfile::Control).await
+    }
+
+    /// プロファイル付きでブロードキャストする。
+    pub async fn broadcast_with_profile(
+        &self,
+        frame: Frame,
+        profile: MessageProfile,
+    ) -> Result<usize, MeshError> {
+        let effective = enforce_profile(&frame, profile).map_err(MeshError::NotImplemented)?;
+        let frame = maybe_mark_control(frame, effective);
         self.inner
             .backend
             .broadcast(frame)
@@ -119,9 +144,7 @@ impl MeshHandle {
 /// QUICトランスポートとSWIMゴシップを束ねるメッシュ本体。
 pub struct Mesh {
     pub(crate) node_id: NodeId,
-    #[allow(dead_code)]
     pub(crate) incarnation: u64,
-    #[allow(dead_code)]
     pub(crate) config: Arc<NodeConfig>,
     pub(crate) backend: Arc<dyn MessageBackend>,
     gossip: Arc<Mutex<GossipEngine>>,
@@ -235,6 +258,17 @@ impl Mesh {
             leaves: self.metrics.leaves.load(Ordering::Relaxed),
             status_events: self.metrics.status_events.load(Ordering::Relaxed),
             delivered_frames: self.metrics.delivered_frames.load(Ordering::Relaxed),
+        }
+    }
+}
+
+fn maybe_mark_control(frame: Frame, profile: MessageProfile) -> Frame {
+    // Control path implies reliable/retransmit; Ephemeral keeps as-is; Durable falls back.
+    match profile {
+        MessageProfile::Control | MessageProfile::Ephemeral => frame,
+        MessageProfile::Durable => {
+            warn!("Durable profile requested but not implemented; falling back to Control");
+            frame
         }
     }
 }
