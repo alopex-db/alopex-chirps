@@ -43,6 +43,7 @@ dependencies = [
  "bincode",
  "chirps-core",
  "chirps-gossip-swim",
+ "chirps-mock",
  "chirps-raft-storage",
  "chirps-transport-quic",
  "chirps-wire",

@@ -18,6 +18,7 @@ use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::io::AsyncReadExt;
 
 /// WALファイルのマジックナンバー。
 const WAL_MAGIC: [u8; 4] = *b"RWAL";
@@ -647,6 +648,13 @@ where
     ) -> Result<(), StorageError<ChirpsNodeId>> {
         let path = snapshot_path(&self.config.snapshot_dir, self.group_id, meta);
         let data = snapshot.into_inner();
+        // ステートマシンへも同じスナップショットを適用する。
+        self.state_machine
+            .restore(Box::new(Cursor::new(data.clone())))
+            .await
+            .map_err(|e| {
+                self.to_storage_io_error(e, ErrorSubject::StateMachine, ErrorVerb::Write)
+            })?;
         let meta_bytes = bincode::serialize(meta).map_err(|e| {
             self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
         })?;
@@ -810,12 +818,22 @@ where
     }
 
     async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
+        let mut snapshot_data = self
+            .state_machine
+            .snapshot()
+            .await
+            .expect("state machine snapshot must succeed");
+        let mut data = Vec::new();
+        snapshot_data
+            .read_to_end(&mut data)
+            .await
+            .expect("snapshot read must succeed");
         let meta = SnapshotMeta {
             last_log_id: self.last_applied.clone(),
             last_membership: self.last_membership.clone(),
             snapshot_id: format!("snapshot-{}", now_micros()),
         };
-        WalSnapshotBuilder { meta }
+        WalSnapshotBuilder { meta, data }
     }
 }
 
@@ -909,6 +927,7 @@ where
 /// スナップショットビルダー。
 pub struct WalSnapshotBuilder {
     meta: SnapshotMeta<ChirpsNodeId, BasicNode>,
+    data: Vec<u8>,
 }
 
 impl RaftSnapshotBuilder<ChirpsTypeConfig> for WalSnapshotBuilder {
@@ -919,7 +938,7 @@ impl RaftSnapshotBuilder<ChirpsTypeConfig> for WalSnapshotBuilder {
     > + Send {
         let snapshot = Snapshot {
             meta: self.meta.clone(),
-            snapshot: Box::new(Cursor::new(Vec::new())),
+            snapshot: Box::new(Cursor::new(self.data.clone())),
         };
         async move { Ok(snapshot) }
     }

@@ -120,6 +120,24 @@ impl RaftNode {
         Ok(())
     }
 
+    /// クラスターを初期化する。初回のみ呼び出すこと。
+    pub async fn initialize(&self, members: BTreeSet<ChirpsNodeId>) -> RaftResult<()> {
+        self.raft
+            .initialize(members)
+            .await
+            .map_err(RaftError::from)
+    }
+
+    /// 最新のメトリクススナップショットを取得する。
+    pub fn metrics(&self) -> OpenRaftMetrics<ChirpsNodeId, BasicNode> {
+        self.raft.metrics().borrow().clone()
+    }
+
+    /// 最終適用ログIDを返す。
+    pub fn last_applied_log(&self) -> Option<LogId<ChirpsNodeId>> {
+        self.raft.metrics().borrow().last_applied.clone()
+    }
+
     /// メトリクスコレクタを登録する。登録後は状態変化に応じて自動更新される。
     pub fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
         if let Ok(mut slot) = self.metrics_collector.lock() {
