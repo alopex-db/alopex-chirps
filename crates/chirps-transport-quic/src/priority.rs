@@ -244,7 +244,10 @@ mod tests {
         assert_eq!(sched.dequeue().unwrap().priority, Priority::Normal);
         assert_eq!(sched.dequeue().unwrap().priority, Priority::Low);
         assert_eq!(sched.queue_lengths(), [0, 0, 0]);
-        assert!(sched.dequeue().is_none(), "empty scheduler should return None");
+        assert!(
+            sched.dequeue().is_none(),
+            "empty scheduler should return None"
+        );
     }
 
     #[traced_test]

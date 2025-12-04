@@ -46,7 +46,9 @@ async fn raft_p99_latency_not_degraded_by_snapshot_throttle() {
     let mut baseline = Vec::new();
     for i in 0..200 {
         let start = Instant::now();
-        qos.enqueue(StreamKind::Raft, raft_frame(i, from)).await.unwrap();
+        qos.enqueue(StreamKind::Raft, raft_frame(i, from))
+            .await
+            .unwrap();
         let _ = qos.dequeue().unwrap();
         baseline.push(start.elapsed().as_micros() as u64);
     }
@@ -63,7 +65,9 @@ async fn raft_p99_latency_not_degraded_by_snapshot_throttle() {
         qos.enqueue(StreamKind::RaftSnapshot, raft_frame(i, from))
             .await
             .unwrap();
-        qos.enqueue(StreamKind::Raft, raft_frame(i, from)).await.unwrap();
+        qos.enqueue(StreamKind::Raft, raft_frame(i, from))
+            .await
+            .unwrap();
         let _ = qos.dequeue().unwrap();
         loaded.push(start.elapsed().as_micros() as u64);
     }

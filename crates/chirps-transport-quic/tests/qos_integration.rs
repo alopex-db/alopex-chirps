@@ -32,7 +32,9 @@ async fn raft_p99_latency_under_user_load_stays_within_10pct() {
     let mut baseline_lat = Vec::new();
     for i in 0..500 {
         let start = Instant::now();
-        qos.enqueue(StreamKind::Raft, raft_frame(i, from)).await.unwrap();
+        qos.enqueue(StreamKind::Raft, raft_frame(i, from))
+            .await
+            .unwrap();
         let _ = qos.dequeue().unwrap();
         baseline_lat.push(start.elapsed().as_micros() as u64);
     }
@@ -45,7 +47,9 @@ async fn raft_p99_latency_under_user_load_stays_within_10pct() {
     }
     for i in 0..500 {
         let start = Instant::now();
-        qos.enqueue(StreamKind::Raft, raft_frame(i, from)).await.unwrap();
+        qos.enqueue(StreamKind::Raft, raft_frame(i, from))
+            .await
+            .unwrap();
         let _ = qos.dequeue().unwrap();
         loaded_lat.push(start.elapsed().as_micros() as u64);
     }
@@ -76,7 +80,9 @@ async fn user_throughput_degrades_less_than_10pct_under_raft_load() {
         qos.enqueue(StreamKind::User, user_frame()).await.unwrap();
     }
     for i in 0..1_000 {
-        qos.enqueue(StreamKind::Raft, raft_frame(i, from)).await.unwrap();
+        qos.enqueue(StreamKind::Raft, raft_frame(i, from))
+            .await
+            .unwrap();
     }
     let start = Instant::now();
     let mut drained_users = 0;

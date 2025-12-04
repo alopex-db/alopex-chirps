@@ -124,7 +124,7 @@ impl RetransmissionBuffer {
             .map_err(|e| BufferError::Serialize(e.to_string()))?;
 
         {
-        let peer_buf = self.buffers.entry(peer).or_default();
+            let peer_buf = self.buffers.entry(peer).or_default();
             seq = peer_buf.next_seq;
             peer_buf.next_seq = peer_buf
                 .next_seq

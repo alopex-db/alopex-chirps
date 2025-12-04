@@ -2,6 +2,7 @@ use crate::backend::MessageBackend;
 use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
 use crate::node_id::{NodeId, load_or_create_node_id};
+use crate::profile::{MessageProfile, enforce_profile};
 use chirps_gossip_swim::engine::{
     GossipConfig, GossipEngine, Transport as GossipTransport,
     TransportError as GossipTransportError,
@@ -18,7 +19,6 @@ use std::sync::{
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
-use crate::profile::{MessageProfile, enforce_profile};
 
 /// メッシュへ外部から操作するためのハンドル。
 #[derive(Clone)]
@@ -51,7 +51,8 @@ impl MeshHandle {
 
     /// 接続済みの全ピアへフレームをブロードキャストする。
     pub async fn broadcast(&self, frame: Frame) -> Result<usize, MeshError> {
-        self.broadcast_with_profile(frame, MessageProfile::Control).await
+        self.broadcast_with_profile(frame, MessageProfile::Control)
+            .await
     }
 
     /// プロファイル付きでブロードキャストする。

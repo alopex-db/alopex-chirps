@@ -235,7 +235,12 @@ impl ExtendedTransportMetrics {
             self.retransmission_buffer_bytes
                 .store(bytes, Ordering::Relaxed);
         }
-        debug!(event = "record_retransmit", count, buffer_bytes = buffer_bytes.unwrap_or(0), "record_retransmit");
+        debug!(
+            event = "record_retransmit",
+            count,
+            buffer_bytes = buffer_bytes.unwrap_or(0),
+            "record_retransmit"
+        );
     }
 
     pub fn record_drop(&self) {
@@ -372,10 +377,7 @@ mod tests {
         assert_eq!(snap.backpressure_triggered_total, 1);
         assert_eq!(snap.queue_overflow_total, 1);
         assert_eq!(snap.duplicate_received_total, 1);
-        assert_eq!(
-            *snap.queue_utilization.get(&StreamKind::User).unwrap(),
-            77
-        );
+        assert_eq!(*snap.queue_utilization.get(&StreamKind::User).unwrap(), 77);
         assert_eq!(snap.snapshot_throttle_wait_ms, 55);
         assert!(logs_contain("record_send"));
         assert!(logs_contain("record_receive"));

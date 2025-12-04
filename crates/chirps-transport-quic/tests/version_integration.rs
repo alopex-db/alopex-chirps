@@ -35,5 +35,4 @@ fn v0_3_rejected_with_version_mismatch_log() {
         }
         other => panic!("expected VersionMismatch, got {other:?}"),
     }
-
 }

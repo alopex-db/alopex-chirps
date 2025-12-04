@@ -13,7 +13,10 @@ pub enum MessageProfile {
 }
 
 /// Decide effective profile for a frame. Raft/snapshot traffic must use Control.
-pub fn enforce_profile(frame: &Frame, requested: MessageProfile) -> Result<MessageProfile, &'static str> {
+pub fn enforce_profile(
+    frame: &Frame,
+    requested: MessageProfile,
+) -> Result<MessageProfile, &'static str> {
     if matches!(requested, MessageProfile::Durable) {
         warn!("Durable profile requested but not implemented in v0.4");
         return Err("Durable profile is not implemented in v0.4");

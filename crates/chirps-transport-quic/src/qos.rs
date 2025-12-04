@@ -388,8 +388,8 @@ impl TokenBucket {
 mod tests {
     #![allow(clippy::field_reassign_with_default)]
     use super::*;
-    use chirps_wire::frame::{Frame, UserMessage};
     use crate::BandwidthConfig;
+    use chirps_wire::frame::{Frame, UserMessage};
     use tracing_test::traced_test;
 
     fn user_frame(len: usize) -> Frame {
@@ -431,7 +431,9 @@ mod tests {
         }
 
         assert_eq!(
-            qos.metrics.backpressure_triggered_total.load(Ordering::Relaxed),
+            qos.metrics
+                .backpressure_triggered_total
+                .load(Ordering::Relaxed),
             1
         );
         assert!(qos.is_backpressured(StreamKind::User));
@@ -452,10 +454,7 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
 
-        assert_eq!(
-            qos.metrics.queue_overflow_total.load(Ordering::Relaxed),
-            1
-        );
+        assert_eq!(qos.metrics.queue_overflow_total.load(Ordering::Relaxed), 1);
         assert!(logs_contain("backpressure_triggered"));
     }
 
