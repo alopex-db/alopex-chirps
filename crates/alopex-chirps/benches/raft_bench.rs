@@ -1,5 +1,6 @@
-use alopex_chirps::{ChirpsRaftTransport, RaftConfig, RaftError, RaftNode};
-use anyhow::{Result, bail};
+// Benchmark suite for Chirps Raft integration.
+
+use alopex_chirps::{ChirpsRaftTransport, RaftConfig, RaftNode};
 use chirps_core::backend::MessageBackend;
 use chirps_mock::{MockBackend, MockNetwork};
 use chirps_raft_storage::types::{
@@ -7,11 +8,14 @@ use chirps_raft_storage::types::{
     Snapshot, SnapshotMeta, StoredMembership, Vote,
 };
 use chirps_wire::node_id::NodeId;
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use openraft::storage::{Adaptor, RaftSnapshotBuilder};
 use openraft::{
-    CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader,
-    RaftStorage as OpenRaftStorage, StorageError, StorageIOError,
+    CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader, RaftStorage,
+    StorageError, StorageIOError,
 };
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Debug;
 use std::io::Cursor;
@@ -24,6 +28,8 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
+
+// --- In-memory storage and cluster harness (derived from integration tests) ---
 
 #[derive(Clone)]
 struct TestStateHandle {
@@ -113,7 +119,7 @@ impl RaftLogReader<ChirpsTypeConfig> for MemoryStore {
     }
 }
 
-impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
+impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
     type LogReader = MemoryStore;
     type SnapshotBuilder = MemorySnapshotBuilder;
 
@@ -133,16 +139,6 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         Ok(guard.vote.clone())
     }
 
-    async fn get_log_state(
-        &mut self,
-    ) -> Result<LogState<ChirpsTypeConfig>, StorageError<ChirpsNodeId>> {
-        let guard = self.inner.lock().await;
-        Ok(LogState {
-            last_purged_log_id: guard.last_purged.clone(),
-            last_log_id: guard.logs.last().map(|e| e.log_id.clone()),
-        })
-    }
-
     async fn save_committed(
         &mut self,
         committed: Option<LogId<ChirpsNodeId>>,
@@ -157,6 +153,16 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
     ) -> Result<Option<LogId<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
         let guard = self.inner.lock().await;
         Ok(guard.committed.clone())
+    }
+
+    async fn get_log_state(
+        &mut self,
+    ) -> Result<LogState<ChirpsTypeConfig>, StorageError<ChirpsNodeId>> {
+        let guard = self.inner.lock().await;
+        Ok(LogState {
+            last_purged_log_id: guard.last_purged.clone(),
+            last_log_id: guard.logs.last().map(|e| e.log_id.clone()),
+        })
     }
 
     async fn get_log_reader(&mut self) -> Self::LogReader {
@@ -344,38 +350,26 @@ fn now_micros() -> u64 {
         .as_micros() as u64
 }
 
-struct TestNode {
+struct BenchNode {
     id: ChirpsNodeId,
     node: Arc<RaftNode>,
-    transport: Arc<ChirpsRaftTransport>,
     backend: Arc<dyn MessageBackend>,
-    state: TestStateHandle,
     running: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     pump: JoinHandle<()>,
     ticker: JoinHandle<()>,
 }
 
-impl TestNode {
-    async fn pause(&self) {
-        self.paused.store(true, Ordering::SeqCst);
-    }
-
-    async fn resume(&self) {
-        self.paused.store(false, Ordering::SeqCst);
-    }
-}
-
-struct TestCluster {
+struct BenchCluster {
     group_id: GroupId,
     network: MockNetwork,
-    nodes: HashMap<ChirpsNodeId, TestNode>,
+    nodes: HashMap<ChirpsNodeId, BenchNode>,
     partitioned: Arc<Mutex<HashSet<ChirpsNodeId>>>,
     snapshot_threshold: u64,
 }
 
-impl TestCluster {
-    async fn new(node_ids: &[ChirpsNodeId], snapshot_threshold: u64) -> Result<Self> {
+impl BenchCluster {
+    async fn new(node_ids: &[ChirpsNodeId], snapshot_threshold: u64) -> anyhow::Result<Self> {
         let mut cluster = Self {
             group_id: GroupId(7),
             network: MockNetwork::new(),
@@ -391,7 +385,7 @@ impl TestCluster {
         Ok(cluster)
     }
 
-    async fn add_node(&mut self, id: ChirpsNodeId) -> Result<()> {
+    async fn add_node(&mut self, id: ChirpsNodeId) -> anyhow::Result<()> {
         let backend = self
             .network
             .add_node(to_wire_node(id), MockBackend::ephemeral_addr())
@@ -438,12 +432,10 @@ impl TestCluster {
 
         self.nodes.insert(
             id,
-            TestNode {
+            BenchNode {
                 id,
                 node,
-                transport,
                 backend,
-                state: state_handle,
                 running,
                 paused,
                 pump,
@@ -453,7 +445,7 @@ impl TestCluster {
         Ok(())
     }
 
-    async fn initialize(&self) -> Result<()> {
+    async fn initialize(&self) -> anyhow::Result<()> {
         let members: BTreeSet<_> = self.nodes.keys().copied().collect();
         if let Some(first) = members.iter().next() {
             let leader = self.nodes.get(first).unwrap();
@@ -462,7 +454,7 @@ impl TestCluster {
         Ok(())
     }
 
-    async fn wait_for_leader(&self, timeout: Duration) -> Result<ChirpsNodeId> {
+    async fn wait_for_leader(&self, timeout: Duration) -> anyhow::Result<ChirpsNodeId> {
         let start = Instant::now();
         loop {
             for (_id, node) in &self.nodes {
@@ -471,121 +463,26 @@ impl TestCluster {
                 }
             }
             if start.elapsed() > timeout {
-                bail!("leader not elected within {:?}", timeout);
+                anyhow::bail!("leader not elected within {:?}", timeout);
             }
             sleep(Duration::from_millis(20)).await;
         }
     }
 
-    async fn wait_for_state_len(
-        &self,
-        expected: usize,
-        timeout: Duration,
-        require_all: bool,
-    ) -> Result<()> {
-        let start = Instant::now();
-        loop {
-            let mut all_match = true;
-            for node in self.nodes.values() {
-                let is_partitioned = {
-                    let guard = self.partitioned.lock().await;
-                    guard.contains(&node.id)
-                };
-                if !require_all && (is_partitioned || node.paused.load(Ordering::SeqCst)) {
-                    continue;
-                }
-                if node.state.values().await.len() != expected {
-                    all_match = false;
-                    break;
-                }
-            }
-            if all_match {
-                return Ok(());
-            }
-            if start.elapsed() > timeout {
-                bail!(
-                    "state length did not reach {} within {:?}",
-                    expected,
-                    timeout
-                );
-            }
-            sleep(Duration::from_millis(25)).await;
-        }
-    }
-
-    async fn propose(&self, leader: ChirpsNodeId, payload: &[u8]) -> Result<Vec<u8>> {
+    async fn propose(&self, leader: ChirpsNodeId, payload: &[u8]) -> anyhow::Result<Vec<u8>> {
         let node = self.nodes.get(&leader).unwrap();
         Ok(node.node.propose(payload.to_vec()).await?)
     }
 
-    async fn wait_for_membership(
-        &self,
-        expected: &BTreeSet<ChirpsNodeId>,
-        timeout: Duration,
-    ) -> Result<()> {
-        let start = Instant::now();
-        loop {
-            for node in self.nodes.values() {
-                let metrics = node.node.metrics();
-                let voters = membership_voters(&metrics);
-                if &voters == expected {
-                    return Ok(());
-                }
-            }
-            if start.elapsed() > timeout {
-                bail!(
-                    "membership {:?} not observed within {:?}",
-                    expected,
-                    timeout
-                );
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
-    }
-
-    async fn change_membership_with_retry(
-        &self,
-        leader: ChirpsNodeId,
-        members: BTreeSet<ChirpsNodeId>,
-        timeout: Duration,
-    ) -> Result<()> {
-        let leader_node = self.nodes.get(&leader).unwrap();
-        let mut last_err = None;
-        for _attempt in 0..10 {
-            match leader_node.node.change_membership(members.clone()).await {
-                Ok(()) => {
-                    self.wait_for_membership(&members, timeout).await?;
-                    return Ok(());
-                }
-                Err(RaftError::MembershipChangeInProgress) => {
-                    let _ = self
-                        .wait_for_membership(
-                            &membership_voters(&leader_node.node.metrics()),
-                            timeout,
-                        )
-                        .await;
-                    last_err = Some(RaftError::MembershipChangeInProgress);
-                    sleep(Duration::from_millis(100)).await;
-                    continue;
-                }
-                Err(e) => return Err(e.into()),
-            }
-        }
-        if let Some(e) = last_err {
-            return Err(e.into());
-        }
-        bail!("membership change did not complete after retries");
-    }
-
     async fn pause_node(&self, id: ChirpsNodeId) {
         if let Some(node) = self.nodes.get(&id) {
-            node.pause().await;
+            node.paused.store(true, Ordering::SeqCst);
         }
     }
 
     async fn resume_node(&self, id: ChirpsNodeId) {
         if let Some(node) = self.nodes.get(&id) {
-            node.resume().await;
+            node.paused.store(false, Ordering::SeqCst);
         }
     }
 
@@ -599,12 +496,31 @@ impl TestCluster {
         guard.remove(&id);
     }
 
-    async fn states(&self) -> HashMap<ChirpsNodeId, Vec<Vec<u8>>> {
-        let mut map = HashMap::new();
-        for (id, node) in &self.nodes {
-            map.insert(*id, node.state.values().await);
+    async fn wait_for_state_len(&self, expected: usize, timeout: Duration) -> anyhow::Result<()> {
+        let start = Instant::now();
+        loop {
+            let mut all_match = true;
+            for node in self.nodes.values() {
+                if node.paused.load(Ordering::SeqCst) {
+                    continue;
+                }
+                if node.node.metrics().last_applied.map(|l| l.index as usize) < Some(expected) {
+                    all_match = false;
+                    break;
+                }
+            }
+            if all_match {
+                return Ok(());
+            }
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "state length did not reach {} within {:?}",
+                    expected,
+                    timeout
+                );
+            }
+            sleep(Duration::from_millis(20)).await;
         }
-        map
     }
 }
 
@@ -675,167 +591,123 @@ fn from_wire_node(id: NodeId) -> ChirpsNodeId {
     ChirpsNodeId::from_be_bytes(bytes[8..].try_into().unwrap())
 }
 
-fn membership_voters(
-    metrics: &openraft::metrics::RaftMetrics<ChirpsNodeId, BasicNode>,
-) -> BTreeSet<ChirpsNodeId> {
-    metrics
-        .membership_config
-        .membership()
-        .get_joint_config()
-        .iter()
-        .flatten()
-        .cloned()
-        .collect()
-}
+// --- Benchmarks ---
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn three_node_cluster_elects_leader() -> Result<()> {
-    let cluster = TestCluster::new(&[1, 2, 3], 10).await?;
-    let start = Instant::now();
-    let leader = cluster.wait_for_leader(Duration::from_millis(500)).await?;
-    assert!(
-        start.elapsed() < Duration::from_millis(500),
-        "leader {} elected too slowly",
-        leader
+fn bench_proposal_throughput(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let cluster = rt
+        .block_on(BenchCluster::new(&[1, 2, 3], 50))
+        .expect("cluster");
+    let leader = rt
+        .block_on(cluster.wait_for_leader(Duration::from_millis(800)))
+        .expect("leader");
+    let payload = vec![0u8; 1024];
+
+    c.bench_with_input(
+        BenchmarkId::new("proposal_throughput", "3_nodes_1kb"),
+        &payload,
+        |b, data| {
+            b.to_async(&rt).iter_custom(|iters| {
+                let cluster = &cluster;
+                let data = data.clone();
+                async move {
+                    let start = Instant::now();
+                    for _ in 0..iters {
+                        cluster.propose(leader, &data).await.unwrap();
+                    }
+                    start.elapsed()
+                }
+            });
+        },
     );
-    Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn proposals_replicate_to_all_nodes() -> Result<()> {
-    let cluster = TestCluster::new(&[11, 12, 13], 20).await?;
-    let leader = cluster.wait_for_leader(Duration::from_millis(800)).await?;
-    cluster.propose(leader, b"cmd-1").await?;
-    cluster.propose(leader, b"cmd-2").await?;
-    cluster
-        .wait_for_state_len(2, Duration::from_secs(1), true)
-        .await?;
+fn bench_proposal_latency(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let cluster = rt
+        .block_on(BenchCluster::new(&[11, 12, 13], 50))
+        .expect("cluster");
+    let leader = rt
+        .block_on(cluster.wait_for_leader(Duration::from_millis(800)))
+        .expect("leader");
+    let payload = vec![1u8; 256];
 
-    let states = cluster.states().await;
-    let expected: Vec<Vec<u8>> = vec![b"cmd-1".to_vec(), b"cmd-2".to_vec()];
-    for (id, values) in states {
-        assert_eq!(values, expected, "state mismatch on node {}", id);
-    }
-    Ok(())
+    c.bench_function("proposal_latency_p99", |b| {
+        b.to_async(&rt).iter_custom(|iters| {
+            let cluster = &cluster;
+            let mut rng = StdRng::seed_from_u64(7);
+            let payload = payload.clone();
+            async move {
+                let mut latencies = Vec::with_capacity(iters as usize);
+                for _ in 0..iters {
+                    let mut data = payload.clone();
+                    data[0] = rng.r#gen();
+                    let start = Instant::now();
+                    cluster.propose(leader, &data).await.unwrap();
+                    latencies.push(start.elapsed());
+                }
+                latencies.sort();
+                let p99_idx = ((latencies.len().saturating_sub(1) as f64) * 0.99) as usize;
+                let p99 = latencies[p99_idx];
+                println!("p99 latency: {:?} over {} samples", p99, iters);
+                latencies.iter().sum()
+            }
+        });
+    });
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn membership_changes_promote_and_remove_voters() -> Result<()> {
-    let mut cluster = TestCluster::new(&[21, 22], 15).await?;
-    cluster.add_node(23).await?;
-    let leader = cluster.wait_for_leader(Duration::from_millis(800)).await?;
-    let initial_voters: BTreeSet<_> = [21u64, 22u64].into_iter().collect();
-    cluster
-        .wait_for_membership(&initial_voters, Duration::from_secs(1))
-        .await?;
+fn bench_election_time(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let cluster = rt
+        .block_on(BenchCluster::new(&[21, 22, 23], 50))
+        .expect("cluster");
 
-    cluster
-        .nodes
-        .get(&leader)
-        .unwrap()
-        .node
-        .add_learner(
-            23,
-            BasicNode {
-                addr: "node-23".into(),
-            },
-        )
-        .await?;
-    cluster
-        .change_membership_with_retry(
-            leader,
-            [21u64, 22u64, 23u64].into_iter().collect(),
-            Duration::from_secs(1),
-        )
-        .await?;
-    cluster.propose(leader, b"after-promotion").await?;
-    cluster
-        .wait_for_state_len(1, Duration::from_secs(2), true)
-        .await?;
-
-    let removal: BTreeSet<_> = [21u64, 23u64].into_iter().collect();
-    cluster
-        .change_membership_with_retry(leader, removal, Duration::from_secs(2))
-        .await?;
-    cluster.propose(leader, b"after-removal").await?;
-    cluster.isolate(22).await;
-    cluster
-        .wait_for_state_len(2, Duration::from_secs(2), false)
-        .await?;
-    Ok(())
+    c.bench_function("leader_election_after_failure", |b| {
+        b.to_async(&rt).iter_custom(|iters| {
+            let cluster = &cluster;
+            async move {
+                let mut total = Duration::from_millis(0);
+                for _ in 0..iters {
+                    let leader = cluster
+                        .wait_for_leader(Duration::from_millis(800))
+                        .await
+                        .unwrap();
+                    cluster.pause_node(leader).await;
+                    let start = Instant::now();
+                    let new_leader = cluster
+                        .wait_for_leader(Duration::from_millis(1000))
+                        .await
+                        .unwrap();
+                    total += start.elapsed();
+                    cluster.resume_node(leader).await;
+                    cluster.heal(new_leader).await;
+                }
+                total
+            }
+        });
+    });
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn snapshot_transfer_catches_up_new_node() -> Result<()> {
-    let mut cluster = TestCluster::new(&[31, 32, 33], 5).await?;
-    let leader = cluster.wait_for_leader(Duration::from_millis(800)).await?;
-    for i in 0..8u8 {
-        cluster.propose(leader, &[i]).await?;
-    }
-    cluster
-        .wait_for_state_len(8, Duration::from_secs(2), true)
-        .await?;
-
-    cluster.add_node(34).await?;
-    cluster
-        .nodes
-        .get(&leader)
-        .unwrap()
-        .node
-        .add_learner(
-            34,
-            BasicNode {
-                addr: "node-34".into(),
-            },
-        )
-        .await?;
-    cluster
-        .nodes
-        .get(&leader)
-        .unwrap()
-        .node
-        .change_membership([31u64, 32u64, 33u64, 34u64].into_iter().collect())
-        .await?;
-    cluster
-        .wait_for_state_len(8, Duration::from_secs(3), true)
-        .await?;
-    cluster.propose(leader, b"post-snapshot").await?;
-    cluster
-        .wait_for_state_len(9, Duration::from_secs(2), true)
-        .await?;
-    Ok(())
+fn bench_snapshot_build(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    c.bench_function("snapshot_build_100mb", |b| {
+        b.to_async(&rt).iter(|| async {
+            let state_handle = TestStateHandle {
+                data: Arc::new(Mutex::new(vec![vec![42u8; 100 * 1024 * 1024]])),
+            };
+            let mut store = MemoryStore::new(state_handle.clone());
+            let mut builder = store.get_snapshot_builder().await;
+            let snapshot = builder.build_snapshot().await.unwrap();
+            criterion::black_box(snapshot);
+        });
+    });
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn cluster_handles_node_failure_and_partition() -> Result<()> {
-    let cluster = TestCluster::new(&[41, 42, 43], 20).await?;
-    let leader = cluster.wait_for_leader(Duration::from_millis(800)).await?;
-
-    cluster.propose(leader, b"before-failure").await?;
-    cluster
-        .wait_for_state_len(1, Duration::from_secs(1), true)
-        .await?;
-
-    let failing = if leader == 41 { 42 } else { 41 };
-    cluster.pause_node(failing).await;
-    cluster.propose(leader, b"during-failure").await?;
-    cluster
-        .wait_for_state_len(2, Duration::from_secs(1), false)
-        .await?;
-    cluster.resume_node(failing).await;
-    cluster
-        .wait_for_state_len(2, Duration::from_secs(2), true)
-        .await?;
-
-    let isolated = 43;
-    cluster.isolate(isolated).await;
-    cluster.propose(leader, b"during-partition").await?;
-    cluster
-        .wait_for_state_len(3, Duration::from_secs(1), false)
-        .await?;
-    cluster.heal(isolated).await;
-    cluster
-        .wait_for_state_len(3, Duration::from_secs(2), true)
-        .await?;
-    Ok(())
-}
+criterion_group!(
+    raft_benches,
+    bench_proposal_throughput,
+    bench_proposal_latency,
+    bench_election_time,
+    bench_snapshot_build
+);
+criterion_main!(raft_benches);

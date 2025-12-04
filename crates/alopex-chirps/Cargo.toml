@@ -27,3 +27,5 @@ tempfile = "3"
 serde_json = "1.0"
 tracing-subscriber = "0.3"
 chirps-mock = { path = "../chirps-mock" }
+criterion = { version = "0.5", features = ["async_tokio"] }
+rand = "0.8"

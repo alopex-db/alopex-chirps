@@ -122,10 +122,7 @@ impl RaftNode {
 
     /// クラスターを初期化する。初回のみ呼び出すこと。
     pub async fn initialize(&self, members: BTreeSet<ChirpsNodeId>) -> RaftResult<()> {
-        self.raft
-            .initialize(members)
-            .await
-            .map_err(RaftError::from)
+        self.raft.initialize(members).await.map_err(RaftError::from)
     }
 
     /// 最新のメトリクススナップショットを取得する。
