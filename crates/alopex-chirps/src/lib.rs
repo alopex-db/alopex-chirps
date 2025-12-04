@@ -6,6 +6,7 @@ pub mod error;
 pub mod mesh;
 pub mod node_id;
 pub mod profile;
+pub mod raft;
 
 use crate::config::NodeConfig;
 use crate::error::MeshError;
@@ -13,6 +14,7 @@ use crate::mesh::Mesh;
 pub use crate::mesh::MeshHandle;
 pub use crate::node_id::NodeId;
 pub use crate::profile::{MessageProfile, enforce_profile};
+pub use crate::raft::{ChirpsRaftTransport, RaftConfig, RaftError, RaftMessage, RaftNode};
 pub use chirps_wire::frame::{Frame, UserMessage};
 
 /// 新しいメッシュを起動する。設定の検証・NodeId永続化・QUICトランスポート・ゴシップエンジンをまとめて初期化する。

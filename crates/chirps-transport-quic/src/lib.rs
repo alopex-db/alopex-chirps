@@ -680,6 +680,8 @@ async fn handle_incoming_stream(
 
 fn stream_kind_for_frame(frame: &Frame) -> StreamKind {
     match frame {
+        Frame::Raft(_) => StreamKind::Raft,
+        Frame::RaftSnapshot(_) => StreamKind::RaftSnapshot,
         Frame::User(_) => StreamKind::User,
         _ => StreamKind::Gossip,
     }

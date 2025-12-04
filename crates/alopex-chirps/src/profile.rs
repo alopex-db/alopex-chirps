@@ -31,7 +31,5 @@ pub fn enforce_profile(
 }
 
 fn is_raft_frame(_frame: &Frame) -> bool {
-    // Placeholder: chirps-wire frames currently don't encode Raft messages explicitly.
-    // When Raft wire types land, update this matcher to detect AppendEntries/Vote/Snapshot frames.
-    false
+    matches!(_frame, Frame::Raft(_) | Frame::RaftSnapshot(_))
 }

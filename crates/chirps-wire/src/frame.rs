@@ -20,6 +20,10 @@ pub enum Frame {
     },
     Gossip(GossipMessage),
     User(UserMessage),
+    /// Raft RPC用の汎用フレーム。payloadは上位層でbincodeシリアライズされたRPCを格納する。
+    Raft(RaftFrame),
+    /// スナップショット転送専用フレーム。
+    RaftSnapshot(RaftFrame),
 }
 
 /// A gossip message containing membership updates.
@@ -31,6 +35,15 @@ pub struct GossipMessage {
 /// A user-defined message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserMessage {
+    pub payload: Vec<u8>,
+}
+
+/// Raft関連のペイロードを運ぶフレーム。
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RaftFrame {
+    /// Raftグループを識別するID。
+    pub group_id: u64,
+    /// シリアライズ済みのRPC/レスポンス。
     pub payload: Vec<u8>,
 }
 

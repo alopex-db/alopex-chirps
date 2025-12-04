@@ -104,13 +104,11 @@ impl RealWalSink {
 impl WalSink for RealWalSink {
     fn append(&mut self, record: &CoreWalRecord, _sync: bool) -> Result<()> {
         let mut guard = self.inner.lock().unwrap();
-        guard.append_with_sync(record, _sync)?;
+        guard.append(record)?;
         Ok(())
     }
 
     fn sync(&mut self) -> Result<()> {
-        let mut guard = self.inner.lock().unwrap();
-        guard.sync()?;
         Ok(())
     }
 

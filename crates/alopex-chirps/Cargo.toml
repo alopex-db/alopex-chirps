@@ -16,7 +16,9 @@ chirps-wire = { path = "../chirps-wire" }
 chirps-core = { path = "../chirps-core" }
 chirps-transport-quic = { path = "../chirps-transport-quic" }
 chirps-gossip-swim = { path = "../chirps-gossip-swim" }
+chirps-raft-storage = { path = "../chirps-raft-storage" }
 tracing = "0.1"
+openraft = { version = "=0.9.17", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3"
