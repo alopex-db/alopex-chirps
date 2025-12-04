@@ -14,10 +14,10 @@ use std::path::Path;
 ///
 /// A tuple containing the `NodeId` and the initial incarnation number.
 pub fn load_or_create_node_id(path: &Path) -> Result<(NodeId, u64), MeshError> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
     }
 
     if path.exists() {

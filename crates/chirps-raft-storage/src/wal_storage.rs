@@ -23,6 +23,8 @@ use tokio::io::AsyncReadExt;
 /// WALファイルのマジックナンバー。
 const WAL_MAGIC: [u8; 4] = *b"RWAL";
 /// 現行のフォーマットバージョン。
+///
+/// この値がスナップショットやWALに埋め込まれ、互換性チェックに使われる。
 pub const CURRENT_FORMAT_VERSION: u32 = 1;
 /// WalWriterに埋め込むキー。
 const WAL_KEY: &[u8] = b"raft";
@@ -32,6 +34,22 @@ const SNAP_MAGIC: [u8; 4] = *b"SNAP";
 const SNAP_VERSION: u32 = 1;
 
 /// WALストレージの設定値。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use chirps_raft_storage::wal_storage::WalStorageConfig;
+///
+/// let config = WalStorageConfig {
+///     wal_dir: "/tmp/chirps/wal".into(),
+///     snapshot_dir: "/tmp/chirps/snapshot".into(),
+///     log_cache_size: 2048,
+///     fsync_interval: 0,
+///     format_version: 1,
+///     snapshot_chunk_size: 8 * 1024,
+/// };
+/// assert_eq!(config.fsync_interval, 0); // すべてのエントリでfsync
+/// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalStorageConfig {
     pub wal_dir: PathBuf,
@@ -56,7 +74,9 @@ impl Default for WalStorageConfig {
     }
 }
 
-/// WALヘッダ。
+/// WALファイルの先頭に書き込むメタ情報。
+///
+/// `magic`と`format_version`でファイル整合性を確認し、`group_id`/`node_id`でどのクラスタのWALかを識別する。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalHeader {
     pub magic: [u8; 4],
@@ -68,6 +88,20 @@ pub struct WalHeader {
 }
 
 /// Raft向けWALレコード。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use chirps_raft_storage::wal_storage::RaftWalRecord;
+/// use chirps_raft_storage::types::{Entry, ChirpsTypeConfig, Vote};
+///
+/// let vote = Vote::new(1, 1);
+/// let record = RaftWalRecord::Vote(vote);
+/// match record {
+///     RaftWalRecord::Vote(v) => assert_eq!(v.leader_id, Some(1)),
+///     _ => unreachable!(),
+/// }
+/// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RaftWalRecord {
     AppendLog(Entry<ChirpsTypeConfig>),
@@ -119,7 +153,53 @@ impl WalSink for RealWalSink {
     }
 }
 
-/// WalRaftStorage本体。
+/// openraft互換のWALベースストレージ実装。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use chirps_raft_storage::traits::{StateMachine, StateMachineResult};
+/// use chirps_raft_storage::types::{GroupId, ChirpsNodeId, LogId};
+/// use chirps_raft_storage::wal_storage::{WalRaftStorage, WalStorageConfig};
+/// use async_trait::async_trait;
+/// use tokio::io::Cursor;
+///
+/// #[derive(Default)]
+/// struct MemoryStateMachine;
+///
+/// #[async_trait]
+/// impl StateMachine for MemoryStateMachine {
+///     type Command = Vec<u8>;
+///     type Response = Vec<u8>;
+///
+///     async fn apply(
+///         &mut self,
+///         _log_id: LogId<ChirpsNodeId>,
+///         command: Self::Command,
+///     ) -> StateMachineResult<Self::Response> {
+///         Ok(command)
+///     }
+///
+///     async fn snapshot(&self) -> StateMachineResult<Box<dyn tokio::io::AsyncRead + tokio::io::AsyncSeek + Send + Sync + Unpin>> {
+///         Ok(Box::new(Cursor::new(Vec::new())))
+///     }
+///
+///     async fn restore(
+///         &mut self,
+///         _snapshot: Box<dyn tokio::io::AsyncRead + tokio::io::AsyncSeek + Send + Sync + Unpin>,
+///     ) -> StateMachineResult<()> {
+///         Ok(())
+///     }
+/// }
+///
+/// let mut storage = WalRaftStorage::new(
+///     WalStorageConfig::default(),
+///     GroupId(1),
+///     1,
+///     MemoryStateMachine::default(),
+/// )?;
+/// assert_eq!(storage.get_log_state().await?.last_log_id, None);
+/// ```
 pub struct WalRaftStorage<SM>
 where
     SM: StateMachine<Command = Vec<u8>, Response = Vec<u8>>,
@@ -147,6 +227,8 @@ where
     SM: StateMachine<Command = Vec<u8>, Response = Vec<u8>>,
 {
     /// 新規または既存WALからストレージを初期化する。
+    ///
+    /// `WalStorageConfig`の`wal_dir`/`snapshot_dir`が存在しない場合は自動で作成される。
     pub fn new(
         config: WalStorageConfig,
         group_id: GroupId,
@@ -157,6 +239,8 @@ where
     }
 
     /// 既存WALから状態を復元する。
+    ///
+    /// すでにWALファイルが存在する場合はログやVoteを読み取り、`WalRaftStorage`を整合状態で返す。
     pub fn recover(
         config: WalStorageConfig,
         group_id: GroupId,
@@ -250,26 +334,23 @@ where
     fn replay_wal(&mut self) -> Result<()> {
         let reader = WalReader::new(&self.wal_path)?;
         for record in reader {
-            match record? {
-                CoreWalRecord::Put(_, _, value) => {
-                    let frame: WalFrame = decode_frame(&value)?;
-                    match frame {
-                        WalFrame::Header(header) => {
-                            if header.magic != WAL_MAGIC {
-                                return Err(anyhow!("invalid wal magic"));
-                            }
-                            if header.format_version != self.config.format_version {
-                                return Err(anyhow!(
-                                    "wal format version mismatch: expected {}, got {}",
-                                    self.config.format_version,
-                                    header.format_version
-                                ));
-                            }
+            if let CoreWalRecord::Put(_, _, value) = record? {
+                let frame: WalFrame = decode_frame(&value)?;
+                match frame {
+                    WalFrame::Header(header) => {
+                        if header.magic != WAL_MAGIC {
+                            return Err(anyhow!("invalid wal magic"));
                         }
-                        WalFrame::Record(rec) => self.apply_wal_record(rec)?,
+                        if header.format_version != self.config.format_version {
+                            return Err(anyhow!(
+                                "wal format version mismatch: expected {}, got {}",
+                                self.config.format_version,
+                                header.format_version
+                            ));
+                        }
                     }
+                    WalFrame::Record(rec) => self.apply_wal_record(rec)?,
                 }
-                _ => {}
             }
         }
         Ok(())
@@ -278,10 +359,9 @@ where
     fn apply_wal_record(&mut self, record: RaftWalRecord) -> Result<()> {
         match record {
             RaftWalRecord::AppendLog(entry) => {
-                self.last_applied = Some(entry.log_id.clone());
+                self.last_applied = Some(entry.log_id);
                 if let EntryPayload::Membership(m) = &entry.payload {
-                    self.last_membership =
-                        StoredMembership::new(Some(entry.log_id.clone()), m.clone());
+                    self.last_membership = StoredMembership::new(Some(entry.log_id), m.clone());
                 }
                 self.insert_entry(entry);
             }
@@ -289,9 +369,9 @@ where
                 self.vote = Some(vote);
             }
             RaftWalRecord::SnapshotApplied(meta) => {
-                self.snapshot_meta = Some(meta.clone());
-                self.last_applied = meta.last_log_id.clone();
+                self.last_applied = meta.last_log_id;
                 self.last_membership = meta.last_membership.clone();
+                self.snapshot_meta = Some(meta);
             }
             RaftWalRecord::Truncate(log_id) => {
                 self.truncate_cache(log_id.index);
@@ -358,12 +438,13 @@ where
     fn last_log_id(&self) -> Option<LogId<ChirpsNodeId>> {
         self.log_cache
             .iter()
-            .rev()
-            .next()
-            .map(|(_, entry)| entry.log_id.clone())
+            .next_back()
+            .map(|(_, entry)| entry.log_id)
     }
 
     /// LogIdベースの取得ヘルパー。
+    ///
+    /// openraft標準のindex指定APIを補完するために用意されたラッパー。
     pub async fn get_entries_by_log_id(
         &mut self,
         range: RangeInclusive<LogId<ChirpsNodeId>>,
@@ -379,7 +460,7 @@ where
         subject: ErrorSubject<ChirpsNodeId>,
         verb: ErrorVerb,
     ) -> StorageError<ChirpsNodeId> {
-        let io_err = io::Error::new(io::ErrorKind::Other, err.into().to_string());
+        let io_err = io::Error::other(err.into().to_string());
         StorageError::from_io_error(subject, verb, io_err)
     }
 
@@ -440,21 +521,23 @@ where
             sync_now,
         )?;
 
-        self.last_applied = Some(entry.log_id.clone());
+        self.last_applied = Some(entry.log_id);
         if let EntryPayload::Membership(m) = &entry.payload {
-            self.last_membership = StoredMembership::new(Some(entry.log_id.clone()), m.clone());
+            self.last_membership = StoredMembership::new(Some(entry.log_id), m.clone());
         }
         self.insert_entry(entry);
 
-        if !sync_now && self.config.fsync_interval > 0 {
-            if self.pending_unsynced >= self.config.fsync_interval {
-                self.sync_wal()?;
-            }
+        if !sync_now
+            && self.config.fsync_interval > 0
+            && self.pending_unsynced >= self.config.fsync_interval
+        {
+            self.sync_wal()?;
         }
 
         Ok(())
     }
 
+    /// テスト専用の追記ヘルパー。fsync制御やキャッシュ更新ロジックも本番と同じコードを通る。
     #[cfg(test)]
     pub async fn append_for_test(&mut self, entries: Vec<Entry<ChirpsTypeConfig>>) -> Result<()> {
         if entries.is_empty() {
@@ -483,7 +566,7 @@ where
         &mut self,
     ) -> Result<LogState<ChirpsTypeConfig>, StorageError<ChirpsNodeId>> {
         Ok(LogState {
-            last_purged_log_id: self.last_purged_log_id.clone(),
+            last_purged_log_id: self.last_purged_log_id,
             last_log_id: self.last_log_id(),
         })
     }
@@ -542,9 +625,7 @@ where
 
         match res {
             Ok(()) => callback.log_io_completed(Ok(())),
-            Err(e) => {
-                callback.log_io_completed(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
-            }
+            Err(e) => callback.log_io_completed(Err(io::Error::other(e.to_string()))),
         }
     }
 
@@ -552,11 +633,8 @@ where
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(
-            &WalFrame::Record(RaftWalRecord::Truncate(log_id.clone())),
-            true,
-        )
-        .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
+        self.write_frame(&WalFrame::Record(RaftWalRecord::Truncate(log_id)), true)
+            .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
         self.truncate_cache(log_id.index);
         Ok(())
     }
@@ -565,11 +643,8 @@ where
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(
-            &WalFrame::Record(RaftWalRecord::Purge(log_id.clone())),
-            true,
-        )
-        .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
+        self.write_frame(&WalFrame::Record(RaftWalRecord::Purge(log_id)), true)
+            .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
         self.purge_cache(log_id.index);
         self.last_purged_log_id = Some(log_id);
         Ok(())
@@ -584,7 +659,7 @@ where
         ),
         StorageError<ChirpsNodeId>,
     > {
-        Ok((self.last_applied.clone(), self.last_membership.clone()))
+        Ok((self.last_applied, self.last_membership.clone()))
     }
 
     async fn apply<I>(&mut self, entries: I) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>>
@@ -594,24 +669,17 @@ where
     {
         let mut responses = Vec::new();
         for entry in entries {
-            self.last_applied = Some(entry.log_id.clone());
-            match entry.payload.clone() {
+            let log_id = entry.log_id;
+            self.last_applied = Some(log_id);
+            match entry.payload {
                 EntryPayload::Normal(cmd) => {
-                    let resp = self
-                        .state_machine
-                        .apply(entry.log_id.clone(), cmd)
-                        .await
-                        .map_err(|e| {
-                            self.to_storage_io_error(
-                                e,
-                                ErrorSubject::StateMachine,
-                                ErrorVerb::Write,
-                            )
-                        })?;
+                    let resp = self.state_machine.apply(log_id, cmd).await.map_err(|e| {
+                        self.to_storage_io_error(e, ErrorSubject::StateMachine, ErrorVerb::Write)
+                    })?;
                     responses.push(resp);
                 }
                 EntryPayload::Membership(m) => {
-                    self.last_membership = StoredMembership::new(Some(entry.log_id.clone()), m);
+                    self.last_membership = StoredMembership::new(Some(log_id), m);
                 }
                 EntryPayload::Blank => {}
             }
@@ -623,16 +691,16 @@ where
         &mut self,
         vote: &Vote<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(&WalFrame::Record(RaftWalRecord::Vote(vote.clone())), true)
+        self.write_frame(&WalFrame::Record(RaftWalRecord::Vote(*vote)), true)
             .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Vote, ErrorVerb::Write))?;
-        self.vote = Some(vote.clone());
+        self.vote = Some(*vote);
         Ok(())
     }
 
     async fn read_vote(
         &mut self,
     ) -> Result<Option<Vote<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
-        Ok(self.vote.clone())
+        Ok(self.vote)
     }
 
     async fn begin_receiving_snapshot(
@@ -701,13 +769,14 @@ where
         std::fs::write(&path, buf).map_err(|e| {
             self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
         })?;
-        self.snapshot_meta = Some(meta.clone());
+        let meta_cloned = meta.clone();
+        self.snapshot_meta = Some(meta_cloned.clone());
         self.snapshot_path = Some(path);
-        self.last_applied = meta.last_log_id.clone();
+        self.last_applied = meta.last_log_id;
         self.last_membership = meta.last_membership.clone();
         // 記録をWALに残し、リカバリで反映できるようにする。
         self.write_frame(
-            &WalFrame::Record(RaftWalRecord::SnapshotApplied(meta.clone())),
+            &WalFrame::Record(RaftWalRecord::SnapshotApplied(meta_cloned)),
             true,
         )
         .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write))?;
@@ -722,7 +791,7 @@ where
                 let bytes = std::fs::read(path).map_err(|e| {
                     self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Read)
                 })?;
-                if bytes.len() < 20 || &bytes[..4] != SNAP_MAGIC {
+                if bytes.len() < 20 || bytes[..4] != SNAP_MAGIC {
                     return Err(self.to_storage_io_error(
                         anyhow!("invalid snapshot header"),
                         ErrorSubject::Snapshot(None),
@@ -829,7 +898,7 @@ where
             .await
             .expect("snapshot read must succeed");
         let meta = SnapshotMeta {
-            last_log_id: self.last_applied.clone(),
+            last_log_id: self.last_applied,
             last_membership: self.last_membership.clone(),
             snapshot_id: format!("snapshot-{}", now_micros()),
         };
@@ -882,6 +951,7 @@ fn now_micros() -> u64 {
 }
 
 /// ログ読み出し用リーダー。
+/// WALからログエントリを順序付きで読み出すシンプルなリーダー。
 pub struct WalLogReader {
     entries: Vec<Entry<ChirpsTypeConfig>>,
 }
@@ -925,6 +995,7 @@ where
 }
 
 /// スナップショットビルダー。
+/// スナップショット構築用のビルダー。WALで保持しているスナップショットパスを参照し、`RaftSnapshotBuilder`を実装する。
 pub struct WalSnapshotBuilder {
     meta: SnapshotMeta<ChirpsNodeId, BasicNode>,
     data: Vec<u8>,

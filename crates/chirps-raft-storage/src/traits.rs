@@ -18,6 +18,43 @@ impl<T> AsyncSnapshotData for T where T: AsyncRead + AsyncSeek + Send + Sync + U
 pub type StateMachineResult<T> = anyhow::Result<T>;
 
 /// アプリケーション固有のステートマシン抽象。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
+/// use chirps_raft_storage::types::LogId;
+/// use async_trait::async_trait;
+/// use tokio::io::Cursor;
+///
+/// #[derive(Default)]
+/// struct KvStateMachine;
+///
+/// #[async_trait]
+/// impl StateMachine for KvStateMachine {
+///     type Command = Vec<u8>;
+///     type Response = Vec<u8>;
+///
+///     async fn apply(
+///         &mut self,
+///         log_id: LogId<u64>,
+///         command: Self::Command,
+///     ) -> StateMachineResult<Self::Response> {
+///         // ここでコマンドをメモリ上の状態に反映する
+///         let _ = log_id;
+///         Ok(command)
+///     }
+///
+///     async fn snapshot(&self) -> StateMachineResult<Box<dyn AsyncSnapshotData>> {
+///         Ok(Box::new(Cursor::new(Vec::new())))
+///     }
+///
+///     async fn restore(&mut self, snapshot: Box<dyn AsyncSnapshotData>) -> StateMachineResult<()> {
+///         let _ = snapshot;
+///         Ok(())
+///     }
+/// }
+/// ```
 #[async_trait]
 pub trait StateMachine: Send + Sync + 'static {
     /// コマンド型。シリアライズ可能であること。
@@ -40,6 +77,128 @@ pub trait StateMachine: Send + Sync + 'static {
 }
 
 /// openraft v0.9.17互換のRaftStorage抽象。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use chirps_raft_storage::traits::{RaftStorage, StateMachine};
+/// use chirps_raft_storage::types::{ChirpsTypeConfig, Entry, LogFlushed, LogId};
+/// use async_trait::async_trait;
+///
+/// struct InMemoryStorage {
+///     entries: Vec<Entry<ChirpsTypeConfig>>,
+/// }
+///
+/// #[async_trait]
+/// impl RaftStorage<ChirpsTypeConfig> for InMemoryStorage {
+///     type LogReader = ();
+///     type SnapshotBuilder = ();
+///
+///     async fn get_log_state(
+///         &mut self,
+///     ) -> Result<openraft::LogState<ChirpsTypeConfig>, openraft::StorageError<u64>> {
+///         Ok(openraft::LogState {
+///             last_purged_log_id: None,
+///             last_log_id: self.entries.last().map(|e| e.log_id.clone()),
+///         })
+///     }
+///
+///     async fn try_get_log_entries<RB>(
+///         &mut self,
+///         _range: RB,
+///     ) -> Result<Vec<Entry<ChirpsTypeConfig>>, openraft::StorageError<u64>>
+///     where
+///         RB: std::ops::RangeBounds<u64> + Clone + std::fmt::Debug + openraft::OptionalSend,
+///     {
+///         Ok(self.entries.clone())
+///     }
+///
+///     async fn append<I>(&mut self, entries: I, callback: LogFlushed<ChirpsTypeConfig>)
+///     where
+///         I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + Send,
+///         I::IntoIter: Send,
+///     {
+///         self.entries.extend(entries);
+///         callback.log_io_completed(Ok(()));
+///     }
+///
+///     async fn truncate(
+///         &mut self,
+///         _log_id: LogId<u64>,
+///     ) -> Result<(), openraft::StorageError<u64>> {
+///         Ok(())
+///     }
+///
+///     async fn purge(
+///         &mut self,
+///         _log_id: LogId<u64>,
+///     ) -> Result<(), openraft::StorageError<u64>> {
+///         Ok(())
+///     }
+///
+///     async fn applied_state(
+///         &mut self,
+///     ) -> Result<
+///         (
+///             Option<LogId<u64>>,
+///             openraft::StoredMembership<u64, openraft::BasicNode>,
+///         ),
+///         openraft::StorageError<u64>,
+///     > {
+///         Ok((None, openraft::StoredMembership::default()))
+///     }
+///
+///     async fn apply<I>(
+///         &mut self,
+///         _entries: I,
+///     ) -> Result<Vec<Vec<u8>>, openraft::StorageError<u64>>
+///     where
+///         I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + Send,
+///         I::IntoIter: Send,
+///     {
+///         Ok(Vec::new())
+///     }
+///
+///     async fn save_vote(
+///         &mut self,
+///         _vote: &openraft::Vote<u64>,
+///     ) -> Result<(), openraft::StorageError<u64>> {
+///         Ok(())
+///     }
+///
+///     async fn read_vote(
+///         &mut self,
+///     ) -> Result<Option<openraft::Vote<u64>>, openraft::StorageError<u64>> {
+///         Ok(None)
+///     }
+///
+///     async fn begin_receiving_snapshot(
+///         &mut self,
+///     ) -> Result<Box<ChirpsTypeConfig::SnapshotData>, openraft::StorageError<u64>> {
+///         Ok(Box::new(std::io::Cursor::new(Vec::new())))
+///     }
+///
+///     async fn install_snapshot(
+///         &mut self,
+///         _meta: &openraft::SnapshotMeta<u64, openraft::BasicNode>,
+///         _snapshot: Box<ChirpsTypeConfig::SnapshotData>,
+///     ) -> Result<(), openraft::StorageError<u64>> {
+///         Ok(())
+///     }
+///
+///     async fn get_current_snapshot(
+///         &mut self,
+///     ) -> Result<Option<openraft::Snapshot<ChirpsTypeConfig>>, openraft::StorageError<u64>> {
+///         Ok(None)
+///     }
+///
+///     fn set_purgeable_horizon(&mut self, _horizon: Option<LogId<u64>>) {}
+///
+///     async fn get_log_reader(&mut self) -> Self::LogReader {}
+///
+///     async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {}
+/// }
+/// ```
 #[async_trait]
 pub trait RaftStorage<C: RaftTypeConfig>: Send + Sync + 'static {
     /// ログ読み出し用リーダー。

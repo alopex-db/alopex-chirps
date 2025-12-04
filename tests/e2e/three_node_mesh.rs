@@ -89,6 +89,9 @@ impl TestNode {
                                 Frame::User(user) => {
                                     let _ = user_tx.send((from, user.payload)).await;
                                 }
+                                Frame::Raft(_) | Frame::RaftSnapshot(_) => {
+                                    // Raftフレームはこのテストでは扱わない
+                                }
                             }
                         }
                         None => break,

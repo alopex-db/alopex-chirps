@@ -2,6 +2,18 @@ use chirps_raft_storage::types::{ChirpsNodeId, GroupId};
 use serde::{Deserialize, Serialize};
 
 /// Raftグループの挙動を制御する設定値。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use alopex_chirps::raft::RaftConfig;
+/// use chirps_raft_storage::types::GroupId;
+///
+/// let mut cfg = RaftConfig::default();
+/// cfg.group_id = GroupId(10);
+/// cfg.node_id = 1;
+/// cfg.election_timeout_ms = 300;
+/// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RaftConfig {
     /// グループID

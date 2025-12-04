@@ -76,7 +76,7 @@ impl From<(GroupId, OpenRaftMetrics<ChirpsNodeId, BasicNode>)> for RaftMetricsUp
             commit_index: metrics.last_applied.as_ref().map(|id| id.index),
             applied_index: metrics.last_applied.as_ref().map(|id| id.index),
             last_log_index,
-            leader_id: metrics.current_leader.clone(),
+            leader_id: metrics.current_leader,
             votes_granted: if metrics.vote.committed {
                 Some(1)
             } else {
@@ -98,6 +98,26 @@ pub enum MetricsError {
 }
 
 /// Prometheus出力を管理するコレクタ。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use alopex_chirps::raft::metrics::{RaftMetricsCollector, RaftMetricsUpdate};
+/// use chirps_raft_storage::types::GroupId;
+/// use openraft::ServerState;
+///
+/// let collector = RaftMetricsCollector::new();
+/// collector.update(&RaftMetricsUpdate {
+///     group_id: GroupId(1),
+///     node_id: 1,
+///     state: ServerState::Leader,
+///     term: 5,
+///     commit_index: Some(10),
+///     ..Default::default()
+/// });
+/// let response = alopex_chirps::raft::metrics::serve_metrics(&collector);
+/// assert_eq!(response.status(), http::StatusCode::OK);
+/// ```
 pub struct RaftMetricsCollector {
     registry: Registry,
     raft_state: GaugeVec,
@@ -114,6 +134,12 @@ pub struct RaftMetricsCollector {
     last_successful_output: Mutex<String>,
     #[cfg(test)]
     fail_next_encode: AtomicBool,
+}
+
+impl Default for RaftMetricsCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RaftMetricsCollector {
@@ -335,6 +361,16 @@ impl RaftMetricsCollector {
 }
 
 /// `/metrics`エンドポイントのレスポンスを生成する。エンコード失敗時は直近成功値があれば200で返し、なければ5xxを返す。
+/// `/metrics`エンドポイントから返すテキストを生成する。エンコードに失敗した場合はHTTP 500を返す。
+///
+/// # 例
+/// ```rust,ignore
+/// use alopex_chirps::raft::metrics::{serve_metrics, RaftMetricsCollector};
+///
+/// let collector = RaftMetricsCollector::new();
+/// let resp = serve_metrics(&collector);
+/// assert_eq!(resp.status(), http::StatusCode::OK);
+/// ```
 pub fn serve_metrics(collector: &RaftMetricsCollector) -> Response<String> {
     let base =
         Response::builder().header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");

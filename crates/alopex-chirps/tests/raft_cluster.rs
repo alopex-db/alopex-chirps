@@ -344,6 +344,7 @@ fn now_micros() -> u64 {
         .as_micros() as u64
 }
 
+#[allow(dead_code)]
 struct TestNode {
     id: ChirpsNodeId,
     node: Arc<RaftNode>,

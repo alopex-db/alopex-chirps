@@ -313,17 +313,17 @@ impl GossipEngine {
 
         let mut changes = Vec::new();
         for (seq, target) in to_suspect {
-            if let Some(peer) = self.membership.peers.get_mut(&target) {
-                if peer.state.status == Status::Alive {
-                    peer.state.status = Status::Suspect;
-                    peer.state.suspect_since = Some(now);
-                    changes.push(StatusChange::new(
-                        target,
-                        Status::Alive,
-                        Status::Suspect,
-                        peer.state.incarnation,
-                    ));
-                }
+            if let Some(peer) = self.membership.peers.get_mut(&target)
+                && peer.state.status == Status::Alive
+            {
+                peer.state.status = Status::Suspect;
+                peer.state.suspect_since = Some(now);
+                changes.push(StatusChange::new(
+                    target,
+                    Status::Alive,
+                    Status::Suspect,
+                    peer.state.incarnation,
+                ));
             }
             self.pending.remove(&seq);
         }

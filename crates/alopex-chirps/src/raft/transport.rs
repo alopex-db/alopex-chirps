@@ -19,6 +19,20 @@ use tokio::sync::{Mutex, oneshot};
 use tokio::time;
 
 /// Raft RPCメッセージをフレーム化する際のコンテナ。レスポンス対応のため相関IDを保持する。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use alopex_chirps::raft::transport::RaftFramePayload;
+/// use alopex_chirps::raft::RaftMessage;
+/// use chirps_raft_storage::types::GroupId;
+///
+/// let payload = RaftFramePayload {
+///     correlation_id: 42,
+///     message: RaftMessage::VoteResponse { group_id: GroupId(1), response: todo!() },
+/// };
+/// assert_eq!(payload.correlation_id, 42);
+/// ```
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RaftFramePayload {
     pub correlation_id: u64,
@@ -26,6 +40,16 @@ pub struct RaftFramePayload {
 }
 
 /// Raftネットワークのファクトリ。openraftのRaftNetworkFactoryを実装する。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use alopex_chirps::raft::transport::ChirpsRaftTransport;
+/// use chirps_raft_storage::types::GroupId;
+///
+/// let transport = ChirpsRaftTransport::new(my_backend(), GroupId(1), 1);
+/// let factory = ChirpsRaftTransport::factory(transport);
+/// ```
 pub struct ChirpsRaftTransport {
     backend: Arc<dyn MessageBackend>,
     group_id: GroupId,
@@ -35,6 +59,7 @@ pub struct ChirpsRaftTransport {
 }
 
 impl ChirpsRaftTransport {
+    /// 新しいトランスポートを作成する。
     pub fn new(backend: Arc<dyn MessageBackend>, group_id: GroupId, node_id: ChirpsNodeId) -> Self {
         Self {
             backend,
@@ -199,96 +224,79 @@ impl RaftNetworkFactory<ChirpsTypeConfig> for ChirpsRaftNetworkFactory {
 }
 
 impl RaftNetwork<ChirpsTypeConfig> for ChirpsRaftNetworkClient {
-    fn append_entries(
+    async fn append_entries(
         &mut self,
         rpc: AppendEntriesRequest<ChirpsTypeConfig>,
         option: RPCOption,
-    ) -> impl core::future::Future<
-        Output = Result<
-            AppendEntriesResponse<ChirpsNodeId>,
-            RPCError<ChirpsNodeId, BasicNode, openraft::error::RaftError<ChirpsNodeId>>,
-        >,
-    > + Send {
-        async move {
-            let msg = RaftMessage::AppendEntries {
-                group_id: self.inner.group_id,
-                request: rpc,
-            };
-            match self
-                .inner
-                .send_rpc::<Infallible>(self.target, RPCTypes::AppendEntries, msg, option)
-                .await?
-            {
-                RaftMessage::AppendEntriesResponse { response, .. } => Ok(response),
-                other => Err(RPCError::Network(NetworkError::new(
-                    &RaftError::InvalidMessage(format!("unexpected response: {other:?}")),
-                ))),
-            }
+    ) -> Result<
+        AppendEntriesResponse<ChirpsNodeId>,
+        RPCError<ChirpsNodeId, BasicNode, openraft::error::RaftError<ChirpsNodeId>>,
+    > {
+        let msg = RaftMessage::AppendEntries {
+            group_id: self.inner.group_id,
+            request: rpc,
+        };
+        match self
+            .inner
+            .send_rpc::<Infallible>(self.target, RPCTypes::AppendEntries, msg, option)
+            .await?
+        {
+            RaftMessage::AppendEntriesResponse { response, .. } => Ok(response),
+            other => Err(RPCError::Network(NetworkError::new(
+                &RaftError::InvalidMessage(format!("unexpected response: {other:?}")),
+            ))),
         }
     }
 
-    fn install_snapshot(
+    async fn install_snapshot(
         &mut self,
         rpc: InstallSnapshotRequest<ChirpsTypeConfig>,
         option: RPCOption,
-    ) -> impl core::future::Future<
-        Output = Result<
-            InstallSnapshotResponse<ChirpsNodeId>,
-            RPCError<
-                ChirpsNodeId,
-                BasicNode,
-                openraft::error::RaftError<ChirpsNodeId, InstallSnapshotError>,
-            >,
+    ) -> Result<
+        InstallSnapshotResponse<ChirpsNodeId>,
+        RPCError<
+            ChirpsNodeId,
+            BasicNode,
+            openraft::error::RaftError<ChirpsNodeId, InstallSnapshotError>,
         >,
-    > + Send {
-        async move {
-            let msg = RaftMessage::InstallSnapshot {
-                group_id: self.inner.group_id,
-                request: rpc,
-            };
-            match self
-                .inner
-                .send_rpc::<InstallSnapshotError>(
-                    self.target,
-                    RPCTypes::InstallSnapshot,
-                    msg,
-                    option,
-                )
-                .await?
-            {
-                RaftMessage::InstallSnapshotResponse { response, .. } => Ok(response),
-                other => Err(RPCError::Network(NetworkError::new(
-                    &RaftError::InvalidMessage(format!("unexpected response: {other:?}")),
-                ))),
-            }
+    > {
+        let msg = RaftMessage::InstallSnapshot {
+            group_id: self.inner.group_id,
+            request: rpc,
+        };
+        match self
+            .inner
+            .send_rpc::<InstallSnapshotError>(self.target, RPCTypes::InstallSnapshot, msg, option)
+            .await?
+        {
+            RaftMessage::InstallSnapshotResponse { response, .. } => Ok(response),
+            other => Err(RPCError::Network(NetworkError::new(
+                &RaftError::InvalidMessage(format!("unexpected response: {other:?}")),
+            ))),
         }
     }
 
-    fn vote(
+    async fn vote(
         &mut self,
         rpc: VoteRequest<ChirpsNodeId>,
         option: RPCOption,
-    ) -> impl core::future::Future<
-        Output = Result<
-            VoteResponse<ChirpsNodeId>,
-            RPCError<ChirpsNodeId, BasicNode, openraft::error::RaftError<ChirpsNodeId>>,
-        >,
-    > + Send {
-        async move {
-            let msg = RaftMessage::Vote {
-                group_id: self.inner.group_id,
-                request: rpc,
-            };
-            match self
-                .inner
-                .send_rpc::<Infallible>(self.target, RPCTypes::Vote, msg, option)
-                .await?
-            {
-                RaftMessage::VoteResponse { response, .. } => Ok(response),
-                other => Err(RPCError::Network(NetworkError::new(
-                    &RaftError::InvalidMessage(format!("unexpected response: {other:?}")),
-                ))),
-            }
+    ) -> Result<
+        VoteResponse<ChirpsNodeId>,
+        RPCError<ChirpsNodeId, BasicNode, openraft::error::RaftError<ChirpsNodeId>>,
+    > {
+        let msg = RaftMessage::Vote {
+            group_id: self.inner.group_id,
+            request: rpc,
+        };
+        match self
+            .inner
+            .send_rpc::<Infallible>(self.target, RPCTypes::Vote, msg, option)
+            .await?
+        {
+            RaftMessage::VoteResponse { response, .. } => Ok(response),
+            other => Err(RPCError::Network(NetworkError::new(
+                &RaftError::InvalidMessage(format!("unexpected response: {other:?}")),
+            ))),
         }
     }
 }

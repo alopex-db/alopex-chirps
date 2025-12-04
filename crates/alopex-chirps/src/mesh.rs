@@ -143,15 +143,17 @@ impl MeshHandle {
 }
 
 /// QUICトランスポートとSWIMゴシップを束ねるメッシュ本体。
+type NodeHandler = Arc<dyn Fn(NodeId) + Send + Sync>;
+
 pub struct Mesh {
     pub(crate) node_id: NodeId,
     pub(crate) incarnation: u64,
     pub(crate) config: Arc<NodeConfig>,
     pub(crate) backend: Arc<dyn MessageBackend>,
     gossip: Arc<Mutex<GossipEngine>>,
-    join_handlers: std::sync::Mutex<Vec<Arc<dyn Fn(NodeId) + Send + Sync>>>,
-    leave_handlers: std::sync::Mutex<Vec<Arc<dyn Fn(NodeId) + Send + Sync>>>,
-    status_handlers: std::sync::Mutex<Vec<Arc<dyn Fn(NodeId) + Send + Sync>>>,
+    join_handlers: std::sync::Mutex<Vec<NodeHandler>>,
+    leave_handlers: std::sync::Mutex<Vec<NodeHandler>>,
+    status_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     _tasks: Vec<JoinHandle<()>>,
     metrics: Arc<MeshMetrics>,
 }
@@ -217,9 +219,10 @@ impl Mesh {
             metrics: Arc::new(MeshMetrics::default()),
         });
 
-        let mut tasks = Vec::new();
-        tasks.push(spawn_tick_loop(Arc::clone(&mesh)));
-        tasks.push(spawn_frame_loop(Arc::clone(&mesh)));
+        let tasks = vec![
+            spawn_tick_loop(Arc::clone(&mesh)),
+            spawn_frame_loop(Arc::clone(&mesh)),
+        ];
 
         if let Some(inner) = Arc::get_mut(&mut Arc::clone(&mesh)) {
             inner._tasks = tasks;

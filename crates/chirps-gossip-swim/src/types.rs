@@ -65,6 +65,12 @@ impl MembershipView {
     }
 }
 
+impl Default for MembershipView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

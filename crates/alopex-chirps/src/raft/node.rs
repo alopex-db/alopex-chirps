@@ -21,6 +21,22 @@ use tokio::task::JoinHandle;
 use tracing::info;
 
 /// Chirps内部でやり取りするRaft RPC。リクエストとレスポンス両方を保持する。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use alopex_chirps::raft::{RaftMessage, GroupId};
+/// use chirps_raft_storage::types::{VoteRequest, Vote};
+///
+/// let msg = RaftMessage::Vote {
+///     group_id: GroupId(1),
+///     request: VoteRequest {
+///         vote: Vote::new(1, 1),
+///         last_log_id: None,
+///     },
+/// };
+/// assert_eq!(msg.group_id(), GroupId(1));
+/// ```
 #[derive(Debug, Serialize, Deserialize)]
 pub enum RaftMessage {
     AppendEntries {
@@ -63,6 +79,30 @@ impl RaftMessage {
 }
 
 /// openraft Raftをラップし、Chirps固有のエラー/設定型を提供する。
+///
+/// # 例
+///
+/// ```rust,ignore
+/// use alopex_chirps::raft::{RaftConfig, RaftNode};
+/// use alopex_chirps::raft::transport::ChirpsRaftTransport;
+/// use chirps_raft_storage::types::GroupId;
+/// use std::sync::Arc;
+///
+/// # async fn build() -> anyhow::Result<()> {
+/// let transport = Arc::new(ChirpsRaftTransport::new(mock_backend(), GroupId(1), 1));
+/// let network = ChirpsRaftTransport::factory(transport.clone());
+/// let log_store = build_log_store();      // RaftLogStorageを実装した型を使う
+/// let state_machine = build_state_machine(); // RaftStateMachineを実装した型を使う
+/// let mut node = RaftNode::new(
+///     RaftConfig { group_id: GroupId(1), node_id: 1, ..Default::default() },
+///     network,
+///     log_store,
+///     state_machine,
+///     transport,
+/// ).await?;
+/// node.start().await?;
+/// # Ok(()) }
+/// ```
 pub struct RaftNode {
     pub(crate) config: RaftConfig,
     pub(crate) raft: Raft<ChirpsTypeConfig>,
@@ -132,7 +172,7 @@ impl RaftNode {
 
     /// 最終適用ログIDを返す。
     pub fn last_applied_log(&self) -> Option<LogId<ChirpsNodeId>> {
-        self.raft.metrics().borrow().last_applied.clone()
+        self.raft.metrics().borrow().last_applied
     }
 
     /// メトリクスコレクタを登録する。登録後は状態変化に応じて自動更新される。
@@ -178,7 +218,7 @@ impl RaftNode {
 
     /// 現在のリーダーIDを返す。
     pub fn leader_id(&self) -> Option<ChirpsNodeId> {
-        self.raft.metrics().borrow().current_leader.clone()
+        self.raft.metrics().borrow().current_leader
     }
 
     /// 自ノードがリーダーか判定する。
@@ -296,16 +336,18 @@ impl RaftNode {
     }
 }
 
-fn build_openraft_config(src: &RaftConfig) -> Result<Arc<Config>, ConfigError> {
-    let mut cfg = Config::default();
-    cfg.cluster_name = format!("chirps-raft-{}", src.group_id.0);
-    cfg.election_timeout_min = src.election_timeout_ms;
-    cfg.election_timeout_max = src.election_timeout_ms * 2;
-    cfg.heartbeat_interval = src.heartbeat_interval_ms;
-    cfg.max_payload_entries = src.max_batch_size as u64;
-    cfg.snapshot_policy = SnapshotPolicy::LogsSinceLast(src.snapshot_threshold);
-    cfg.max_in_snapshot_log_to_keep = src.max_in_snapshot_log_to_keep;
-    Ok(Arc::new(cfg.validate()?))
+fn build_openraft_config(src: &RaftConfig) -> Result<Arc<Config>, Box<ConfigError>> {
+    let cfg = Config {
+        cluster_name: format!("chirps-raft-{}", src.group_id.0),
+        election_timeout_min: src.election_timeout_ms,
+        election_timeout_max: src.election_timeout_ms * 2,
+        heartbeat_interval: src.heartbeat_interval_ms,
+        max_payload_entries: src.max_batch_size as u64,
+        snapshot_policy: SnapshotPolicy::LogsSinceLast(src.snapshot_threshold),
+        max_in_snapshot_log_to_keep: src.max_in_snapshot_log_to_keep,
+        ..Default::default()
+    };
+    Ok(Arc::new(cfg.validate().map_err(Box::new)?))
 }
 
 fn spawn_metrics_observer(
@@ -319,11 +361,11 @@ fn spawn_metrics_observer(
         loop {
             {
                 let metrics = rx.borrow().clone();
-                if let Ok(slot) = collector.lock() {
-                    if let Some(col) = slot.as_ref() {
-                        let update = RaftMetricsUpdate::from((group_id, metrics.clone()));
-                        col.update(&update);
-                    }
+                if let Ok(slot) = collector.lock()
+                    && let Some(col) = slot.as_ref()
+                {
+                    let update = RaftMetricsUpdate::from((group_id, metrics.clone()));
+                    col.update(&update);
                 }
                 obs_state.handle(group_id, &metrics);
             }
@@ -361,7 +403,7 @@ impl ObservationState {
         }
 
         if metrics.current_leader != self.last_leader {
-            if let Some(leader_id) = metrics.current_leader.clone() {
+            if let Some(leader_id) = metrics.current_leader {
                 tracing::info!(
                     target: "raft",
                     event = "raft_leader_elected",
@@ -372,7 +414,7 @@ impl ObservationState {
                     "Leader elected"
                 );
             }
-            self.last_leader = metrics.current_leader.clone();
+            self.last_leader = metrics.current_leader;
         }
 
         let membership_summary = metrics.membership_config.summary();
@@ -403,7 +445,7 @@ impl ObservationState {
         }
 
         if metrics.snapshot != self.last_snapshot {
-            if let Some(log_id) = metrics.snapshot.clone() {
+            if let Some(log_id) = metrics.snapshot {
                 tracing::info!(
                     target: "raft",
                     event = "raft_snapshot_installed",
@@ -414,11 +456,11 @@ impl ObservationState {
                     "Snapshot installed"
                 );
             }
-            self.last_snapshot = metrics.snapshot.clone();
+            self.last_snapshot = metrics.snapshot;
         }
 
         if metrics.purged != self.last_purged {
-            if let Some(log_id) = metrics.purged.clone() {
+            if let Some(log_id) = metrics.purged {
                 tracing::info!(
                     target: "raft",
                     event = "raft_log_compacted",
@@ -429,25 +471,25 @@ impl ObservationState {
                     "Log compacted"
                 );
             }
-            self.last_purged = metrics.purged.clone();
+            self.last_purged = metrics.purged;
         }
     }
 }
 
 impl RaftNode {
     fn push_metrics_update(&self, update: RaftMetricsUpdate) {
-        if let Ok(slot) = self.metrics_collector.lock() {
-            if let Some(col) = slot.as_ref() {
-                let mut base = RaftMetricsUpdate::from((
-                    self.config.group_id,
-                    self.raft.metrics().borrow().clone(),
-                ));
-                base.snapshot_total = update.snapshot_total;
-                base.proposals_total = update.proposals_total;
-                base.proposals_failed_total = update.proposals_failed_total;
-                base.proposals_failed_reason = update.proposals_failed_reason;
-                col.update(&base);
-            }
+        if let Ok(slot) = self.metrics_collector.lock()
+            && let Some(col) = slot.as_ref()
+        {
+            let mut base = RaftMetricsUpdate::from((
+                self.config.group_id,
+                self.raft.metrics().borrow().clone(),
+            ));
+            base.snapshot_total = update.snapshot_total;
+            base.proposals_total = update.proposals_total;
+            base.proposals_failed_total = update.proposals_failed_total;
+            base.proposals_failed_reason = update.proposals_failed_reason;
+            col.update(&base);
         }
     }
 }
