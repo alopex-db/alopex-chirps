@@ -3,11 +3,13 @@
 
 pub mod config;
 pub mod error;
+pub mod metrics;
 pub mod node;
 pub mod transport;
 
 pub use config::RaftConfig;
 pub use error::{RaftError, RaftResult};
+pub use metrics::{MetricsError, RaftMetricsCollector, RaftMetricsUpdate, serve_metrics};
 pub use node::{RaftMessage, RaftNode};
 pub use transport::{
     ChirpsRaftNetworkClient, ChirpsRaftNetworkFactory, ChirpsRaftTransport, RaftFramePayload,
