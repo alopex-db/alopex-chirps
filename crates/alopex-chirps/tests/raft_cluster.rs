@@ -551,7 +551,8 @@ impl TestCluster {
     ) -> Result<()> {
         let leader_node = self.nodes.get(&leader).unwrap();
         let mut last_err = None;
-        for _attempt in 0..10 {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
             match leader_node.node.change_membership(members.clone()).await {
                 Ok(()) => {
                     self.wait_for_membership(&members, timeout).await?;
