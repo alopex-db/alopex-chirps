@@ -196,10 +196,15 @@ impl TestNode {
     ) -> Result<()> {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
-            if let Some(status) = self.membership_status(target).await {
-                if status == expected {
-                    return Ok(());
+            let Some(status) = self.membership_status(target).await else {
+                if tokio::time::Instant::now() > deadline {
+                    anyhow::bail!("ステータス {expected:?} を待機中にタイムアウトしました");
                 }
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                continue;
+            };
+            if status == expected {
+                return Ok(());
             }
             if tokio::time::Instant::now() > deadline {
                 anyhow::bail!("ステータス {expected:?} を待機中にタイムアウトしました");
@@ -456,13 +461,15 @@ fn make_config(
     seeds: Vec<SocketAddr>,
     cert: Option<(PathBuf, PathBuf)>,
 ) -> NodeConfig {
-    let mut cfg = NodeConfig::default();
-    cfg.bind_addr = addr;
-    cfg.seeds = seeds;
-    cfg.ping_timeout = Duration::from_millis(200);
-    cfg.indirect_ping_timeout = Duration::from_millis(400);
-    cfg.suspect_to_dead_timeout = Duration::from_millis(800);
-    cfg.gossip_interval = Duration::from_millis(80);
+    let mut cfg = NodeConfig {
+        bind_addr: addr,
+        seeds,
+        ping_timeout: Duration::from_millis(200),
+        indirect_ping_timeout: Duration::from_millis(400),
+        suspect_to_dead_timeout: Duration::from_millis(800),
+        gossip_interval: Duration::from_millis(80),
+        ..Default::default()
+    };
     if let Some((cert_path, key_path)) = cert {
         cfg.cert_path = Some(cert_path);
         cfg.key_path = Some(key_path);

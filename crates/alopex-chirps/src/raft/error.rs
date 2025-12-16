@@ -50,25 +50,6 @@ impl From<Fatal<u64>> for RaftError {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use openraft::error::{ChangeMembershipError, InProgress, RaftError as OpenRaftError};
-    use openraft::{CommittedLeaderId, LogId};
-
-    #[test]
-    fn membership_change_in_progress_is_preserved() {
-        let in_progress = ChangeMembershipError::<u64>::InProgress(InProgress {
-            committed: Some(LogId::new(CommittedLeaderId::new(1, 1), 2)),
-            membership_log_id: Some(LogId::new(CommittedLeaderId::new(1, 1), 3)),
-        });
-
-        let raft_err = RaftError::from(OpenRaftError::APIError(in_progress));
-
-        assert!(matches!(raft_err, RaftError::MembershipChangeInProgress));
-    }
-}
-
 impl<E> From<OpenRaftError<u64, E>> for RaftError
 where
     E: std::error::Error + Send + Sync + 'static,
@@ -104,4 +85,23 @@ where
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openraft::error::{ChangeMembershipError, InProgress, RaftError as OpenRaftError};
+    use openraft::{CommittedLeaderId, LogId};
+
+    #[test]
+    fn membership_change_in_progress_is_preserved() {
+        let in_progress = ChangeMembershipError::<u64>::InProgress(InProgress {
+            committed: Some(LogId::new(CommittedLeaderId::new(1, 1), 2)),
+            membership_log_id: Some(LogId::new(CommittedLeaderId::new(1, 1), 3)),
+        });
+
+        let raft_err = RaftError::from(OpenRaftError::APIError(in_progress));
+
+        assert!(matches!(raft_err, RaftError::MembershipChangeInProgress));
+    }
 }

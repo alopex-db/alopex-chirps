@@ -324,16 +324,14 @@ mod tests {
     struct MockLogReader;
 
     impl RaftLogReader<ChirpsTypeConfig> for MockLogReader {
-        fn try_get_log_entries<RB>(
+        async fn try_get_log_entries<RB>(
             &mut self,
             _range: RB,
-        ) -> impl core::future::Future<
-            Output = Result<Vec<Entry<ChirpsTypeConfig>>, StorageError<ChirpsNodeId>>,
-        > + Send
+        ) -> Result<Vec<Entry<ChirpsTypeConfig>>, StorageError<ChirpsNodeId>>
         where
             RB: RangeBounds<u64> + Clone + Debug + OptionalSend,
         {
-            async { Ok(Vec::new()) }
+            Ok(Vec::new())
         }
     }
 
@@ -341,39 +339,23 @@ mod tests {
     struct MockSnapshotBuilder;
 
     impl RaftSnapshotBuilder<ChirpsTypeConfig> for MockSnapshotBuilder {
-        fn build_snapshot(
+        async fn build_snapshot(
             &mut self,
-        ) -> impl core::future::Future<
-            Output = Result<Snapshot<ChirpsTypeConfig>, StorageError<ChirpsNodeId>>,
-        > + Send {
-            async {
-                Ok(Snapshot {
-                    meta: SnapshotMeta::default(),
-                    snapshot: Box::new(Cursor::new(Vec::new())),
-                })
-            }
+        ) -> Result<Snapshot<ChirpsTypeConfig>, StorageError<ChirpsNodeId>> {
+            Ok(Snapshot {
+                meta: SnapshotMeta::default(),
+                snapshot: Box::new(Cursor::new(Vec::new())),
+            })
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct MockRaftStorage {
         last_log_id: Option<LogId<ChirpsNodeId>>,
         last_membership: StoredMembership<ChirpsNodeId, BasicNode>,
         vote: Option<Vote<ChirpsNodeId>>,
         purgeable_horizon: Option<LogId<ChirpsNodeId>>,
         snapshot: Option<Snapshot<ChirpsTypeConfig>>,
-    }
-
-    impl Default for MockRaftStorage {
-        fn default() -> Self {
-            Self {
-                last_log_id: None,
-                last_membership: StoredMembership::default(),
-                vote: None,
-                purgeable_horizon: None,
-                snapshot: None,
-            }
-        }
     }
 
     #[async_trait]
@@ -385,8 +367,8 @@ mod tests {
             &mut self,
         ) -> Result<LogState<ChirpsTypeConfig>, StorageError<ChirpsNodeId>> {
             Ok(LogState {
-                last_purged_log_id: self.purgeable_horizon.clone(),
-                last_log_id: self.last_log_id.clone(),
+                last_purged_log_id: self.purgeable_horizon,
+                last_log_id: self.last_log_id,
             })
         }
 
@@ -423,7 +405,7 @@ mod tests {
             &mut self,
             log_id: LogId<ChirpsNodeId>,
         ) -> Result<(), StorageError<ChirpsNodeId>> {
-            self.purgeable_horizon = Some(log_id.clone());
+            self.purgeable_horizon = Some(log_id);
             self.last_log_id = Some(log_id);
             Ok(())
         }
@@ -437,7 +419,7 @@ mod tests {
             ),
             StorageError<ChirpsNodeId>,
         > {
-            Ok((self.last_log_id.clone(), self.last_membership.clone()))
+            Ok((self.last_log_id, self.last_membership.clone()))
         }
 
         async fn apply<I>(&mut self, entries: I) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>>
@@ -446,8 +428,8 @@ mod tests {
         {
             let mut responses = Vec::new();
             for entry in entries {
-                let log_id = entry.log_id.clone();
-                self.last_log_id = Some(log_id.clone());
+                let log_id = entry.log_id;
+                self.last_log_id = Some(log_id);
                 match entry.payload {
                     EntryPayload::Normal(cmd) => responses.push(cmd),
                     EntryPayload::Membership(m) => {
@@ -463,14 +445,14 @@ mod tests {
             &mut self,
             vote: &Vote<ChirpsNodeId>,
         ) -> Result<(), StorageError<ChirpsNodeId>> {
-            self.vote = Some(vote.clone());
+            self.vote = Some(*vote);
             Ok(())
         }
 
         async fn read_vote(
             &mut self,
         ) -> Result<Option<Vote<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
-            Ok(self.vote.clone())
+            Ok(self.vote)
         }
 
         async fn begin_receiving_snapshot(
@@ -512,9 +494,9 @@ mod tests {
 
     #[tokio::test]
     async fn state_machine_trait_is_usable() {
-        let mut sm = MockStateMachine::default();
+        let mut sm = MockStateMachine;
         let log_id = LogId::new(CommittedLeaderId::new(1, 1), 1);
-        let resp = sm.apply(log_id.clone(), b"ping".to_vec()).await.unwrap();
+        let resp = sm.apply(log_id, b"ping".to_vec()).await.unwrap();
         assert_eq!(resp, b"ping".to_vec());
 
         let snapshot = sm.snapshot().await.unwrap();

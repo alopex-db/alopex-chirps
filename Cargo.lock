@@ -68,6 +68,7 @@ dependencies = [
  "bincode",
  "crc32fast",
  "memmap2",
+ "rand 0.8.5",
  "serde",
  "snap",
  "thiserror 1.0.69",

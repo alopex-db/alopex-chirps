@@ -36,12 +36,6 @@ struct TestStateHandle {
     data: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
-impl TestStateHandle {
-    async fn values(&self) -> Vec<Vec<u8>> {
-        self.data.lock().await.clone()
-    }
-}
-
 #[derive(Clone)]
 struct MemorySnapshotBuilder {
     meta: SnapshotMeta<ChirpsNodeId, BasicNode>,
@@ -128,7 +122,7 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
         vote: &Vote<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
         let mut guard = self.inner.lock().await;
-        guard.vote = Some(vote.clone());
+        guard.vote = Some(*vote);
         Ok(())
     }
 
@@ -136,7 +130,7 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
         &mut self,
     ) -> Result<Option<Vote<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
         let guard = self.inner.lock().await;
-        Ok(guard.vote.clone())
+        Ok(guard.vote)
     }
 
     async fn save_committed(
@@ -152,7 +146,7 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
         &mut self,
     ) -> Result<Option<LogId<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
         let guard = self.inner.lock().await;
-        Ok(guard.committed.clone())
+        Ok(guard.committed)
     }
 
     async fn get_log_state(
@@ -160,8 +154,8 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
     ) -> Result<LogState<ChirpsTypeConfig>, StorageError<ChirpsNodeId>> {
         let guard = self.inner.lock().await;
         Ok(LogState {
-            last_purged_log_id: guard.last_purged.clone(),
-            last_log_id: guard.logs.last().map(|e| e.log_id.clone()),
+            last_purged_log_id: guard.last_purged,
+            last_log_id: guard.logs.last().map(|e| e.log_id),
         })
     }
 
@@ -213,7 +207,7 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
         StorageError<ChirpsNodeId>,
     > {
         let guard = self.inner.lock().await;
-        Ok((guard.last_applied.clone(), guard.last_membership.clone()))
+        Ok((guard.last_applied, guard.last_membership.clone()))
     }
 
     async fn apply_to_state_machine(
@@ -223,15 +217,14 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
         let mut guard = self.inner.lock().await;
         let mut responses = Vec::new();
         for entry in entries {
-            guard.last_applied = Some(entry.log_id.clone());
+            guard.last_applied = Some(entry.log_id);
             match &entry.payload {
                 EntryPayload::Normal(data) => {
                     guard.state.data.lock().await.push(data.clone());
                     responses.push(data.clone());
                 }
                 EntryPayload::Membership(m) => {
-                    guard.last_membership =
-                        StoredMembership::new(Some(entry.log_id.clone()), m.clone());
+                    guard.last_membership = StoredMembership::new(Some(entry.log_id), m.clone());
                     responses.push(Vec::new());
                 }
                 EntryPayload::Blank => {
@@ -250,7 +243,7 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
         let leader = guard
             .last_applied
             .as_ref()
-            .map(|l| l.leader_id.clone())
+            .map(|l| l.leader_id)
             .unwrap_or_else(|| CommittedLeaderId::new(0, 0));
         let last_log_id = Some(LogId::new(leader, index));
         if guard
@@ -259,7 +252,7 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
             .map(|c| c.index < index)
             .unwrap_or(true)
         {
-            guard.committed = last_log_id.clone();
+            guard.committed = last_log_id;
         }
         let bytes = bincode::serialize(&*guard.state.data.lock().await).unwrap_or_default();
         let meta = SnapshotMeta {
@@ -295,9 +288,9 @@ impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
 
         let mut guard = self.inner.lock().await;
         *guard.state.data.lock().await = restored;
-        guard.last_applied = meta.last_log_id.clone();
+        guard.last_applied = meta.last_log_id;
         guard.last_membership = meta.last_membership.clone();
-        guard.committed = meta.last_log_id.clone();
+        guard.committed = meta.last_log_id;
         guard.snapshot = Some(Snapshot {
             meta: meta.clone(),
             snapshot: Box::new(Cursor::new(buf)),
@@ -360,6 +353,15 @@ struct BenchNode {
     ticker: JoinHandle<()>,
 }
 
+impl Drop for BenchNode {
+    fn drop(&mut self) {
+        let _ = (&self.id, &self.backend);
+        self.running.store(false, Ordering::SeqCst);
+        self.pump.abort();
+        self.ticker.abort();
+    }
+}
+
 struct BenchCluster {
     group_id: GroupId,
     network: MockNetwork,
@@ -398,13 +400,15 @@ impl BenchCluster {
         let store = MemoryStore::new(state_handle.clone());
         let (log_store, state_machine) = Adaptor::new(store.clone());
 
-        let mut cfg = RaftConfig::default();
-        cfg.group_id = self.group_id;
-        cfg.node_id = id;
-        cfg.election_timeout_ms = 120;
-        cfg.heartbeat_interval_ms = 40;
-        cfg.snapshot_threshold = self.snapshot_threshold;
-        cfg.max_in_snapshot_log_to_keep = 2 * self.snapshot_threshold;
+        let cfg = RaftConfig {
+            group_id: self.group_id,
+            node_id: id,
+            election_timeout_ms: 120,
+            heartbeat_interval_ms: 40,
+            snapshot_threshold: self.snapshot_threshold,
+            max_in_snapshot_log_to_keep: 2 * self.snapshot_threshold,
+            ..Default::default()
+        };
 
         let mut node = RaftNode::new(
             cfg,
@@ -457,7 +461,7 @@ impl BenchCluster {
     async fn wait_for_leader(&self, timeout: Duration) -> anyhow::Result<ChirpsNodeId> {
         let start = Instant::now();
         loop {
-            for (_id, node) in &self.nodes {
+            for node in self.nodes.values() {
                 if let Some(current) = node.node.leader_id() {
                     return Ok(current);
                 }
@@ -486,41 +490,9 @@ impl BenchCluster {
         }
     }
 
-    async fn isolate(&self, id: ChirpsNodeId) {
-        let mut guard = self.partitioned.lock().await;
-        guard.insert(id);
-    }
-
     async fn heal(&self, id: ChirpsNodeId) {
         let mut guard = self.partitioned.lock().await;
         guard.remove(&id);
-    }
-
-    async fn wait_for_state_len(&self, expected: usize, timeout: Duration) -> anyhow::Result<()> {
-        let start = Instant::now();
-        loop {
-            let mut all_match = true;
-            for node in self.nodes.values() {
-                if node.paused.load(Ordering::SeqCst) {
-                    continue;
-                }
-                if node.node.metrics().last_applied.map(|l| l.index as usize) < Some(expected) {
-                    all_match = false;
-                    break;
-                }
-            }
-            if all_match {
-                return Ok(());
-            }
-            if start.elapsed() > timeout {
-                anyhow::bail!(
-                    "state length did not reach {} within {:?}",
-                    expected,
-                    timeout
-                );
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
     }
 }
 
@@ -548,15 +520,17 @@ fn spawn_pump(
                 if drop_msg {
                     continue;
                 }
-                if let Some(payload) = ChirpsRaftTransport::decode_frame(frame) {
-                    if let Some(request) = transport.consume_incoming(payload).await {
-                        let correlation_id = request.correlation_id;
-                        if let Ok(response) = node.handle_message(request).await {
-                            let _ = transport
-                                .send_response(sender, correlation_id, response)
-                                .await;
-                        }
-                    }
+                let Some(payload) = ChirpsRaftTransport::decode_frame(frame) else {
+                    continue;
+                };
+                let Some(request) = transport.consume_incoming(payload).await else {
+                    continue;
+                };
+                let correlation_id = request.correlation_id;
+                if let Ok(response) = node.handle_message(request).await {
+                    let _ = transport
+                        .send_response(sender, correlation_id, response)
+                        .await;
                 }
             } else {
                 break;

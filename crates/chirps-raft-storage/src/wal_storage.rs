@@ -1120,7 +1120,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
         let mut storage =
-            WalRaftStorage::new(cfg, GroupId(1), 1, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg, GroupId(1), 1, MockStateMachine).unwrap();
 
         storage
             .append_for_test(vec![sample_entry(1), sample_entry(2)])
@@ -1138,7 +1138,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
         let mut storage =
-            WalRaftStorage::new(cfg, GroupId(2), 2, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg, GroupId(2), 2, MockStateMachine).unwrap();
         storage
             .append_for_test(vec![sample_entry(1), sample_entry(2)])
             .await
@@ -1165,13 +1165,12 @@ mod tests {
         let vote = Vote::new(2, 3);
         {
             let mut storage =
-                WalRaftStorage::new(cfg.clone(), GroupId(3), 3, MockStateMachine::default())
-                    .unwrap();
+                WalRaftStorage::new(cfg.clone(), GroupId(3), 3, MockStateMachine).unwrap();
             storage.save_vote(&vote).await.unwrap();
         }
 
         let mut recovered =
-            WalRaftStorage::recover(cfg, GroupId(3), 3, MockStateMachine::default()).unwrap();
+            WalRaftStorage::recover(cfg, GroupId(3), 3, MockStateMachine).unwrap();
         let loaded = recovered.read_vote().await.unwrap().unwrap();
         assert_eq!(loaded, vote);
     }
@@ -1182,8 +1181,7 @@ mod tests {
         let cfg = base_config(dir.path());
         {
             let mut storage =
-                WalRaftStorage::new(cfg.clone(), GroupId(4), 4, MockStateMachine::default())
-                    .unwrap();
+                WalRaftStorage::new(cfg.clone(), GroupId(4), 4, MockStateMachine).unwrap();
             storage
                 .append_for_test(vec![sample_entry(10)])
                 .await
@@ -1191,7 +1189,7 @@ mod tests {
         }
 
         let mut recovered =
-            WalRaftStorage::recover(cfg, GroupId(4), 4, MockStateMachine::default()).unwrap();
+            WalRaftStorage::recover(cfg, GroupId(4), 4, MockStateMachine).unwrap();
         let state = recovered.get_log_state().await.unwrap();
         assert_eq!(state.last_log_id.unwrap().index, 10);
     }
@@ -1202,7 +1200,7 @@ mod tests {
         let mut cfg = base_config(dir.path());
         cfg.log_cache_size = 1;
         let mut storage =
-            WalRaftStorage::new(cfg, GroupId(5), 5, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg, GroupId(5), 5, MockStateMachine).unwrap();
 
         storage
             .append_for_test(vec![sample_entry(1), sample_entry(2)])
@@ -1219,7 +1217,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
         let mut storage =
-            WalRaftStorage::new(cfg, GroupId(6), 6, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg, GroupId(6), 6, MockStateMachine).unwrap();
 
         let mut voters = std::collections::BTreeSet::new();
         voters.insert(7);
@@ -1255,7 +1253,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
         let mut storage =
-            WalRaftStorage::new(cfg, GroupId(7), 7, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg, GroupId(7), 7, MockStateMachine).unwrap();
 
         storage
             .append_for_test(vec![sample_entry(1), sample_entry(2)])
@@ -1303,7 +1301,7 @@ mod tests {
             cfg,
             GroupId(8),
             8,
-            MockStateMachine::default(),
+            MockStateMachine,
             Box::new(sink),
         )
         .unwrap();
@@ -1336,7 +1334,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
         let mut storage =
-            WalRaftStorage::new(cfg.clone(), GroupId(9), 9, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg.clone(), GroupId(9), 9, MockStateMachine).unwrap();
 
         let meta = SnapshotMeta {
             last_log_id: Some(LogId::new(openraft::CommittedLeaderId::new(1, 9), 2)),
@@ -1384,19 +1382,18 @@ mod tests {
         let cfg = base_config(dir.path());
         let entry = membership_entry(5);
         let expected_membership = if let EntryPayload::Membership(m) = entry.payload.clone() {
-            StoredMembership::new(Some(entry.log_id.clone()), m)
+            StoredMembership::new(Some(entry.log_id), m)
         } else {
             unreachable!()
         };
         {
             let mut storage =
-                WalRaftStorage::new(cfg.clone(), GroupId(10), 10, MockStateMachine::default())
-                    .unwrap();
+                WalRaftStorage::new(cfg.clone(), GroupId(10), 10, MockStateMachine).unwrap();
             storage.append_for_test(vec![entry]).await.unwrap();
         }
 
         let mut recovered =
-            WalRaftStorage::recover(cfg, GroupId(10), 10, MockStateMachine::default()).unwrap();
+            WalRaftStorage::recover(cfg, GroupId(10), 10, MockStateMachine).unwrap();
         let (_, stored_membership) = recovered.applied_state().await.unwrap();
         assert_eq!(stored_membership, expected_membership);
     }
@@ -1406,7 +1403,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
         let mut storage =
-            WalRaftStorage::new(cfg.clone(), GroupId(11), 11, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg.clone(), GroupId(11), 11, MockStateMachine).unwrap();
 
         let mut voters = std::collections::BTreeSet::new();
         voters.insert(2);
@@ -1432,8 +1429,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut recovered =
-            WalRaftStorage::recover(cfg, GroupId(11), 11, MockStateMachine::default()).unwrap();
+        let mut recovered = WalRaftStorage::recover(cfg, GroupId(11), 11, MockStateMachine).unwrap();
         let (applied, stored_membership) = recovered.applied_state().await.unwrap();
         assert_eq!(applied, meta.last_log_id);
         assert_eq!(stored_membership, membership);
@@ -1444,7 +1440,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
         let mut storage =
-            WalRaftStorage::new(cfg.clone(), GroupId(12), 12, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg.clone(), GroupId(12), 12, MockStateMachine).unwrap();
 
         let meta = SnapshotMeta {
             last_log_id: Some(LogId::new(openraft::CommittedLeaderId::new(4, 12), 8)),
@@ -1503,7 +1499,7 @@ mod tests {
         let mut cfg = base_config(dir.path());
         cfg.snapshot_chunk_size = 2;
         let mut storage =
-            WalRaftStorage::new(cfg.clone(), GroupId(13), 13, MockStateMachine::default()).unwrap();
+            WalRaftStorage::new(cfg.clone(), GroupId(13), 13, MockStateMachine).unwrap();
 
         let meta = SnapshotMeta {
             last_log_id: Some(LogId::new(openraft::CommittedLeaderId::new(5, 13), 3)),

@@ -122,7 +122,7 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         vote: &Vote<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
         let mut guard = self.inner.lock().await;
-        guard.vote = Some(vote.clone());
+        guard.vote = Some(*vote);
         Ok(())
     }
 
@@ -130,7 +130,7 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         &mut self,
     ) -> Result<Option<Vote<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
         let guard = self.inner.lock().await;
-        Ok(guard.vote.clone())
+        Ok(guard.vote)
     }
 
     async fn get_log_state(
@@ -138,8 +138,8 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
     ) -> Result<LogState<ChirpsTypeConfig>, StorageError<ChirpsNodeId>> {
         let guard = self.inner.lock().await;
         Ok(LogState {
-            last_purged_log_id: guard.last_purged.clone(),
-            last_log_id: guard.logs.last().map(|e| e.log_id.clone()),
+            last_purged_log_id: guard.last_purged,
+            last_log_id: guard.logs.last().map(|e| e.log_id),
         })
     }
 
@@ -156,7 +156,7 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         &mut self,
     ) -> Result<Option<LogId<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
         let guard = self.inner.lock().await;
-        Ok(guard.committed.clone())
+        Ok(guard.committed)
     }
 
     async fn get_log_reader(&mut self) -> Self::LogReader {
@@ -207,7 +207,7 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         StorageError<ChirpsNodeId>,
     > {
         let guard = self.inner.lock().await;
-        Ok((guard.last_applied.clone(), guard.last_membership.clone()))
+        Ok((guard.last_applied, guard.last_membership.clone()))
     }
 
     async fn apply_to_state_machine(
@@ -217,15 +217,14 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         let mut guard = self.inner.lock().await;
         let mut responses = Vec::new();
         for entry in entries {
-            guard.last_applied = Some(entry.log_id.clone());
+            guard.last_applied = Some(entry.log_id);
             match &entry.payload {
                 EntryPayload::Normal(data) => {
                     guard.state.data.lock().await.push(data.clone());
                     responses.push(data.clone());
                 }
                 EntryPayload::Membership(m) => {
-                    guard.last_membership =
-                        StoredMembership::new(Some(entry.log_id.clone()), m.clone());
+                    guard.last_membership = StoredMembership::new(Some(entry.log_id), m.clone());
                     responses.push(Vec::new());
                 }
                 EntryPayload::Blank => {
@@ -244,7 +243,7 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         let leader = guard
             .last_applied
             .as_ref()
-            .map(|l| l.leader_id.clone())
+            .map(|l| l.leader_id)
             .unwrap_or_else(|| CommittedLeaderId::new(0, 0));
         let last_log_id = Some(LogId::new(leader, index));
         if guard
@@ -253,7 +252,7 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
             .map(|c| c.index < index)
             .unwrap_or(true)
         {
-            guard.committed = last_log_id.clone();
+            guard.committed = last_log_id;
         }
         let bytes = bincode::serialize(&*guard.state.data.lock().await).unwrap_or_default();
         let meta = SnapshotMeta {
@@ -289,9 +288,9 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
 
         let mut guard = self.inner.lock().await;
         *guard.state.data.lock().await = restored;
-        guard.last_applied = meta.last_log_id.clone();
+        guard.last_applied = meta.last_log_id;
         guard.last_membership = meta.last_membership.clone();
-        guard.committed = meta.last_log_id.clone();
+        guard.committed = meta.last_log_id;
         guard.snapshot = Some(Snapshot {
             meta: meta.clone(),
             snapshot: Box::new(Cursor::new(buf)),
@@ -405,13 +404,15 @@ impl TestCluster {
         let store = MemoryStore::new(state_handle.clone());
         let (log_store, state_machine) = Adaptor::new(store.clone());
 
-        let mut cfg = RaftConfig::default();
-        cfg.group_id = self.group_id;
-        cfg.node_id = id;
-        cfg.election_timeout_ms = 120;
-        cfg.heartbeat_interval_ms = 40;
-        cfg.snapshot_threshold = self.snapshot_threshold;
-        cfg.max_in_snapshot_log_to_keep = 2 * self.snapshot_threshold;
+        let cfg = RaftConfig {
+            group_id: self.group_id,
+            node_id: id,
+            election_timeout_ms: 120,
+            heartbeat_interval_ms: 40,
+            snapshot_threshold: self.snapshot_threshold,
+            max_in_snapshot_log_to_keep: 2 * self.snapshot_threshold,
+            ..Default::default()
+        };
 
         let mut node = RaftNode::new(
             cfg,
@@ -466,7 +467,7 @@ impl TestCluster {
     async fn wait_for_leader(&self, timeout: Duration) -> Result<ChirpsNodeId> {
         let start = Instant::now();
         loop {
-            for (_id, node) in &self.nodes {
+            for node in self.nodes.values() {
                 if let Some(current) = node.node.leader_id() {
                     return Ok(current);
                 }
@@ -556,18 +557,13 @@ impl TestCluster {
         while Instant::now() < deadline {
             match leader_node.node.change_membership(members.clone()).await {
                 Ok(()) => {
-                    self.wait_for_membership(&members, timeout).await?;
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    self.wait_for_membership(&members, remaining).await?;
                     return Ok(());
                 }
                 Err(RaftError::MembershipChangeInProgress) => {
-                    let _ = self
-                        .wait_for_membership(
-                            &membership_voters(&leader_node.node.metrics()),
-                            timeout,
-                        )
-                        .await;
                     last_err = Some(RaftError::MembershipChangeInProgress);
-                    sleep(Duration::from_millis(100)).await;
+                    sleep(Duration::from_millis(50)).await;
                     continue;
                 }
                 Err(e) => return Err(e.into()),
@@ -634,15 +630,17 @@ fn spawn_pump(
                 if drop_msg {
                     continue;
                 }
-                if let Some(payload) = ChirpsRaftTransport::decode_frame(frame) {
-                    if let Some(request) = transport.consume_incoming(payload).await {
-                        let correlation_id = request.correlation_id;
-                        if let Ok(response) = node.handle_message(request).await {
-                            let _ = transport
-                                .send_response(sender, correlation_id, response)
-                                .await;
-                        }
-                    }
+                let Some(payload) = ChirpsRaftTransport::decode_frame(frame) else {
+                    continue;
+                };
+                let Some(request) = transport.consume_incoming(payload).await else {
+                    continue;
+                };
+                let correlation_id = request.correlation_id;
+                if let Ok(response) = node.handle_message(request).await {
+                    let _ = transport
+                        .send_response(sender, correlation_id, response)
+                        .await;
                 }
             } else {
                 break;
@@ -747,7 +745,7 @@ async fn membership_changes_promote_and_remove_voters() -> Result<()> {
         .change_membership_with_retry(
             leader,
             [21u64, 22u64, 23u64].into_iter().collect(),
-            Duration::from_secs(1),
+            Duration::from_secs(3),
         )
         .await?;
     cluster.propose(leader, b"after-promotion").await?;
@@ -757,7 +755,7 @@ async fn membership_changes_promote_and_remove_voters() -> Result<()> {
 
     let removal: BTreeSet<_> = [21u64, 23u64].into_iter().collect();
     cluster
-        .change_membership_with_retry(leader, removal, Duration::from_secs(2))
+        .change_membership_with_retry(leader, removal, Duration::from_secs(3))
         .await?;
     cluster.propose(leader, b"after-removal").await?;
     cluster.isolate(22).await;

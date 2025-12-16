@@ -601,10 +601,12 @@ mod tests {
         let mut events = Vec::new();
         for line in logs.lines() {
             let v: Value = serde_json::from_str(line).expect("json");
-            if let Some(fields) = v.get("fields") {
-                if let Some(ev) = fields.get("event").and_then(|e| e.as_str()) {
-                    events.push(ev.to_string());
-                }
+            if let Some(ev) = v
+                .get("fields")
+                .and_then(|fields| fields.get("event"))
+                .and_then(|e| e.as_str())
+            {
+                events.push(ev.to_string());
             }
             if let Some(target) = v.get("target").and_then(|t| t.as_str()) {
                 assert_eq!(target, "raft", "log target should be raft");
