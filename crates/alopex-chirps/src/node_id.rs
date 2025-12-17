@@ -36,12 +36,12 @@ pub fn load_or_create_node_id(path: &Path) -> Result<(NodeId, u64), MeshError> {
     }
 }
 
-fn set_secure_permissions(file: &fs::File) -> io::Result<()> {
+fn set_secure_permissions(_file: &fs::File) -> io::Result<()> {
     #[cfg(unix)]
     {
-        let mut perms = file.metadata()?.permissions();
+        let mut perms = _file.metadata()?.permissions();
         perms.set_mode(0o600);
-        file.set_permissions(perms)?;
+        _file.set_permissions(perms)?;
     }
     // On non-unix platforms, leave default permissions.
     Ok(())
