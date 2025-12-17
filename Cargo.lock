@@ -63,7 +63,9 @@ dependencies = [
 
 [[package]]
 name = "alopex-core"
-version = "0.1.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2814ba79362197b8ca5812e288fc0b8001d5728270a64f468a85f06dbaa198fe"
 dependencies = [
  "bincode",
  "crc32fast",
