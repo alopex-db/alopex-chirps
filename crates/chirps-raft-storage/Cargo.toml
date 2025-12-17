@@ -3,6 +3,10 @@ name = "chirps-raft-storage"
 version = "0.5.0"
 edition = "2024"
 
+[lints.rust]
+# openraft's declare_raft_types! macro uses cfg(feature = "serde") internally
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("serde"))'] }
+
 [dependencies]
 openraft = { version = "=0.9.17", features = ["serde"] }
 alopex-core = "0.3"
