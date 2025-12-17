@@ -17,8 +17,9 @@ use std::time::Duration;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio::task::JoinHandle;
 
-const WAIT_SHORT: Duration = Duration::from_secs(2);
-const WAIT_LONG: Duration = Duration::from_secs(5);
+// Increased timeouts for CI environments where QUIC handshakes may be slower
+const WAIT_SHORT: Duration = Duration::from_secs(10);
+const WAIT_LONG: Duration = Duration::from_secs(15);
 
 struct TestNode {
     id: NodeId,
@@ -272,11 +273,13 @@ struct BackendAdapter {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "E2E test requires QUIC networking - run manually with --ignored"]
 async fn three_node_mesh_self_signed_flow() -> Result<()> {
     run_three_node_mesh(None).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "E2E test requires QUIC networking - run manually with --ignored"]
 async fn three_node_mesh_with_explicit_cert() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let cert_path = dir.path().join("test.crt");

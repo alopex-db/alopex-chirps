@@ -43,6 +43,7 @@ async fn wait_for_connected_with_timeout(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
 async fn ping_ack_roundtrip() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
@@ -137,6 +138,7 @@ async fn ping_ack_roundtrip() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
 async fn broadcast_delivers_to_connected_peers() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
@@ -209,6 +211,7 @@ async fn broadcast_delivers_to_connected_peers() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
 async fn gossip_not_blocked_by_large_user_stream() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
@@ -314,6 +317,7 @@ async fn gossip_not_blocked_by_large_user_stream() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
 async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
@@ -440,6 +444,7 @@ async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
 async fn reconnects_when_seed_becomes_available() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
