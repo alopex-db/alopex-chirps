@@ -1,4 +1,5 @@
 use alopex_chirps::node_id::load_or_create_node_id;
+#[cfg(unix)]
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
