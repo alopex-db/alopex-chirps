@@ -528,6 +528,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore)] // Windows timer resolution (15.6ms) causes flaky timing tests
     async fn ping_timeout_requests_indirect_and_marks_suspect() {
         let node = NodeId::new();
         let target = NodeId::new();
