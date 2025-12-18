@@ -1,7 +1,13 @@
 [package]
 name = "chirps-mock"
-version = "0.5.0"
+version.workspace = true
 edition = "2024"
+description = "Mock implementations for testing Alopex Chirps components"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+keywords = ["testing", "mock", "distributed", "alopex", "chirps"]
 
 [dependencies]
 async-trait = "0.1"

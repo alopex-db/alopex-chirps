@@ -1,7 +1,13 @@
 [package]
 name = "chirps-transport-quic"
-version = "0.5.0"
+version.workspace = true
 edition = "2024"
+description = "QUIC-based transport layer for Alopex Chirps cluster communication"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+keywords = ["quic", "networking", "transport", "alopex", "chirps"]
 
 [dependencies]
 chirps-core = { path = "../chirps-core" }

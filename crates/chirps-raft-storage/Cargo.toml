@@ -1,7 +1,13 @@
 [package]
 name = "chirps-raft-storage"
-version = "0.5.0"
+version.workspace = true
 edition = "2024"
+description = "Raft log storage implementation for Alopex Chirps using alopex-core"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+keywords = ["raft", "storage", "consensus", "alopex", "chirps"]
 
 [lints.rust]
 # openraft's declare_raft_types! macro uses cfg(feature = "serde") internally

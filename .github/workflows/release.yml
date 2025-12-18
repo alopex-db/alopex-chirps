@@ -38,34 +38,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # 依存関係順に公開
+      # Layer 1: No internal dependencies
       - name: Publish chirps-wire
         run: cargo publish -p chirps-wire
         continue-on-error: true
-
-      - name: Wait for crates.io index update
-        run: sleep 30
-
-      - name: Publish chirps-core
-        run: cargo publish -p chirps-core
-        continue-on-error: true
-
-      - name: Wait for crates.io index update
-        run: sleep 30
-
-      - name: Publish chirps-transport-quic
-        run: cargo publish -p chirps-transport-quic
-        continue-on-error: true
-
-      - name: Wait for crates.io index update
-        run: sleep 30
-
-      - name: Publish chirps-gossip-swim
-        run: cargo publish -p chirps-gossip-swim
-        continue-on-error: true
-
-      - name: Wait for crates.io index update
-        run: sleep 30
 
       - name: Publish chirps-raft-storage
         run: cargo publish -p chirps-raft-storage
@@ -74,6 +50,31 @@ jobs:
       - name: Wait for crates.io index update
         run: sleep 30
 
+      # Layer 2: Depends on chirps-wire
+      - name: Publish chirps-core
+        run: cargo publish -p chirps-core
+        continue-on-error: true
+
+      - name: Publish chirps-gossip-swim
+        run: cargo publish -p chirps-gossip-swim
+        continue-on-error: true
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      # Layer 3: Depends on chirps-wire + chirps-core
+      - name: Publish chirps-mock
+        run: cargo publish -p chirps-mock
+        continue-on-error: true
+
+      - name: Publish chirps-transport-quic
+        run: cargo publish -p chirps-transport-quic
+        continue-on-error: true
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      # Layer 4: Depends on all above
       - name: Publish alopex-chirps
         run: cargo publish -p alopex-chirps
         continue-on-error: true

@@ -1,7 +1,13 @@
 [package]
 name = "chirps-gossip-swim"
-version = "0.5.0"
+version.workspace = true
 edition = "2024"
+description = "SWIM-based gossip protocol implementation for Alopex Chirps"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+keywords = ["gossip", "swim", "distributed", "alopex", "chirps"]
 
 [dependencies]
 chirps-wire = { path = "../chirps-wire" }

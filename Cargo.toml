@@ -11,6 +11,13 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.5.0"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/alopex-db/alopex-chirps"
+homepage = "https://github.com/alopex-db/alopex-chirps"
+categories = ["network-programming", "asynchronous", "database"]
+
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }

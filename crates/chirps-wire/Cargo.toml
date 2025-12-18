@@ -1,7 +1,13 @@
 [package]
 name = "chirps-wire"
-version = "0.5.0"
+version.workspace = true
 edition = "2024"
+description = "Wire protocol types for Alopex Chirps cluster communication"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+keywords = ["networking", "protocol", "serialization", "alopex", "chirps"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
