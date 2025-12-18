@@ -6,7 +6,7 @@ use alopex_chirps_raft_storage::types::{
     Snapshot, SnapshotMeta, StoredMembership, Vote,
 };
 use alopex_chirps_wire::node_id::NodeId;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use openraft::storage::{Adaptor, RaftSnapshotBuilder};
 use openraft::{
     CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader,
