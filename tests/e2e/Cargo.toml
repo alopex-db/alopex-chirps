@@ -6,9 +6,9 @@ publish = false
 
 [dependencies]
 alopex-chirps = { path = "../../crates/alopex-chirps" }
-chirps-transport-quic = { path = "../../crates/chirps-transport-quic" }
-chirps-gossip-swim = { path = "../../crates/chirps-gossip-swim" }
-chirps-wire = { path = "../../crates/chirps-wire" }
+alopex-chirps-transport-quic = { path = "../../crates/chirps-transport-quic" }
+alopex-chirps-gossip-swim = { path = "../../crates/chirps-gossip-swim" }
+alopex-chirps-wire = { path = "../../crates/chirps-wire" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tempfile = "3"
