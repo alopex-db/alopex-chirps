@@ -19,6 +19,14 @@ homepage = "https://github.com/alopex-db/alopex-chirps"
 categories = ["network-programming", "asynchronous", "database"]
 
 [workspace.dependencies]
+# Internal crates
+alopex-chirps-wire = { version = "0.5.0", path = "crates/chirps-wire" }
+alopex-chirps-core = { version = "0.5.0", path = "crates/chirps-core" }
+alopex-chirps-gossip-swim = { version = "0.5.0", path = "crates/chirps-gossip-swim" }
+alopex-chirps-mock = { version = "0.5.0", path = "crates/chirps-mock" }
+alopex-chirps-raft-storage = { version = "0.5.0", path = "crates/chirps-raft-storage" }
+alopex-chirps-transport-quic = { version = "0.5.0", path = "crates/chirps-transport-quic" }
+
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
 

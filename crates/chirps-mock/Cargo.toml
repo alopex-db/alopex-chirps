@@ -10,8 +10,8 @@ categories.workspace = true
 keywords = ["testing", "mock", "distributed", "alopex", "chirps"]
 
 [dependencies]
+alopex-chirps-core.workspace = true
+alopex-chirps-wire.workspace = true
 async-trait = "0.1"
-alopex-chirps-core = { path = "../chirps-core" }
-alopex-chirps-wire = { path = "../chirps-wire" }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
 anyhow = "1.0"
