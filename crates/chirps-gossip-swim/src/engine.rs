@@ -1,8 +1,8 @@
 use crate::types::{MembershipView, Peer, PeerState, Status};
 use crate::util::{StatusChange, calculate_fanout, check_timeouts};
-use async_trait::async_trait;
 use alopex_chirps_wire::frame::{Frame, MemberStatus, MembershipUpdate};
 use alopex_chirps_wire::node_id::NodeId;
+use async_trait::async_trait;
 use rand::seq::IteratorRandom;
 use std::collections::HashMap;
 use std::net::SocketAddr;

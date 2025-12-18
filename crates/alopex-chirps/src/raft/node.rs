@@ -497,8 +497,8 @@ impl RaftNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bincode;
     use alopex_chirps_wire::frame::{Frame, RaftFrame};
+    use bincode;
     use openraft::CommittedLeaderId;
     use openraft::ServerState;
     use openraft::metrics::RaftMetrics as OpenRaftMetrics;

@@ -1,5 +1,4 @@
 use alopex_chirps::{ChirpsRaftTransport, RaftConfig, RaftError, RaftNode};
-use anyhow::{Result, bail};
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_mock::{MockBackend, MockNetwork};
 use alopex_chirps_raft_storage::types::{
@@ -7,6 +6,7 @@ use alopex_chirps_raft_storage::types::{
     Snapshot, SnapshotMeta, StoredMembership, Vote,
 };
 use alopex_chirps_wire::node_id::NodeId;
+use anyhow::{bail, Result};
 use openraft::storage::{Adaptor, RaftSnapshotBuilder};
 use openraft::{
     CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader,

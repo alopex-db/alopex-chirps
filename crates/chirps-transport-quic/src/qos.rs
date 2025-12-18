@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use bincode::serialized_size;
 use alopex_chirps_wire::frame::Frame;
+use bincode::serialized_size;
 
 use crate::{
     StreamKind,

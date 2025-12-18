@@ -1,12 +1,12 @@
 use alopex_chirps::backend::MessageBackend;
 use alopex_chirps::config::NodeConfig;
-use anyhow::Result;
-use async_trait::async_trait;
 use alopex_chirps_gossip_swim::engine::{GossipConfig, GossipEngine, Transport, TransportError};
 use alopex_chirps_gossip_swim::types::{MembershipView, Status};
 use alopex_chirps_transport_quic::QuicBackend;
 use alopex_chirps_wire::frame::{Frame, MemberStatus, MembershipUpdate, UserMessage};
 use alopex_chirps_wire::node_id::NodeId;
+use anyhow::Result;
+use async_trait::async_trait;
 use rcgen::generate_simple_self_signed;
 use std::fs::File;
 use std::io::{self, Write};

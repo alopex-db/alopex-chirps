@@ -1,8 +1,8 @@
-use async_trait::async_trait;
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::error::TransportError;
 use alopex_chirps_wire::frame::Frame;
 use alopex_chirps_wire::node_id::NodeId;
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{

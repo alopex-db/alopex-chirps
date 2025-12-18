@@ -1,7 +1,7 @@
 use std::any::Any;
 
-use anyhow::anyhow;
 use alopex_chirps_raft_storage::types::StorageError;
+use anyhow::anyhow;
 use openraft::BasicNode;
 use openraft::error::{ChangeMembershipError, ClientWriteError, Fatal, RaftError as OpenRaftError};
 use thiserror::Error;

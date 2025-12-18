@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use bincode::serialized_size;
 use alopex_chirps_wire::{frame::Frame, node_id::NodeId};
+use bincode::serialized_size;
 
 use crate::{
     config::RetransmitConfig,
