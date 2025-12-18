@@ -1,4 +1,4 @@
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::node_id::NodeId;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rand::{Rng, thread_rng};
 use rustls::ClientConfig as RustlsClientConfig;

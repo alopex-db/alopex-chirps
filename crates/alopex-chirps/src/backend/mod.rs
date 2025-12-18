@@ -1,1 +1,1 @@
-pub use chirps_core::backend::MessageBackend;
+pub use alopex_chirps_core::backend::MessageBackend;

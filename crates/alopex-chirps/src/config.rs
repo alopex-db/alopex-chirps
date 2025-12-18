@@ -1,4 +1,4 @@
-pub use chirps_core::config::*;
+pub use alopex_chirps_core::config::*;
 
 #[cfg(test)]
 mod tests {

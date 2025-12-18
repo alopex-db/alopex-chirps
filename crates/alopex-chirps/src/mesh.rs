@@ -3,14 +3,14 @@ use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
 use crate::node_id::{NodeId, load_or_create_node_id};
 use crate::profile::{MessageProfile, enforce_profile};
-use chirps_gossip_swim::engine::{
+use alopex_chirps_gossip_swim::engine::{
     GossipConfig, GossipEngine, Transport as GossipTransport,
     TransportError as GossipTransportError,
 };
-use chirps_gossip_swim::types::{MembershipView, Status};
-use chirps_gossip_swim::util::StatusChange;
-use chirps_transport_quic::QuicBackend;
-use chirps_wire::frame::Frame;
+use alopex_chirps_gossip_swim::types::{MembershipView, Status};
+use alopex_chirps_gossip_swim::util::StatusChange;
+use alopex_chirps_transport_quic::QuicBackend;
+use alopex_chirps_wire::frame::Frame;
 use std::net::SocketAddr;
 use std::sync::{
     Arc,

@@ -1,4 +1,4 @@
-use chirps_raft_storage::types::{ChirpsNodeId, GroupId};
+use alopex_chirps_raft_storage::types::{ChirpsNodeId, GroupId};
 use serde::{Deserialize, Serialize};
 
 /// Raftグループの挙動を制御する設定値。
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```rust,ignore
 /// use alopex_chirps::raft::RaftConfig;
-/// use chirps_raft_storage::types::GroupId;
+/// use alopex_chirps_raft_storage::types::GroupId;
 ///
 /// let mut cfg = RaftConfig::default();
 /// cfg.group_id = GroupId(10);

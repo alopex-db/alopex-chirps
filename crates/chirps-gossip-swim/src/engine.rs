@@ -1,8 +1,8 @@
 use crate::types::{MembershipView, Peer, PeerState, Status};
 use crate::util::{StatusChange, calculate_fanout, check_timeouts};
 use async_trait::async_trait;
-use chirps_wire::frame::{Frame, MemberStatus, MembershipUpdate};
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::frame::{Frame, MemberStatus, MembershipUpdate};
+use alopex_chirps_wire::node_id::NodeId;
 use rand::seq::IteratorRandom;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -277,7 +277,7 @@ impl GossipEngine {
                     .backend
                     .send(
                         target,
-                        Frame::Gossip(chirps_wire::frame::GossipMessage { updates }),
+                        Frame::Gossip(alopex_chirps_wire::frame::GossipMessage { updates }),
                     )
                     .await;
             }

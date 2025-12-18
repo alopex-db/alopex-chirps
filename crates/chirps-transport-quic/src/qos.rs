@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use bincode::serialized_size;
-use chirps_wire::frame::Frame;
+use alopex_chirps_wire::frame::Frame;
 
 use crate::{
     StreamKind,
@@ -389,7 +389,7 @@ mod tests {
     #![allow(clippy::field_reassign_with_default)]
     use super::*;
     use crate::BandwidthConfig;
-    use chirps_wire::frame::{Frame, UserMessage};
+    use alopex_chirps_wire::frame::{Frame, UserMessage};
     use tracing_test::traced_test;
 
     fn user_frame(len: usize) -> Frame {

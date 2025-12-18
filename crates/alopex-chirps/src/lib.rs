@@ -18,7 +18,7 @@ pub use crate::raft::{
     ChirpsRaftTransport, MetricsError, RaftConfig, RaftError, RaftMessage, RaftMetricsCollector,
     RaftMetricsUpdate, RaftNode, serve_metrics,
 };
-pub use chirps_wire::frame::{Frame, UserMessage};
+pub use alopex_chirps_wire::frame::{Frame, UserMessage};
 
 /// 新しいメッシュを起動する。設定の検証・NodeId永続化・QUICトランスポート・ゴシップエンジンをまとめて初期化する。
 ///

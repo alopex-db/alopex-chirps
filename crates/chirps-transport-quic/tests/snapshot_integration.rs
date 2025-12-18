@@ -1,6 +1,6 @@
-use chirps_transport_quic::{QosConfig, QosController, StreamKind};
-use chirps_wire::frame::Frame;
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_transport_quic::{QosConfig, QosController, StreamKind};
+use alopex_chirps_wire::frame::Frame;
+use alopex_chirps_wire::node_id::NodeId;
 use std::time::Instant;
 
 fn raft_frame(seq: u64, from: NodeId) -> Frame {

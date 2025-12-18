@@ -1,10 +1,10 @@
 #![allow(clippy::field_reassign_with_default)]
-use chirps_core::backend::MessageBackend;
-use chirps_core::config::NodeConfig;
-use chirps_core::error::TransportError;
-use chirps_transport_quic::QuicBackend;
-use chirps_wire::frame::{Frame, UserMessage};
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_core::backend::MessageBackend;
+use alopex_chirps_core::config::NodeConfig;
+use alopex_chirps_core::error::TransportError;
+use alopex_chirps_transport_quic::QuicBackend;
+use alopex_chirps_wire::frame::{Frame, UserMessage};
+use alopex_chirps_wire::node_id::NodeId;
 use std::io;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::Arc;

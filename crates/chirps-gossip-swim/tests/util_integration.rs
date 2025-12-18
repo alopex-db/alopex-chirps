@@ -1,6 +1,6 @@
-use chirps_gossip_swim::types::{Peer, PeerState, Status};
-use chirps_gossip_swim::util::{StatusChange, calculate_fanout, check_timeouts};
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_gossip_swim::types::{Peer, PeerState, Status};
+use alopex_chirps_gossip_swim::util::{StatusChange, calculate_fanout, check_timeouts};
+use alopex_chirps_wire::node_id::NodeId;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};

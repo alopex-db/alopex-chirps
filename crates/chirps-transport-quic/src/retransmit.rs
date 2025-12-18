@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use bincode::serialized_size;
-use chirps_wire::{frame::Frame, node_id::NodeId};
+use alopex_chirps_wire::{frame::Frame, node_id::NodeId};
 
 use crate::{
     config::RetransmitConfig,

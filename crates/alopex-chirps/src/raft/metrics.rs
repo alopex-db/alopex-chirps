@@ -103,7 +103,7 @@ pub enum MetricsError {
 ///
 /// ```rust,ignore
 /// use alopex_chirps::raft::metrics::{RaftMetricsCollector, RaftMetricsUpdate};
-/// use chirps_raft_storage::types::GroupId;
+/// use alopex_chirps_raft_storage::types::GroupId;
 /// use openraft::ServerState;
 ///
 /// let collector = RaftMetricsCollector::new();

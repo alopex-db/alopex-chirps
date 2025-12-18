@@ -1,5 +1,5 @@
 use crate::error::MeshError;
-pub use chirps_wire::node_id::NodeId;
+pub use alopex_chirps_wire::node_id::NodeId;
 use std::fs;
 use std::io::{self, Read, Write};
 #[cfg(unix)]

@@ -26,7 +26,7 @@ use tracing::info;
 ///
 /// ```rust,ignore
 /// use alopex_chirps::raft::{RaftMessage, GroupId};
-/// use chirps_raft_storage::types::{VoteRequest, Vote};
+/// use alopex_chirps_raft_storage::types::{VoteRequest, Vote};
 ///
 /// let msg = RaftMessage::Vote {
 ///     group_id: GroupId(1),
@@ -85,7 +85,7 @@ impl RaftMessage {
 /// ```rust,ignore
 /// use alopex_chirps::raft::{RaftConfig, RaftNode};
 /// use alopex_chirps::raft::transport::ChirpsRaftTransport;
-/// use chirps_raft_storage::types::GroupId;
+/// use alopex_chirps_raft_storage::types::GroupId;
 /// use std::sync::Arc;
 ///
 /// # async fn build() -> anyhow::Result<()> {
@@ -498,7 +498,7 @@ impl RaftNode {
 mod tests {
     use super::*;
     use bincode;
-    use chirps_wire::frame::{Frame, RaftFrame};
+    use alopex_chirps_wire::frame::{Frame, RaftFrame};
     use openraft::CommittedLeaderId;
     use openraft::ServerState;
     use openraft::metrics::RaftMetrics as OpenRaftMetrics;
@@ -522,7 +522,7 @@ mod tests {
         let msg = RaftMessage::Vote {
             group_id: GroupId(42),
             request: VoteRequest {
-                vote: chirps_raft_storage::types::Vote::new(0, 0),
+                vote: alopex_chirps_raft_storage::types::Vote::new(0, 0),
                 last_log_id: None,
             },
         };
@@ -536,7 +536,7 @@ mod tests {
             message: RaftMessage::AppendEntries {
                 group_id: GroupId(1),
                 request: AppendEntriesRequest {
-                    vote: chirps_raft_storage::types::Vote::new(0, 0),
+                    vote: alopex_chirps_raft_storage::types::Vote::new(0, 0),
                     prev_log_id: None,
                     entries: Vec::new(),
                     leader_commit: None,

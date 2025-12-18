@@ -1,7 +1,7 @@
-use chirps_transport_quic::{
+use alopex_chirps_transport_quic::{
     HandshakeError, HandshakeMessage, MIN_COMPATIBLE_VERSION, PROTOCOL_VERSION, negotiate,
 };
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::node_id::NodeId;
 use tracing_test::traced_test;
 
 #[traced_test]

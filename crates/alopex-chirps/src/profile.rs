@@ -1,4 +1,4 @@
-use chirps_wire::frame::Frame;
+use alopex_chirps_wire::frame::Frame;
 use tracing::warn;
 
 /// Messaging profile to control reliability/priority semantics.

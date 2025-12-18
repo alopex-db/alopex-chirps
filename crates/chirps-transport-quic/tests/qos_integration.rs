@@ -1,6 +1,6 @@
-use chirps_transport_quic::{QosConfig, QosController, StreamKind};
-use chirps_wire::frame::{Frame, UserMessage};
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_transport_quic::{QosConfig, QosController, StreamKind};
+use alopex_chirps_wire::frame::{Frame, UserMessage};
+use alopex_chirps_wire::node_id::NodeId;
 use std::time::Instant;
 
 fn user_frame() -> Frame {

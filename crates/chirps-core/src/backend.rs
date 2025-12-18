@@ -1,7 +1,7 @@
 use crate::error::TransportError;
 use async_trait::async_trait;
-use chirps_wire::frame::Frame;
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::frame::Frame;
+use alopex_chirps_wire::node_id::NodeId;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 

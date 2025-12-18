@@ -1,5 +1,5 @@
-pub use chirps_core::error::{GossipError, TransportError};
-use chirps_wire::node_id::NodeId;
+pub use alopex_chirps_core::error::{GossipError, TransportError};
+use alopex_chirps_wire::node_id::NodeId;
 use thiserror::Error;
 
 /// Errors surfaced by the mesh API.

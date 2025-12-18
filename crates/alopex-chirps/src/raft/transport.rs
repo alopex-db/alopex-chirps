@@ -1,12 +1,12 @@
 use crate::backend::MessageBackend;
 use crate::raft::{RaftError, RaftMessage};
-use chirps_core::error::TransportError;
-use chirps_raft_storage::types::{
+use alopex_chirps_core::error::TransportError;
+use alopex_chirps_raft_storage::types::{
     AppendEntriesRequest, AppendEntriesResponse, BasicNode, ChirpsNodeId, ChirpsTypeConfig,
     GroupId, InstallSnapshotRequest, InstallSnapshotResponse, VoteRequest, VoteResponse,
 };
-use chirps_wire::frame::{Frame, RaftFrame};
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::frame::{Frame, RaftFrame};
+use alopex_chirps_wire::node_id::NodeId;
 use openraft::error::{Infallible, InstallSnapshotError, NetworkError, RPCError, Timeout};
 use openraft::network::{RPCOption, RPCTypes, RaftNetwork, RaftNetworkFactory};
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ use tokio::time;
 /// ```rust,ignore
 /// use alopex_chirps::raft::transport::RaftFramePayload;
 /// use alopex_chirps::raft::RaftMessage;
-/// use chirps_raft_storage::types::GroupId;
+/// use alopex_chirps_raft_storage::types::GroupId;
 ///
 /// let payload = RaftFramePayload {
 ///     correlation_id: 42,
@@ -45,7 +45,7 @@ pub struct RaftFramePayload {
 ///
 /// ```rust,ignore
 /// use alopex_chirps::raft::transport::ChirpsRaftTransport;
-/// use chirps_raft_storage::types::GroupId;
+/// use alopex_chirps_raft_storage::types::GroupId;
 ///
 /// let transport = ChirpsRaftTransport::new(my_backend(), GroupId(1), 1);
 /// let factory = ChirpsRaftTransport::factory(transport);

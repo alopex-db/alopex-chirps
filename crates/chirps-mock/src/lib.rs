@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use chirps_core::backend::MessageBackend;
-use chirps_core::error::TransportError;
-use chirps_wire::frame::Frame;
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_core::backend::MessageBackend;
+use alopex_chirps_core::error::TransportError;
+use alopex_chirps_wire::frame::Frame;
+use alopex_chirps_wire::node_id::NodeId;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{
@@ -139,7 +139,7 @@ impl MockBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chirps_wire::frame::UserMessage;
+    use alopex_chirps_wire::frame::UserMessage;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn send_delivers_to_target() -> anyhow::Result<()> {

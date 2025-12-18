@@ -1,5 +1,5 @@
 use crate::types::{Peer, Status};
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::node_id::NodeId;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};

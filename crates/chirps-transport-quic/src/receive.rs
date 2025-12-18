@@ -1,6 +1,6 @@
-use chirps_wire::envelope::{FRAME_ENVELOPE_V2_HEADER_SIZE, FrameEnvelopeV2};
-use chirps_wire::frame::Frame;
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::envelope::{FRAME_ENVELOPE_V2_HEADER_SIZE, FrameEnvelopeV2};
+use alopex_chirps_wire::frame::Frame;
+use alopex_chirps_wire::node_id::NodeId;
 use quinn::RecvStream;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};

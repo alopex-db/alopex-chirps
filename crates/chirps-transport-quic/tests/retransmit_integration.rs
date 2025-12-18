@@ -1,6 +1,6 @@
-use chirps_transport_quic::{RetransmissionBuffer, RetransmitConfig};
-use chirps_wire::frame::Frame;
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_transport_quic::{RetransmissionBuffer, RetransmitConfig};
+use alopex_chirps_wire::frame::Frame;
+use alopex_chirps_wire::node_id::NodeId;
 use std::collections::HashSet;
 use std::time::Instant;
 

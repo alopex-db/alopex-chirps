@@ -22,8 +22,8 @@ pub type StateMachineResult<T> = anyhow::Result<T>;
 /// # 例
 ///
 /// ```rust,ignore
-/// use chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
-/// use chirps_raft_storage::types::LogId;
+/// use alopex_chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
+/// use alopex_chirps_raft_storage::types::LogId;
 /// use async_trait::async_trait;
 /// use tokio::io::Cursor;
 ///
@@ -81,8 +81,8 @@ pub trait StateMachine: Send + Sync + 'static {
 /// # 例
 ///
 /// ```rust,ignore
-/// use chirps_raft_storage::traits::{RaftStorage, StateMachine};
-/// use chirps_raft_storage::types::{ChirpsTypeConfig, Entry, LogFlushed, LogId};
+/// use alopex_chirps_raft_storage::traits::{RaftStorage, StateMachine};
+/// use alopex_chirps_raft_storage::types::{ChirpsTypeConfig, Entry, LogFlushed, LogId};
 /// use async_trait::async_trait;
 ///
 /// struct InMemoryStorage {

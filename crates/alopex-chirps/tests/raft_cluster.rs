@@ -1,12 +1,12 @@
 use alopex_chirps::{ChirpsRaftTransport, RaftConfig, RaftError, RaftNode};
 use anyhow::{Result, bail};
-use chirps_core::backend::MessageBackend;
-use chirps_mock::{MockBackend, MockNetwork};
-use chirps_raft_storage::types::{
+use alopex_chirps_core::backend::MessageBackend;
+use alopex_chirps_mock::{MockBackend, MockNetwork};
+use alopex_chirps_raft_storage::types::{
     BasicNode, ChirpsNodeId, ChirpsTypeConfig, Entry, EntryPayload, GroupId, LogId, LogState,
     Snapshot, SnapshotMeta, StoredMembership, Vote,
 };
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::node_id::NodeId;
 use openraft::storage::{Adaptor, RaftSnapshotBuilder};
 use openraft::{
     CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader,

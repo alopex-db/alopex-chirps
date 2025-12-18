@@ -1,5 +1,5 @@
 use alopex_chirps::profile::{MessageProfile, enforce_profile};
-use chirps_wire::frame::{Frame, UserMessage};
+use alopex_chirps_wire::frame::{Frame, UserMessage};
 
 fn user_frame() -> Frame {
     Frame::User(UserMessage {
@@ -31,7 +31,7 @@ fn durable_is_not_implemented() {
 #[ignore = "Raft frame types land in v0.5; enable when Raft Frame variants are available"]
 #[test]
 fn raft_frames_should_force_control_and_warn() {
-    // TODO: replace with real Raft frame variant once chirps_wire adds AppendEntries/InstallSnapshot.
+    // TODO: replace with real Raft frame variant once alopex_chirps_wire adds AppendEntries/InstallSnapshot.
     let frame = user_frame();
     let eff = enforce_profile(&frame, MessageProfile::Ephemeral).unwrap();
     assert_eq!(eff, MessageProfile::Control);

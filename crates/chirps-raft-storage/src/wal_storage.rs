@@ -38,7 +38,7 @@ const SNAP_VERSION: u32 = 1;
 /// # 例
 ///
 /// ```rust,ignore
-/// use chirps_raft_storage::wal_storage::WalStorageConfig;
+/// use alopex_chirps_raft_storage::wal_storage::WalStorageConfig;
 ///
 /// let config = WalStorageConfig {
 ///     wal_dir: "/tmp/chirps/wal".into(),
@@ -92,8 +92,8 @@ pub struct WalHeader {
 /// # 例
 ///
 /// ```rust,ignore
-/// use chirps_raft_storage::wal_storage::RaftWalRecord;
-/// use chirps_raft_storage::types::{Entry, ChirpsTypeConfig, Vote};
+/// use alopex_chirps_raft_storage::wal_storage::RaftWalRecord;
+/// use alopex_chirps_raft_storage::types::{Entry, ChirpsTypeConfig, Vote};
 ///
 /// let vote = Vote::new(1, 1);
 /// let record = RaftWalRecord::Vote(vote);
@@ -158,9 +158,9 @@ impl WalSink for RealWalSink {
 /// # 例
 ///
 /// ```rust,ignore
-/// use chirps_raft_storage::traits::{StateMachine, StateMachineResult};
-/// use chirps_raft_storage::types::{GroupId, ChirpsNodeId, LogId};
-/// use chirps_raft_storage::wal_storage::{WalRaftStorage, WalStorageConfig};
+/// use alopex_chirps_raft_storage::traits::{StateMachine, StateMachineResult};
+/// use alopex_chirps_raft_storage::types::{GroupId, ChirpsNodeId, LogId};
+/// use alopex_chirps_raft_storage::wal_storage::{WalRaftStorage, WalStorageConfig};
 /// use async_trait::async_trait;
 /// use tokio::io::Cursor;
 ///

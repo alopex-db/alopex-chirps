@@ -1,4 +1,4 @@
-use chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::node_id::NodeId;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 

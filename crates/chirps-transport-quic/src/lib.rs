@@ -12,11 +12,11 @@
 
 use async_trait::async_trait;
 use bincode::{deserialize, serialize, serialized_size};
-use chirps_core::backend::MessageBackend;
-use chirps_core::config::NodeConfig;
-use chirps_core::error::TransportError;
-use chirps_wire::node_id::NodeId;
-use chirps_wire::{envelope::FrameEnvelopeV2, frame::Frame};
+use alopex_chirps_core::backend::MessageBackend;
+use alopex_chirps_core::config::NodeConfig;
+use alopex_chirps_core::error::TransportError;
+use alopex_chirps_wire::node_id::NodeId;
+use alopex_chirps_wire::{envelope::FrameEnvelopeV2, frame::Frame};
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream, ServerConfig};
 use rcgen::generate_simple_self_signed;
 use rustls::{Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore};
@@ -913,7 +913,7 @@ async fn send_to_peer(
     let ack_seq = receive_handler.get_ack_seq_for_peer(target).await;
     let payload_len = bincode::serialized_size(&frame).unwrap_or(0) as u32;
     let envelope =
-        chirps_wire::envelope::FrameEnvelopeV2::new(kind as u8, seq, ack_seq, payload_len, frame);
+        alopex_chirps_wire::envelope::FrameEnvelopeV2::new(kind as u8, seq, ack_seq, payload_len, frame);
     let start = tokio::time::Instant::now();
     let res = send_envelope(&conn, envelope).await;
     if let Ok(()) = res {

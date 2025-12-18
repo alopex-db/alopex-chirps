@@ -16,7 +16,7 @@ pub use transport::{
 };
 
 // 型エイリアスとopenraft型を一括で再エクスポートする。
-pub use chirps_raft_storage::types::{
+pub use alopex_chirps_raft_storage::types::{
     AppendEntriesRequest, AppendEntriesResponse, BasicNode, ChirpsNodeId, ChirpsTypeConfig, Entry,
     GroupId, InstallSnapshotRequest, InstallSnapshotResponse, LogId, Membership, VoteRequest,
     VoteResponse,
