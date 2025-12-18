@@ -1,5 +1,5 @@
 [package]
-name = "chirps-mock"
+name = "alopex-chirps-mock"
 version.workspace = true
 edition = "2024"
 description = "Mock implementations for testing Alopex Chirps components"
@@ -11,7 +11,7 @@ keywords = ["testing", "mock", "distributed", "alopex", "chirps"]
 
 [dependencies]
 async-trait = "0.1"
-chirps-core = { path = "../chirps-core" }
-chirps-wire = { path = "../chirps-wire" }
+alopex-chirps-core = { path = "../chirps-core" }
+alopex-chirps-wire = { path = "../chirps-wire" }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
 anyhow = "1.0"

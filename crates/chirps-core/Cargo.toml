@@ -1,5 +1,5 @@
 [package]
-name = "chirps-core"
+name = "alopex-chirps-core"
 version.workspace = true
 edition = "2024"
 description = "Core traits and types for Alopex Chirps cluster coordination"
@@ -10,7 +10,7 @@ categories.workspace = true
 keywords = ["networking", "cluster", "distributed", "alopex", "chirps"]
 
 [dependencies]
-chirps-wire = { path = "../chirps-wire" }
+alopex-chirps-wire = { path = "../chirps-wire" }
 async-trait = "0.1"
 tokio = { version = "1.35", features = ["sync"] }
 thiserror = "1.0"

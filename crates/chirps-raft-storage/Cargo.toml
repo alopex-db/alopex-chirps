@@ -1,5 +1,5 @@
 [package]
-name = "chirps-raft-storage"
+name = "alopex-chirps-raft-storage"
 version.workspace = true
 edition = "2024"
 description = "Raft log storage implementation for Alopex Chirps using alopex-core"

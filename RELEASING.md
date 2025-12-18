@@ -19,12 +19,12 @@ version = "0.5.0"  # ← ここを変更すると全クレートに反映
 
 | クレート | 説明 | 依存関係 |
 |---------|------|---------|
-| `chirps-wire` | ワイヤープロトコル型定義 | なし（最初に公開） |
-| `chirps-core` | コアトレイト・型 | chirps-wire |
-| `chirps-gossip-swim` | SWIM ゴシッププロトコル | chirps-wire |
-| `chirps-raft-storage` | Raft ログストレージ | alopex-core |
-| `chirps-mock` | テスト用モック実装 | chirps-wire, chirps-core |
-| `chirps-transport-quic` | QUIC トランスポート層 | chirps-wire, chirps-core |
+| `alopex-chirps-wire` | ワイヤープロトコル型定義 | なし（最初に公開） |
+| `alopex-chirps-core` | コアトレイト・型 | alopex-chirps-wire |
+| `alopex-chirps-gossip-swim` | SWIM ゴシッププロトコル | alopex-chirps-wire |
+| `alopex-chirps-raft-storage` | Raft ログストレージ | alopex-core |
+| `alopex-chirps-mock` | テスト用モック実装 | alopex-chirps-wire, alopex-chirps-core |
+| `alopex-chirps-transport-quic` | QUIC トランスポート層 | alopex-chirps-wire, alopex-chirps-core |
 | `alopex-chirps` | メインライブラリ | 全上記クレート |
 
 ### 公開順序
@@ -32,11 +32,11 @@ version = "0.5.0"  # ← ここを変更すると全クレートに反映
 依存関係により、以下の順序で公開する必要があります：
 
 ```
-Layer 1: chirps-wire, chirps-raft-storage
+Layer 1: alopex-chirps-wire, alopex-chirps-raft-storage
     ↓
-Layer 2: chirps-core, chirps-gossip-swim
+Layer 2: alopex-chirps-core, alopex-chirps-gossip-swim
     ↓
-Layer 3: chirps-mock, chirps-transport-quic
+Layer 3: alopex-chirps-mock, alopex-chirps-transport-quic
     ↓
 Layer 4: alopex-chirps
 ```
@@ -76,8 +76,8 @@ cargo test --workspace
 cargo clippy --all-targets --all-features -- -D warnings
 
 # dry-run で公開可能か確認（各クレート）
-cargo publish --dry-run -p chirps-wire
-cargo publish --dry-run -p chirps-core
+cargo publish --dry-run -p alopex-chirps-wire
+cargo publish --dry-run -p alopex-chirps-core
 cargo publish --dry-run -p alopex-chirps
 ```
 
@@ -130,12 +130,12 @@ git push origin chirps-v0.6.0
 - [ ] GitHub Actions の Release ワークフローが成功
 - [ ] GitHub Releases にリリースノートが作成されている
 - [ ] crates.io に各クレートが公開されている
-  - https://crates.io/crates/chirps-wire
-  - https://crates.io/crates/chirps-core
-  - https://crates.io/crates/chirps-gossip-swim
-  - https://crates.io/crates/chirps-raft-storage
-  - https://crates.io/crates/chirps-mock
-  - https://crates.io/crates/chirps-transport-quic
+  - https://crates.io/crates/alopex-chirps-wire
+  - https://crates.io/crates/alopex-chirps-core
+  - https://crates.io/crates/alopex-chirps-gossip-swim
+  - https://crates.io/crates/alopex-chirps-raft-storage
+  - https://crates.io/crates/alopex-chirps-mock
+  - https://crates.io/crates/alopex-chirps-transport-quic
   - https://crates.io/crates/alopex-chirps
 
 ## 手動リリース（緊急時）
@@ -145,28 +145,28 @@ git push origin chirps-v0.6.0
 ```bash
 cd /path/to/alopex-db/chirps
 
-# 1. chirps-wire を公開
-cargo publish -p chirps-wire
+# 1. alopex-chirps-wire を公開
+cargo publish -p alopex-chirps-wire
 sleep 30
 
-# 2. chirps-raft-storage を公開（alopex-core 依存のため並行可能）
-cargo publish -p chirps-raft-storage
+# 2. alopex-chirps-raft-storage を公開（alopex-core 依存のため並行可能）
+cargo publish -p alopex-chirps-raft-storage
 sleep 30
 
-# 3. chirps-core を公開
-cargo publish -p chirps-core
+# 3. alopex-chirps-core を公開
+cargo publish -p alopex-chirps-core
 sleep 30
 
-# 4. chirps-gossip-swim を公開
-cargo publish -p chirps-gossip-swim
+# 4. alopex-chirps-gossip-swim を公開
+cargo publish -p alopex-chirps-gossip-swim
 sleep 30
 
-# 5. chirps-mock を公開
-cargo publish -p chirps-mock
+# 5. alopex-chirps-mock を公開
+cargo publish -p alopex-chirps-mock
 sleep 30
 
-# 6. chirps-transport-quic を公開
-cargo publish -p chirps-transport-quic
+# 6. alopex-chirps-transport-quic を公開
+cargo publish -p alopex-chirps-transport-quic
 sleep 30
 
 # 7. alopex-chirps を公開
@@ -175,12 +175,12 @@ cargo publish -p alopex-chirps
 
 ## トラブルシューティング
 
-### "no matching package named `chirps-wire` found"
+### "no matching package named `alopex-chirps-wire` found"
 
-原因: `chirps-wire` がまだ crates.io にない状態で依存クレートを公開しようとした
+原因: `alopex-chirps-wire` がまだ crates.io にない状態で依存クレートを公開しようとした
 
 対処:
-1. `chirps-wire` を先に公開
+1. `alopex-chirps-wire` を先に公開
 2. 30秒待機（crates.io index 更新）
 3. 依存クレートを公開
 
@@ -224,7 +224,7 @@ Windows でタイミング依存のテストが失敗する場合があります
 
 ## 依存関係の更新
 
-chirps-raft-storage は `alopex-core` に依存しています。alopex-core がアップデートされた場合：
+alopex-chirps-raft-storage は `alopex-core` に依存しています。alopex-core がアップデートされた場合：
 
 1. `crates/chirps-raft-storage/Cargo.toml` の alopex-core バージョンを更新
 2. `cargo update` で Cargo.lock を更新
@@ -257,4 +257,5 @@ cargo test --workspace
 
 | 日付 | バージョン | 変更内容 |
 |------|-----------|---------|
+| 2025-12-18 | - | クレート名を `chirps-*` → `alopex-chirps-*` に変更 |
 | 2024-12-18 | - | リリース手順書作成、メタデータ追加 |

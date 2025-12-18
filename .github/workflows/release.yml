@@ -39,36 +39,36 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # Layer 1: No internal dependencies
-      - name: Publish chirps-wire
-        run: cargo publish -p chirps-wire
+      - name: Publish alopex-chirps-wire
+        run: cargo publish -p alopex-chirps-wire
         continue-on-error: true
 
-      - name: Publish chirps-raft-storage
-        run: cargo publish -p chirps-raft-storage
-        continue-on-error: true
-
-      - name: Wait for crates.io index update
-        run: sleep 30
-
-      # Layer 2: Depends on chirps-wire
-      - name: Publish chirps-core
-        run: cargo publish -p chirps-core
-        continue-on-error: true
-
-      - name: Publish chirps-gossip-swim
-        run: cargo publish -p chirps-gossip-swim
+      - name: Publish alopex-chirps-raft-storage
+        run: cargo publish -p alopex-chirps-raft-storage
         continue-on-error: true
 
       - name: Wait for crates.io index update
         run: sleep 30
 
-      # Layer 3: Depends on chirps-wire + chirps-core
-      - name: Publish chirps-mock
-        run: cargo publish -p chirps-mock
+      # Layer 2: Depends on alopex-chirps-wire
+      - name: Publish alopex-chirps-core
+        run: cargo publish -p alopex-chirps-core
         continue-on-error: true
 
-      - name: Publish chirps-transport-quic
-        run: cargo publish -p chirps-transport-quic
+      - name: Publish alopex-chirps-gossip-swim
+        run: cargo publish -p alopex-chirps-gossip-swim
+        continue-on-error: true
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      # Layer 3: Depends on alopex-chirps-wire + alopex-chirps-core
+      - name: Publish alopex-chirps-mock
+        run: cargo publish -p alopex-chirps-mock
+        continue-on-error: true
+
+      - name: Publish alopex-chirps-transport-quic
+        run: cargo publish -p alopex-chirps-transport-quic
         continue-on-error: true
 
       - name: Wait for crates.io index update

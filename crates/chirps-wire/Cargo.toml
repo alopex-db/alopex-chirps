@@ -1,5 +1,5 @@
 [package]
-name = "chirps-wire"
+name = "alopex-chirps-wire"
 version.workspace = true
 edition = "2024"
 description = "Wire protocol types for Alopex Chirps cluster communication"
