@@ -14,6 +14,8 @@ alopex-chirps-core.workspace = true
 alopex-chirps-wire.workspace = true
 tokio.workspace = true
 serde.workspace = true
+bincode.workspace = true
+quinn.workspace = true
 uuid = { version = "1.8.0", features = ["v4", "serde"] }
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 sha2 = "0.10"
