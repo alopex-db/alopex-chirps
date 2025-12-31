@@ -143,6 +143,7 @@ impl ExtendedTransportMetrics {
             StreamKind::RaftSnapshot,
             StreamKind::Gossip,
             StreamKind::User,
+            StreamKind::FileTransfer,
         ] {
             stream_sent.insert(kind, AtomicU64::new(0));
             stream_received.insert(kind, AtomicU64::new(0));
@@ -187,6 +188,10 @@ impl ExtendedTransportMetrics {
             StreamKind::User => {
                 metrics::counter!("chirps_stream_sent_total", "kind" => "User").increment(1);
             }
+            StreamKind::FileTransfer => {
+                metrics::counter!("chirps_stream_sent_total", "kind" => "FileTransfer")
+                    .increment(1);
+            }
         }
         if let Some(latency) = latency_us
             && let Some(hist) = self.stream_latency.get(&kind)
@@ -217,6 +222,10 @@ impl ExtendedTransportMetrics {
             }
             StreamKind::User => {
                 metrics::counter!("chirps_stream_received_total", "kind" => "User").increment(1);
+            }
+            StreamKind::FileTransfer => {
+                metrics::counter!("chirps_stream_received_total", "kind" => "FileTransfer")
+                    .increment(1);
             }
         }
         if let Some(latency) = latency_us

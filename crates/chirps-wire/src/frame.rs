@@ -1,8 +1,10 @@
+use crate::file_transfer::FileTransferFrame;
 use crate::node_id::NodeId;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
 /// A frame is the unit of communication between nodes.
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Frame {
     Ping {
@@ -24,6 +26,8 @@ pub enum Frame {
     Raft(RaftFrame),
     /// スナップショット転送専用フレーム。
     RaftSnapshot(RaftFrame),
+    /// ファイル転送制御フレーム。
+    FileTransfer(FileTransferFrame),
 }
 
 /// A gossip message containing membership updates.

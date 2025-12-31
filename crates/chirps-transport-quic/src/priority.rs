@@ -181,6 +181,7 @@ mod tests {
         assert_eq!(StreamKind::Raft.priority(), Priority::High);
         assert_eq!(StreamKind::Gossip.priority(), Priority::Normal);
         assert_eq!(StreamKind::RaftSnapshot.priority(), Priority::Normal);
+        assert_eq!(StreamKind::FileTransfer.priority(), Priority::Normal);
         assert_eq!(StreamKind::User.priority(), Priority::Low);
     }
 

@@ -38,15 +38,15 @@ dependencies = [
 name = "alopex-chirps"
 version = "0.5.0"
 dependencies = [
+ "alopex-chirps-core",
+ "alopex-chirps-gossip-swim",
+ "alopex-chirps-mock",
+ "alopex-chirps-raft-storage",
+ "alopex-chirps-transport-quic",
+ "alopex-chirps-wire",
  "anyhow",
  "async-trait",
  "bincode",
- "chirps-core",
- "chirps-gossip-swim",
- "chirps-mock",
- "chirps-raft-storage",
- "chirps-transport-quic",
- "chirps-wire",
  "criterion",
  "http 0.2.12",
  "openraft",
@@ -59,6 +59,109 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "alopex-chirps-core"
+version = "0.5.0"
+dependencies = [
+ "alopex-chirps-wire",
+ "async-trait",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "alopex-chirps-file-transfer"
+version = "0.5.0"
+dependencies = [
+ "alopex-chirps-core",
+ "alopex-chirps-wire",
+ "blake3",
+ "prometheus",
+ "serde",
+ "sha2",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xxhash-rust",
+ "zstd",
+]
+
+[[package]]
+name = "alopex-chirps-gossip-swim"
+version = "0.5.0"
+dependencies = [
+ "alopex-chirps-wire",
+ "async-trait",
+ "rand 0.8.5",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "alopex-chirps-mock"
+version = "0.5.0"
+dependencies = [
+ "alopex-chirps-core",
+ "alopex-chirps-wire",
+ "anyhow",
+ "async-trait",
+ "tokio",
+]
+
+[[package]]
+name = "alopex-chirps-raft-storage"
+version = "0.5.0"
+dependencies = [
+ "alopex-core",
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "crc32fast",
+ "openraft",
+ "serde",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "alopex-chirps-transport-quic"
+version = "0.5.0"
+dependencies = [
+ "alopex-chirps-core",
+ "alopex-chirps-wire",
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "bytes",
+ "futures",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "metrics-util",
+ "quinn",
+ "rand 0.8.5",
+ "rcgen",
+ "rustls 0.21.12",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-test",
+]
+
+[[package]]
+name = "alopex-chirps-wire"
+version = "0.5.0"
+dependencies = [
+ "bincode",
+ "serde",
+ "uuid",
 ]
 
 [[package]]
@@ -156,6 +259,12 @@ name = "anyhow"
 version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+
+[[package]]
+name = "arrayref"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
 
 [[package]]
 name = "arrayvec"
@@ -270,6 +379,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3888aaa89e4b2a40fca9848e400f6a658a5a3978de7be858e209cafa8be9a4a0"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq",
+]
+
+[[package]]
+name = "block-buffer"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
 name = "borsh"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -369,103 +500,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
-name = "chirps-core"
-version = "0.5.0"
-dependencies = [
- "async-trait",
- "chirps-wire",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
 name = "chirps-e2e"
 version = "0.5.0"
 dependencies = [
  "alopex-chirps",
+ "alopex-chirps-gossip-swim",
+ "alopex-chirps-transport-quic",
+ "alopex-chirps-wire",
  "anyhow",
  "async-trait",
- "chirps-gossip-swim",
- "chirps-transport-quic",
- "chirps-wire",
  "rcgen",
  "tempfile",
  "tokio",
-]
-
-[[package]]
-name = "chirps-gossip-swim"
-version = "0.5.0"
-dependencies = [
- "async-trait",
- "chirps-wire",
- "rand 0.8.5",
- "serde",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "chirps-mock"
-version = "0.5.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chirps-core",
- "chirps-wire",
- "tokio",
-]
-
-[[package]]
-name = "chirps-raft-storage"
-version = "0.5.0"
-dependencies = [
- "alopex-core",
- "anyhow",
- "async-trait",
- "bincode",
- "crc32fast",
- "openraft",
- "serde",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "chirps-transport-quic"
-version = "0.5.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bincode",
- "bytes",
- "chirps-core",
- "chirps-wire",
- "futures",
- "metrics",
- "metrics-exporter-prometheus",
- "metrics-util",
- "quinn",
- "rand 0.8.5",
- "rcgen",
- "rustls 0.21.12",
- "serde",
- "thiserror 1.0.69",
- "tokio",
- "tokio-test",
- "tracing",
- "tracing-subscriber",
- "tracing-test",
-]
-
-[[package]]
-name = "chirps-wire"
-version = "0.5.0"
-dependencies = [
- "bincode",
- "serde",
- "uuid",
 ]
 
 [[package]]
@@ -564,6 +610,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "constant_time_eq"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -588,6 +640,15 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "crc32fast"
@@ -668,6 +729,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "crypto-common"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -695,6 +766,16 @@ dependencies = [
  "quote",
  "syn 2.0.111",
  "unicode-xid",
+]
+
+[[package]]
+name = "digest"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
+dependencies = [
+ "block-buffer",
+ "crypto-common",
 ]
 
 [[package]]
@@ -860,6 +941,16 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
+]
+
+[[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
 ]
 
 [[package]]
@@ -1446,6 +1537,12 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
+name = "pkg-config"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "plotters"
@@ -2158,6 +2255,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2607,6 +2715,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "typenum"
+version = "1.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2650,6 +2764,7 @@ checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
 dependencies = [
  "getrandom 0.3.4",
  "js-sys",
+ "serde",
  "wasm-bindgen",
 ]
 
@@ -3100,6 +3215,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "xxhash-rust"
+version = "0.8.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3"
+
+[[package]]
 name = "yasna"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3133,3 +3254,31 @@ name = "zeroize"
 version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.16+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+dependencies = [
+ "cc",
+ "pkg-config",
+]

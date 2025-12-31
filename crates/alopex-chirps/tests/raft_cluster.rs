@@ -575,6 +575,33 @@ impl TestCluster {
         bail!("membership change did not complete after retries");
     }
 
+    async fn add_learner_with_retry(
+        &self,
+        leader: ChirpsNodeId,
+        learner: ChirpsNodeId,
+        node: BasicNode,
+        timeout: Duration,
+    ) -> Result<()> {
+        let leader_node = self.nodes.get(&leader).unwrap();
+        let mut last_err = None;
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            match leader_node.node.add_learner(learner, node.clone()).await {
+                Ok(()) => return Ok(()),
+                Err(RaftError::MembershipChangeInProgress) => {
+                    last_err = Some(RaftError::MembershipChangeInProgress);
+                    sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        if let Some(e) = last_err {
+            return Err(e.into());
+        }
+        bail!("add learner did not complete after retries");
+    }
+
     async fn pause_node(&self, id: ChirpsNodeId) {
         if let Some(node) = self.nodes.get(&id) {
             node.pause().await;
@@ -730,15 +757,13 @@ async fn membership_changes_promote_and_remove_voters() -> Result<()> {
         .await?;
 
     cluster
-        .nodes
-        .get(&leader)
-        .unwrap()
-        .node
-        .add_learner(
+        .add_learner_with_retry(
+            leader,
             23,
             BasicNode {
                 addr: "node-23".into(),
             },
+            Duration::from_secs(3),
         )
         .await?;
     cluster
@@ -778,15 +803,13 @@ async fn snapshot_transfer_catches_up_new_node() -> Result<()> {
 
     cluster.add_node(34).await?;
     cluster
-        .nodes
-        .get(&leader)
-        .unwrap()
-        .node
-        .add_learner(
+        .add_learner_with_retry(
+            leader,
             34,
             BasicNode {
                 addr: "node-34".into(),
             },
+            Duration::from_secs(3),
         )
         .await?;
     cluster

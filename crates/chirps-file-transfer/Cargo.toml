@@ -1,0 +1,24 @@
+[package]
+name = "alopex-chirps-file-transfer"
+version.workspace = true
+edition = "2024"
+description = "File transfer APIs for Alopex Chirps"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+keywords = ["file-transfer", "transfer", "alopex", "chirps"]
+
+[dependencies]
+alopex-chirps-core.workspace = true
+alopex-chirps-wire.workspace = true
+tokio.workspace = true
+serde.workspace = true
+uuid = { version = "1.8.0", features = ["v4", "serde"] }
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+sha2 = "0.10"
+blake3 = "1.5"
+zstd = "0.13"
+thiserror.workspace = true
+prometheus = "0.13"
+tracing.workspace = true

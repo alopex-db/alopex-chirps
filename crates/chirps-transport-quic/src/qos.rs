@@ -69,6 +69,7 @@ impl QosController {
             StreamKind::RaftSnapshot,
             StreamKind::Gossip,
             StreamKind::User,
+            StreamKind::FileTransfer,
         ] {
             metrics.queue_utilization.insert(kind, AtomicU64::new(0));
             let (max_bytes, max_items) = queue_limits_for_kind(limits, kind);
@@ -303,7 +304,9 @@ fn queue_limits_for_kind(limits: &QueueLimits, kind: StreamKind) -> (usize, usiz
             (limits.raft_max_bytes, limits.raft_max_items)
         }
         StreamKind::User => (limits.user_max_bytes, limits.user_max_items),
-        StreamKind::Gossip => (limits.gossip_max_bytes, limits.gossip_max_items),
+        StreamKind::Gossip | StreamKind::FileTransfer => {
+            (limits.gossip_max_bytes, limits.gossip_max_items)
+        }
     }
 }
 

@@ -81,13 +81,17 @@ pub enum StreamKind {
     Raft = 3,
     /// Raft snapshot/install traffic (normal priority, throttled).
     RaftSnapshot = 4,
+    /// File transfer control/data streams.
+    FileTransfer = 5,
 }
 
 impl StreamKind {
     pub(crate) fn priority(&self) -> Priority {
         match self {
             StreamKind::Control | StreamKind::Raft => Priority::High,
-            StreamKind::Gossip | StreamKind::RaftSnapshot => Priority::Normal,
+            StreamKind::Gossip | StreamKind::RaftSnapshot | StreamKind::FileTransfer => {
+                Priority::Normal
+            }
             StreamKind::User => Priority::Low,
         }
     }
@@ -95,7 +99,10 @@ impl StreamKind {
     pub(crate) fn requires_ack(&self) -> bool {
         matches!(
             self,
-            StreamKind::Control | StreamKind::Raft | StreamKind::RaftSnapshot
+            StreamKind::Control
+                | StreamKind::Raft
+                | StreamKind::RaftSnapshot
+                | StreamKind::FileTransfer
         )
     }
 }
@@ -110,11 +117,13 @@ impl TryFrom<u8> for StreamKind {
             2 => Ok(StreamKind::User),
             3 => Ok(StreamKind::Raft),
             4 => Ok(StreamKind::RaftSnapshot),
+            5 => Ok(StreamKind::FileTransfer),
             other => Err(TransportError::InvalidStreamKind(other)),
         }
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize)]
 enum WireMessage {
     Handshake(HandshakeMessage),
@@ -660,7 +669,11 @@ async fn handle_incoming_stream(
             connections.write().await.insert(msg.node_id, connection);
         }
         Ok((
-            StreamKind::Gossip | StreamKind::User | StreamKind::Raft | StreamKind::RaftSnapshot,
+            StreamKind::Gossip
+            | StreamKind::User
+            | StreamKind::Raft
+            | StreamKind::RaftSnapshot
+            | StreamKind::FileTransfer,
             WireMessage::Frame(env),
         )) => {
             let _ = incoming_tx.send((env.from, env.frame)).await;
@@ -683,6 +696,7 @@ fn stream_kind_for_frame(frame: &Frame) -> StreamKind {
         Frame::Raft(_) => StreamKind::Raft,
         Frame::RaftSnapshot(_) => StreamKind::RaftSnapshot,
         Frame::User(_) => StreamKind::User,
+        Frame::FileTransfer(_) => StreamKind::FileTransfer,
         _ => StreamKind::Gossip,
     }
 }

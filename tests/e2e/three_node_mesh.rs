@@ -93,6 +93,9 @@ impl TestNode {
                                 Frame::Raft(_) | Frame::RaftSnapshot(_) => {
                                     // Raftフレームはこのテストでは扱わない
                                 }
+                                Frame::FileTransfer(_) => {
+                                    // FileTransferフレームはこのテストでは扱わない
+                                }
                             }
                         }
                         None => break,

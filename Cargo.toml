@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/alopex-chirps",
+    "crates/chirps-file-transfer",
     "crates/chirps-transport-quic",
     "crates/chirps-gossip-swim",
     "crates/chirps-wire",
@@ -26,6 +27,7 @@ alopex-chirps-gossip-swim = { version = "0.5.0", path = "crates/chirps-gossip-sw
 alopex-chirps-mock = { version = "0.5.0", path = "crates/chirps-mock" }
 alopex-chirps-raft-storage = { version = "0.5.0", path = "crates/chirps-raft-storage" }
 alopex-chirps-transport-quic = { version = "0.5.0", path = "crates/chirps-transport-quic" }
+alopex-chirps-file-transfer = { version = "0.5.0", path = "crates/chirps-file-transfer" }
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
