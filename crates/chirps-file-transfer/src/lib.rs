@@ -11,12 +11,14 @@ pub mod config;
 pub mod error;
 pub mod integrity;
 pub mod manifest;
+pub mod ops;
 pub mod options;
 pub mod path;
 pub mod persistence;
 pub mod progress;
 pub mod session;
 pub mod stream;
+pub mod wire;
 
 pub use bandwidth::BandwidthThrottle;
 pub use chunk::{Chunk, ChunkManager, ChunkMeta, ChunkTracker};
@@ -25,6 +27,7 @@ pub use config::FileTransferConfig;
 pub use error::FileTransferError;
 pub use integrity::IntegrityVerifier;
 pub use manifest::{FileMetadata, FileType, ManifestError, TransferManifest};
+pub use ops::{ChunkStreamOpener, ControlDispatcher, broadcast_file, send_file, sync_file};
 pub use options::{
     CompressionAlgorithm, ConflictResolution, HashAlgorithm, ListOptions, RemoveOptions,
     RetryPolicy, SortBy, SyncDirection, SyncOptions, TransferMode, TransferOptions,

@@ -77,6 +77,7 @@ version = "0.5.0"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-wire",
+ "async-trait",
  "bincode",
  "blake3",
  "prometheus",
