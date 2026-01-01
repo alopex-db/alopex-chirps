@@ -16,6 +16,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          prefix="chirps-v"
+          if [[ "${tag}" != "${prefix}"* ]]; then
+            echo "Expected tag prefix ${prefix}, got ${tag}"
+            exit 1
+          fi
+          tag_version="${tag#${prefix}}"
+          cargo_version="$(awk -F ' = ' '
+            $0 ~ /^\\[workspace\\.package\\]$/ { in_pkg=1; next }
+            in_pkg && $0 ~ /^version =/ { gsub(/"/, "", $2); print $2; exit }
+            $0 ~ /^\\[/ { if (in_pkg) exit }
+          ' Cargo.toml)"
+          if [[ -z "${cargo_version}" ]]; then
+            echo "Failed to read workspace.package version from Cargo.toml"
+            exit 1
+          fi
+          if [[ "${tag_version}" != "${cargo_version}" ]]; then
+            echo "Tag ${tag_version} does not match Cargo.toml version ${cargo_version}"
+            exit 1
+          fi
+          echo "Tag version ${tag_version} matches Cargo.toml"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -65,6 +89,10 @@ jobs:
       # Layer 3: Depends on alopex-chirps-wire + alopex-chirps-core
       - name: Publish alopex-chirps-mock
         run: cargo publish -p alopex-chirps-mock
+        continue-on-error: true
+
+      - name: Publish alopex-chirps-file-transfer
+        run: cargo publish -p alopex-chirps-file-transfer
         continue-on-error: true
 
       - name: Publish alopex-chirps-transport-quic
