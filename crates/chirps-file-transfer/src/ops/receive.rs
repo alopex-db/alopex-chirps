@@ -4,19 +4,21 @@ use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
 use crate::integrity::IntegrityVerifier;
 use crate::manifest::TransferManifest;
+use crate::metrics::PrometheusMetrics;
 use crate::ops::ControlDispatcher;
 use crate::ops::conversions::from_wire_manifest;
 use crate::options::TransferMode;
 use crate::path::PathValidator;
-use crate::session::{TransferKind, TransferSession, TransferState};
+use crate::persistence::SessionPersistence;
+use crate::session::{TransferControlState, TransferKind, TransferSession, TransferState};
 use alopex_chirps_wire::file_transfer::FileTransferMessage;
 use alopex_chirps_wire::file_transfer::{ChunkAck, ManifestAck, TransferRequest, TransferResponse};
 use alopex_chirps_wire::node_id::NodeId;
 use quinn::RecvStream;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
@@ -27,6 +29,9 @@ pub struct ReceiveHandler {
     config: FileTransferConfig,
     path_validator: PathValidator,
     sessions: Arc<RwLock<HashMap<TransferSessionId, TransferSession>>>,
+    persistence: Option<Arc<SessionPersistence>>,
+    metrics: Option<Arc<PrometheusMetrics>>,
+    sync_sessions: Arc<RwLock<HashSet<TransferSessionId>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -42,11 +47,17 @@ impl ReceiveHandler {
         config: FileTransferConfig,
         path_validator: PathValidator,
         sessions: Arc<RwLock<HashMap<TransferSessionId, TransferSession>>>,
+        persistence: Option<Arc<SessionPersistence>>,
+        metrics: Option<Arc<PrometheusMetrics>>,
+        sync_sessions: Arc<RwLock<HashSet<TransferSessionId>>>,
     ) -> Self {
         ReceiveHandler {
             config,
             path_validator,
             sessions,
+            persistence,
+            metrics,
+            sync_sessions,
         }
     }
 
@@ -55,9 +66,14 @@ impl ReceiveHandler {
         sessions.get(&session_id).cloned()
     }
 
+    pub async fn mark_sync_session(&self, session_id: TransferSessionId) {
+        let mut sync_sessions = self.sync_sessions.write().await;
+        sync_sessions.insert(session_id);
+    }
+
     pub async fn handle_transfer_request(
         &self,
-        _session_id: TransferSessionId,
+        session_id: TransferSessionId,
         request: TransferRequest,
     ) -> Result<TransferResponse, FileTransferError> {
         let dest_path = self
@@ -72,10 +88,52 @@ impl ReceiveHandler {
             });
         }
 
+        let mut existing_chunks = Vec::new();
+        if request.options.resumable {
+            let resume_session = match self.session_snapshot(session_id).await {
+                Some(session) => Some(session),
+                None => {
+                    if let Some(persistence) = &self.persistence {
+                        match persistence.load(session_id).await {
+                            Ok(session) => Some(session),
+                            Err(FileTransferError::SessionNotFound(_)) => None,
+                            Err(err) => return Err(err),
+                        }
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            if let Some(session) = resume_session {
+                if !session.options.resumable
+                    || session.manifest.source_path != request.source_path
+                    || session.manifest.dest_path != request.dest_path
+                    || session.manifest.file_size != request.file_size
+                    || session.manifest.chunk_count != request.chunk_count
+                    || session.manifest.chunk_size != request.chunk_size
+                {
+                    return Ok(TransferResponse {
+                        accepted: false,
+                        rejection_reason: Some("resume session mismatch".into()),
+                        existing_chunks: Vec::new(),
+                    });
+                }
+
+                existing_chunks = session
+                    .chunk_tracker
+                    .completed
+                    .iter()
+                    .copied()
+                    .filter(|index| *index < request.chunk_count)
+                    .collect();
+            }
+        }
+
         Ok(TransferResponse {
             accepted: true,
             rejection_reason: None,
-            existing_chunks: Vec::new(),
+            existing_chunks,
         })
     }
 
@@ -98,19 +156,46 @@ impl ReceiveHandler {
             .validate(Path::new(&manifest.dest_path))?;
         let final_path = dest_path.clone();
         let is_empty = manifest.file_size == 0 || manifest.chunk_count == 0;
-        let manifest_for_finalize = if is_empty {
-            Some(manifest.clone())
-        } else {
-            None
+        let session_id = manifest.session_id;
+        let resume_session = match self.session_snapshot(session_id).await {
+            Some(session) => Some(session),
+            None => {
+                if manifest.options.resumable {
+                    if let Some(persistence) = &self.persistence {
+                        match persistence.load(session_id).await {
+                            Ok(session) => Some(session),
+                            Err(FileTransferError::SessionNotFound(_)) => None,
+                            Err(err) => return Err(err),
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
         };
-
-        let mut sessions = self.sessions.write().await;
-        if sessions.contains_key(&manifest.session_id) {
-            return Ok(ManifestAck {
-                accepted: false,
-                skip_chunks: Vec::new(),
-                error: Some("session already exists".into()),
-            });
+        if let Some(resume_session) = &resume_session {
+            if !resume_session.options.resumable && !manifest.options.resumable {
+                return Ok(ManifestAck {
+                    accepted: false,
+                    skip_chunks: Vec::new(),
+                    error: Some("session already exists".into()),
+                });
+            }
+            if resume_session.manifest.file_size != manifest.file_size
+                || resume_session.manifest.chunk_count != manifest.chunk_count
+                || resume_session.manifest.chunk_size != manifest.chunk_size
+                || resume_session.manifest.file_hash != manifest.file_hash
+                || resume_session.manifest.source_path != manifest.source_path
+                || resume_session.manifest.dest_path != manifest.dest_path
+            {
+                return Ok(ManifestAck {
+                    accepted: false,
+                    skip_chunks: Vec::new(),
+                    error: Some("resume manifest mismatch".into()),
+                });
+            }
         }
 
         let chunk_tracker = ChunkTracker::new(
@@ -119,34 +204,82 @@ impl ReceiveHandler {
         );
         let options = manifest.options.clone();
         let transfer_mode = options.mode;
+        let mut sync_sessions = self.sync_sessions.write().await;
+        let kind = if let Some(resume_session) = &resume_session {
+            sync_sessions.remove(&session_id);
+            resume_session.kind
+        } else if sync_sessions.remove(&session_id) {
+            TransferKind::Sync
+        } else {
+            TransferKind::Send
+        };
+        let manifest_clone = manifest.clone();
         let mut session = TransferSession::new(
-            manifest.session_id,
-            TransferKind::Send,
+            session_id,
+            kind,
             transfer_mode,
             sender,
             Vec::new(),
             PathBuf::from(&manifest.source_path),
             dest_path,
-            manifest,
+            manifest_clone,
             chunk_tracker,
-            options,
+            options.clone(),
         );
+        if let Some(resume_session) = &resume_session {
+            session.created_at = resume_session.created_at;
+            session.chunk_tracker.completed = resume_session
+                .chunk_tracker
+                .completed
+                .iter()
+                .copied()
+                .filter(|index| *index < session.chunk_tracker.total_chunks)
+                .collect();
+        }
         session.state = TransferState::InProgress;
+        session.updated_at = SystemTime::now();
+        let skip_chunks: Vec<u32> = session
+            .chunk_tracker
+            .completed
+            .iter()
+            .copied()
+            .filter(|index| *index < session.chunk_tracker.total_chunks)
+            .collect();
+        let mut sessions = self.sessions.write().await;
         sessions.insert(session.id, session);
         drop(sessions);
 
-        if let Some(manifest) = manifest_for_finalize {
-            write_chunk_to_temp(
-                &self.config,
-                &final_path,
-                manifest.session_id,
-                0,
-                &[],
-                manifest.file_size,
-            )
-            .await?;
+        if let Some(metrics) = &self.metrics {
+            metrics.record_transfer(kind, "started");
+            metrics.active_transfers.inc();
+        }
+
+        if let Some(persistence) = &self.persistence
+            && options.resumable
+            && let Some(session) = self.session_snapshot(session_id).await
+        {
+            let _ = persistence.save(&session).await;
+        }
+
+        let is_complete = if let Some(session) = self.session_snapshot(session_id).await {
+            session.chunk_tracker.is_complete()
+        } else {
+            false
+        };
+        if is_empty || is_complete {
+            if is_empty {
+                write_chunk_to_temp(
+                    &self.config,
+                    &final_path,
+                    session_id,
+                    0,
+                    &[],
+                    manifest.file_size,
+                )
+                .await?;
+            }
             if let Err(err) = verify_and_finalize(
-                &temp_path_for(&self.config, &final_path, manifest.session_id),
+                &temp_path_for(&self.config, &final_path, session_id),
                 &final_path,
                 &manifest,
                 transfer_mode,
@@ -154,7 +287,14 @@ impl ReceiveHandler {
             .await
             {
                 let mut sessions = self.sessions.write().await;
-                sessions.remove(&manifest.session_id);
+                sessions.remove(&session_id);
+                if let Some(metrics) = &self.metrics {
+                    if matches!(err, FileTransferError::FileHashMismatch) {
+                        metrics.record_checksum_failure("file");
+                    }
+                    metrics.record_transfer(kind, "failed");
+                    metrics.active_transfers.dec();
+                }
                 return Ok(ManifestAck {
                     accepted: false,
                     skip_chunks: Vec::new(),
@@ -163,15 +303,31 @@ impl ReceiveHandler {
             }
 
             let mut sessions = self.sessions.write().await;
-            if let Some(session) = sessions.get_mut(&manifest.session_id) {
+            if let Some(session) = sessions.get_mut(&session_id) {
                 session.state = TransferState::Completed;
                 session.updated_at = SystemTime::now();
+            }
+            if let Some(metrics) = &self.metrics {
+                metrics.record_transfer(kind, "completed");
+                metrics.active_transfers.dec();
+                let created_at = UNIX_EPOCH.checked_add(Duration::from_secs(manifest.created_at));
+                if let Some(created_at) = created_at
+                    && let Ok(duration) = SystemTime::now().duration_since(created_at)
+                {
+                    metrics.observe_transfer_duration(kind, duration.as_secs_f64());
+                    if duration.as_secs_f64() > 0.0 {
+                        metrics.observe_throughput(
+                            kind,
+                            manifest.file_size as f64 / duration.as_secs_f64(),
+                        );
+                    }
+                }
             }
         }
 
         Ok(ManifestAck {
             accepted: true,
-            skip_chunks: Vec::new(),
+            skip_chunks,
             error: None,
         })
     }
@@ -183,6 +339,61 @@ impl ReceiveHandler {
         recv: &mut RecvStream,
     ) -> Result<ReceiveOutcome, FileTransferError> {
         let (session_id, chunk_index, data) = ChunkStreamCodec::decode(recv).await?;
+        let (mut control_rx, kind) = {
+            let sessions = self.sessions.read().await;
+            let Some(session) = sessions.get(&session_id) else {
+                let _ = send_chunk_ack(
+                    control,
+                    sender,
+                    session_id,
+                    chunk_index,
+                    false,
+                    Some("session not found".into()),
+                )
+                .await;
+                return Err(FileTransferError::SessionNotFound(session_id));
+            };
+            (session.control.subscribe(), session.kind)
+        };
+
+        loop {
+            let state = *control_rx.borrow();
+            match state {
+                TransferControlState::Running => break,
+                TransferControlState::Paused => {
+                    if control_rx.changed().await.is_err() {
+                        return Err(FileTransferError::Cancelled);
+                    }
+                }
+                TransferControlState::Cancelled => {
+                    let mut sessions = self.sessions.write().await;
+                    let mut was_active = false;
+                    if let Some(session) = sessions.get_mut(&session_id) {
+                        was_active = matches!(
+                            session.state,
+                            TransferState::Initializing
+                                | TransferState::InProgress
+                                | TransferState::Paused
+                                | TransferState::Verifying
+                        );
+                        session.state = TransferState::Cancelled;
+                        session.error = Some("cancelled".into());
+                        session.updated_at = SystemTime::now();
+                        if let Some(persistence) = &self.persistence
+                            && session.options.resumable
+                        {
+                            let _ = persistence.save(session).await;
+                        }
+                    }
+                    if was_active && let Some(metrics) = &self.metrics {
+                        metrics.record_transfer(kind, "cancelled");
+                        metrics.active_transfers.dec();
+                    }
+                    return Err(FileTransferError::Cancelled);
+                }
+            }
+        }
+
         let mut sessions = self.sessions.write().await;
         let session = match sessions.get_mut(&session_id) {
             Some(session) => session,
@@ -229,6 +440,9 @@ impl ReceiveHandler {
         let checksum = IntegrityVerifier::compute_chunk_checksum(&data);
         if checksum != meta.checksum {
             session.chunk_tracker.mark_failed(chunk_index);
+            if let Some(metrics) = &self.metrics {
+                metrics.record_checksum_failure("chunk");
+            }
             let _ = send_chunk_ack(
                 control,
                 sender,
@@ -258,20 +472,51 @@ impl ReceiveHandler {
 
         session.chunk_tracker.mark_completed(chunk_index);
         session.updated_at = SystemTime::now();
+        if let Some(metrics) = &self.metrics {
+            metrics.record_chunk("received", data.len() as u64);
+        }
 
         send_chunk_ack(control, sender, session_id, chunk_index, true, None).await?;
 
         let completed = if session.chunk_tracker.is_complete() {
             let final_path = session.dest_path.clone();
             let temp_path = temp_path_for(&self.config, &session.dest_path, session_id);
-            verify_and_finalize(
+            if let Err(err) = verify_and_finalize(
                 &temp_path,
                 &final_path,
                 &session.manifest,
                 session.options.mode,
             )
-            .await?;
+            .await
+            {
+                if let Some(metrics) = &self.metrics {
+                    if matches!(err, FileTransferError::FileHashMismatch) {
+                        metrics.record_checksum_failure("file");
+                    }
+                    metrics.record_transfer(kind, "failed");
+                    metrics.active_transfers.dec();
+                }
+                return Err(err);
+            }
             session.state = TransferState::Completed;
+            if let Some(metrics) = &self.metrics {
+                metrics.record_transfer(kind, "completed");
+                metrics.active_transfers.dec();
+                if let Ok(duration) = SystemTime::now().duration_since(session.created_at) {
+                    metrics.observe_transfer_duration(kind, duration.as_secs_f64());
+                    if duration.as_secs_f64() > 0.0 {
+                        metrics.observe_throughput(
+                            kind,
+                            session.manifest.file_size as f64 / duration.as_secs_f64(),
+                        );
+                    }
+                }
+            }
+            if let Some(persistence) = &self.persistence
+                && session.options.resumable
+            {
+                let _ = persistence.save(session).await;
+            }
             true
         } else {
             false

@@ -13,7 +13,7 @@ use crate::TransferSessionId;
 use crate::error::FileTransferError;
 
 pub mod broadcast;
-mod conversions;
+pub(crate) mod conversions;
 pub mod file_ops;
 pub mod receive;
 pub mod send;

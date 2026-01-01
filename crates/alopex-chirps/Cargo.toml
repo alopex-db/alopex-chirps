@@ -12,6 +12,7 @@ documentation = "https://docs.rs/alopex-chirps"
 
 [dependencies]
 alopex-chirps-core.workspace = true
+alopex-chirps-file-transfer.workspace = true
 alopex-chirps-gossip-swim.workspace = true
 alopex-chirps-raft-storage.workspace = true
 alopex-chirps-transport-quic.workspace = true

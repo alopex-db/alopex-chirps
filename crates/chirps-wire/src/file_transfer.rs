@@ -309,6 +309,7 @@ pub struct FileMetadata {
     pub modified_at: Option<u64>,
     pub permissions: Option<u32>,
     pub file_type: FileType,
+    pub size: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

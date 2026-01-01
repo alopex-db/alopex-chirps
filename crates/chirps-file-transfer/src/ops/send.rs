@@ -5,12 +5,14 @@ use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
 use crate::integrity::IntegrityVerifier;
 use crate::manifest::{FileMetadata, FileType, TransferManifest};
+use crate::metrics::PrometheusMetrics;
 use crate::ops::conversions::to_wire_manifest;
 use crate::ops::conversions::to_wire_transfer_options;
 use crate::ops::{ChunkStreamOpener, ControlDispatcher};
 use crate::options::TransferOptions;
+use crate::persistence::SessionPersistence;
 use crate::progress::TransferHandle;
-use crate::session::{TransferKind, TransferSession, TransferState};
+use crate::session::{TransferControlState, TransferKind, TransferSession, TransferState};
 use alopex_chirps_wire::file_transfer::{
     ChunkAck, FileTransferMessage, ManifestAck, TransferComplete, TransferRequest, TransferResponse,
 };
@@ -20,13 +22,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs;
-use tokio::sync::mpsc;
+use tokio::sync::{RwLock, mpsc};
 use tokio::time::sleep;
 
 pub struct SendFileResult {
     pub session: TransferSession,
     pub handle: TransferHandle,
 }
+
+pub(crate) type SessionRegistry = Arc<RwLock<HashMap<TransferSessionId, TransferSession>>>;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn send_file(
@@ -39,7 +43,7 @@ pub async fn send_file(
     dest_path: &Path,
     options: TransferOptions,
 ) -> Result<SendFileResult, FileTransferError> {
-    send_file_with_cleanup(
+    send_file_with_context(
         control,
         stream_opener,
         config,
@@ -48,13 +52,18 @@ pub async fn send_file(
         source_path,
         dest_path,
         options,
+        TransferKind::Send,
+        None,
+        None,
+        None,
+        None,
         true,
     )
     .await
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn send_file_with_cleanup(
+pub(crate) async fn send_file_with_context(
     control: Arc<ControlDispatcher>,
     stream_opener: Arc<dyn ChunkStreamOpener>,
     config: FileTransferConfig,
@@ -63,6 +72,11 @@ pub(crate) async fn send_file_with_cleanup(
     source_path: &Path,
     dest_path: &Path,
     options: TransferOptions,
+    kind: TransferKind,
+    session_store: Option<SessionRegistry>,
+    persistence: Option<Arc<SessionPersistence>>,
+    metrics: Option<Arc<PrometheusMetrics>>,
+    resume_session: Option<TransferSession>,
     delete_source: bool,
 ) -> Result<SendFileResult, FileTransferError> {
     let metadata = fs::metadata(source_path).await?;
@@ -75,11 +89,61 @@ pub(crate) async fn send_file_with_cleanup(
     let file_size = metadata.len();
     let chunk_manager = ChunkManager::new(options.chunk_size);
     let chunk_count = chunk_manager.calculate_chunk_count(file_size);
+    let source_path_str = source_path.display().to_string();
+    let dest_path_str = dest_path.display().to_string();
+    let session_id = if let Some(resume) = resume_session.as_ref() {
+        if resume.kind != kind {
+            return Err(FileTransferError::Internal(
+                "resume session kind mismatch".into(),
+            ));
+        }
+        if resume.source_node != source_node {
+            return Err(FileTransferError::Internal(
+                "resume source node mismatch".into(),
+            ));
+        }
+        if resume.source_path.as_path() != source_path {
+            return Err(FileTransferError::Internal(
+                "resume source path mismatch".into(),
+            ));
+        }
+        if resume.dest_path.as_path() != dest_path {
+            return Err(FileTransferError::Internal(
+                "resume destination path mismatch".into(),
+            ));
+        }
+        if resume.target_nodes.first().copied() != Some(target) {
+            return Err(FileTransferError::Internal("resume target mismatch".into()));
+        }
+        if !options.resumable || !resume.options.resumable {
+            return Err(FileTransferError::Internal(
+                "resume requested for non-resumable session".into(),
+            ));
+        }
+        resume.id
+    } else {
+        TransferSessionId::new()
+    };
 
     let file_hash =
         IntegrityVerifier::compute_file_hash(source_path, options.hash_algorithm).await?;
 
-    let session_id = TransferSessionId::new();
+    if let Some(resume) = resume_session.as_ref() {
+        let manifest = &resume.manifest;
+        if manifest.file_size != file_size
+            || manifest.chunk_count != chunk_count
+            || manifest.chunk_size != chunk_manager.chunk_size() as u32
+            || manifest.hash_algorithm != options.hash_algorithm
+            || manifest.file_hash != file_hash
+            || manifest.source_path != source_path_str
+            || manifest.dest_path != dest_path_str
+        {
+            return Err(FileTransferError::Internal(
+                "resume manifest mismatch".into(),
+            ));
+        }
+    }
+
     let manifest = build_manifest(
         source_path,
         dest_path,
@@ -95,7 +159,7 @@ pub(crate) async fn send_file_with_cleanup(
 
     let mut session = TransferSession::new(
         session_id,
-        TransferKind::Send,
+        kind,
         options.mode,
         source_node,
         vec![target],
@@ -105,30 +169,107 @@ pub(crate) async fn send_file_with_cleanup(
         crate::chunk::ChunkTracker::new(chunk_count, options.retry_policy.max_retries),
         options.clone(),
     );
+    if let Some(resume) = resume_session.as_ref() {
+        session.created_at = resume.created_at;
+        session.chunk_tracker.completed = resume.chunk_tracker.completed.clone();
+    }
     session.state = TransferState::InProgress;
     session.updated_at = SystemTime::now();
 
-    let handle = TransferHandle::new(file_size);
+    store_session(&session_store, &session).await;
+    persist_session(&persistence, &session).await;
+    if let Some(metrics) = &metrics {
+        metrics.record_transfer(kind, "started");
+        metrics.active_transfers.inc();
+    }
 
-    send_transfer_request(&control, target, &session).await?;
+    let handle = TransferHandle::new(file_size);
+    let mut control_rx = session.control.subscribe();
+
+    if let Err(err) = send_transfer_request(&control, target, &session).await {
+        return Err(fail_session(
+            &mut session,
+            &session_store,
+            &persistence,
+            &metrics,
+            kind,
+            err,
+        )
+        .await);
+    }
     let response =
-        wait_for_transfer_response(&control, session.id, config.manifest_timeout).await?;
+        match wait_for_transfer_response(&control, session.id, config.manifest_timeout).await {
+            Ok(response) => response,
+            Err(err) => {
+                return Err(fail_session(
+                    &mut session,
+                    &session_store,
+                    &persistence,
+                    &metrics,
+                    kind,
+                    err,
+                )
+                .await);
+            }
+        };
     if !response.accepted {
-        return Err(FileTransferError::Rejected(
+        let err = FileTransferError::Rejected(
             response
                 .rejection_reason
                 .unwrap_or_else(|| "transfer rejected".into()),
-        ));
+        );
+        return Err(fail_session(
+            &mut session,
+            &session_store,
+            &persistence,
+            &metrics,
+            kind,
+            err,
+        )
+        .await);
     }
 
-    send_manifest(&control, target, &session).await?;
-    let manifest_ack = wait_for_manifest_ack(&control, session.id, config.manifest_timeout).await?;
+    if let Err(err) = send_manifest(&control, target, &session).await {
+        return Err(fail_session(
+            &mut session,
+            &session_store,
+            &persistence,
+            &metrics,
+            kind,
+            err,
+        )
+        .await);
+    }
+    let manifest_ack =
+        match wait_for_manifest_ack(&control, session.id, config.manifest_timeout).await {
+            Ok(ack) => ack,
+            Err(err) => {
+                return Err(fail_session(
+                    &mut session,
+                    &session_store,
+                    &persistence,
+                    &metrics,
+                    kind,
+                    err,
+                )
+                .await);
+            }
+        };
     if !manifest_ack.accepted {
-        return Err(FileTransferError::Rejected(
+        let err = FileTransferError::Rejected(
             manifest_ack
                 .error
                 .unwrap_or_else(|| "manifest rejected".into()),
-        ));
+        );
+        return Err(fail_session(
+            &mut session,
+            &session_store,
+            &persistence,
+            &metrics,
+            kind,
+            err,
+        )
+        .await);
     }
 
     let mut skip_chunks: HashSet<u32> = response.existing_chunks.into_iter().collect();
@@ -136,12 +277,25 @@ pub(crate) async fn send_file_with_cleanup(
     for index in &skip_chunks {
         session.chunk_tracker.mark_completed(*index);
     }
+    if !skip_chunks.is_empty() {
+        let mut skipped_bytes = 0u64;
+        let mut skipped_chunks = 0u32;
+        for index in &skip_chunks {
+            if let Some(meta) = session.manifest.chunks.get(*index as usize) {
+                skipped_bytes = skipped_bytes.saturating_add(meta.size as u64);
+                skipped_chunks = skipped_chunks.saturating_add(1);
+            }
+        }
+        if skipped_bytes > 0 || skipped_chunks > 0 {
+            handle.update_progress(skipped_bytes, skipped_chunks).await;
+        }
+    }
 
     let throttle = build_throttle(&config, &options);
     let mut pending: VecDeque<u32> = (0..chunk_count)
         .filter(|index| !skip_chunks.contains(index))
         .collect();
-    let mut in_flight: HashSet<u32> = HashSet::new();
+    let mut in_flight: HashMap<u32, Instant> = HashMap::new();
     let mut retry_counts: HashMap<u32, u8> = HashMap::new();
     let concurrency = options.concurrency.max(1).min(config.max_concurrency);
 
@@ -152,9 +306,39 @@ pub(crate) async fn send_file_with_cleanup(
     let start_time = Instant::now();
 
     while !pending.is_empty() || !in_flight.is_empty() {
+        loop {
+            let state = *control_rx.borrow();
+            match state {
+                TransferControlState::Running => break,
+                TransferControlState::Paused => {
+                    if control_rx.changed().await.is_err() {
+                        return Err(cancel_session(
+                            &mut session,
+                            &session_store,
+                            &persistence,
+                            &metrics,
+                            kind,
+                        )
+                        .await);
+                    }
+                }
+                TransferControlState::Cancelled => {
+                    return Err(cancel_session(
+                        &mut session,
+                        &session_store,
+                        &persistence,
+                        &metrics,
+                        kind,
+                    )
+                    .await);
+                }
+            }
+        }
+
         while in_flight.len() < concurrency && !pending.is_empty() {
             let index = pending.pop_front().expect("pending checked");
-            in_flight.insert(index);
+            in_flight.insert(index, Instant::now());
+            update_chunks_in_flight(&metrics, in_flight.len());
             let send_tx = send_tx.clone();
             let opener = Arc::clone(&stream_opener);
             let throttle = throttle.clone();
@@ -177,33 +361,82 @@ pub(crate) async fn send_file_with_cleanup(
         }
 
         tokio::select! {
+            _ = control_rx.changed() => {
+                if matches!(*control_rx.borrow(), TransferControlState::Cancelled) {
+                    return Err(cancel_session(
+                        &mut session,
+                        &session_store,
+                        &persistence,
+                        &metrics,
+                        kind,
+                    )
+                    .await);
+                }
+            }
             Some((index, result)) = send_rx.recv() => {
+                if let Some(metrics) = &metrics
+                    && result.is_ok()
+                    && let Some(meta) = session.manifest.chunks.get(index as usize)
+                {
+                    metrics.record_chunk("sent", meta.size as u64);
+                }
                 if let Err(err) = result {
                     in_flight.remove(&index);
+                    update_chunks_in_flight(&metrics, in_flight.len());
                     if let Some(attempt) =
                         should_retry(&mut retry_counts, index, options.retry_policy.max_retries)
                     {
+                        if let Some(metrics) = &metrics {
+                            metrics.record_retry();
+                        }
                         schedule_retry(index, &options.retry_policy, attempt, &retry_tx);
                     } else {
-                        return Err(err);
+                        return Err(fail_session(
+                            &mut session,
+                            &session_store,
+                            &persistence,
+                            &metrics,
+                            kind,
+                            err,
+                        )
+                        .await);
                     }
                 }
             }
             Some(retry_index) = retry_rx.recv() => {
                 if !session.chunk_tracker.completed.contains(&retry_index)
-                    && !in_flight.contains(&retry_index)
+                    && !in_flight.contains_key(&retry_index)
                 {
                     pending.push_back(retry_index);
                 }
             }
             message = control.recv_any(session.id, config.chunk_timeout) => {
-                let (_, message) = message?;
+                let (_, message) = match message {
+                    Ok(message) => message,
+                    Err(err) => {
+                        return Err(fail_session(
+                            &mut session,
+                            &session_store,
+                            &persistence,
+                            &metrics,
+                            kind,
+                            err,
+                        )
+                        .await);
+                    }
+                };
                 match message {
                     FileTransferMessage::ChunkAck(ChunkAck { index, verified, error }) => {
-                        if !in_flight.contains(&index) {
+                        let started = in_flight.remove(&index);
+                        update_chunks_in_flight(&metrics, in_flight.len());
+                        if started.is_none() {
                             continue;
                         }
-                        in_flight.remove(&index);
+                        if let Some(started) = started
+                            && let Some(metrics) = &metrics
+                        {
+                            metrics.observe_chunk_latency(started.elapsed().as_secs_f64());
+                        }
                         if verified {
                             session.chunk_tracker.mark_completed(index);
                             let meta = session.manifest.chunks.get(index as usize);
@@ -212,12 +445,26 @@ pub(crate) async fn send_file_with_cleanup(
                             }
                         } else {
                             session.chunk_tracker.mark_failed(index);
+                            if let Some(metrics) = &metrics {
+                                metrics.record_checksum_failure("chunk");
+                            }
                             if let Some(attempt) =
                                 should_retry(&mut retry_counts, index, options.retry_policy.max_retries)
                             {
+                                if let Some(metrics) = &metrics {
+                                    metrics.record_retry();
+                                }
                                 schedule_retry(index, &options.retry_policy, attempt, &retry_tx);
                             } else {
-                                return Err(FileTransferError::MaxRetriesExceeded { index });
+                                return Err(fail_session(
+                                    &mut session,
+                                    &session_store,
+                                    &persistence,
+                                    &metrics,
+                                    kind,
+                                    FileTransferError::MaxRetriesExceeded { index },
+                                )
+                                .await);
                             }
                             if let Some(msg) = error {
                                 session.fail(msg);
@@ -225,10 +472,26 @@ pub(crate) async fn send_file_with_cleanup(
                         }
                     }
                     FileTransferMessage::Error(err) => {
-                        return Err(FileTransferError::Transport(err.message));
+                        return Err(fail_session(
+                            &mut session,
+                            &session_store,
+                            &persistence,
+                            &metrics,
+                            kind,
+                            FileTransferError::Transport(err.message),
+                        )
+                        .await);
                     }
                     FileTransferMessage::Cancel(_) => {
-                        return Err(FileTransferError::Cancelled);
+                        session.control.set_state(TransferControlState::Cancelled);
+                        return Err(cancel_session(
+                            &mut session,
+                            &session_store,
+                            &persistence,
+                            &metrics,
+                            kind,
+                        )
+                        .await);
                     }
                     _ => {}
                 }
@@ -237,9 +500,15 @@ pub(crate) async fn send_file_with_cleanup(
     }
 
     if !session.chunk_tracker.is_complete() {
-        return Err(FileTransferError::Internal(
-            "transfer incomplete after sending chunks".into(),
-        ));
+        return Err(fail_session(
+            &mut session,
+            &session_store,
+            &persistence,
+            &metrics,
+            kind,
+            FileTransferError::Internal("transfer incomplete after sending chunks".into()),
+        )
+        .await);
     }
 
     let duration_ms = start_time.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -249,22 +518,130 @@ pub(crate) async fn send_file_with_cleanup(
         file_hash: session.manifest.file_hash.clone(),
         hash_algorithm: to_wire_hash_algorithm(session.manifest.hash_algorithm),
     };
-    control
+    if let Err(err) = control
         .send_message(
             session.target_nodes[0],
             session.id,
             FileTransferMessage::Complete(complete),
         )
-        .await?;
+        .await
+    {
+        return Err(fail_session(
+            &mut session,
+            &session_store,
+            &persistence,
+            &metrics,
+            kind,
+            err,
+        )
+        .await);
+    }
 
-    if delete_source && matches!(options.mode, crate::options::TransferMode::Move) {
-        fs::remove_file(source_path).await?;
+    if delete_source
+        && matches!(options.mode, crate::options::TransferMode::Move)
+        && let Err(err) = fs::remove_file(source_path).await
+    {
+        return Err(fail_session(
+            &mut session,
+            &session_store,
+            &persistence,
+            &metrics,
+            kind,
+            FileTransferError::Io(err),
+        )
+        .await);
     }
 
     session.state = TransferState::Completed;
     session.updated_at = SystemTime::now();
+    store_session(&session_store, &session).await;
+    persist_session(&persistence, &session).await;
+    if let Some(metrics) = &metrics {
+        let duration_secs = start_time.elapsed().as_secs_f64();
+        metrics.record_transfer(kind, "completed");
+        metrics.active_transfers.dec();
+        metrics.observe_transfer_duration(kind, duration_secs);
+        if duration_secs > 0.0 {
+            metrics.observe_throughput(kind, file_size as f64 / duration_secs);
+        }
+    }
 
     Ok(SendFileResult { session, handle })
+}
+
+async fn store_session(session_store: &Option<SessionRegistry>, session: &TransferSession) {
+    if let Some(store) = session_store {
+        let mut sessions = store.write().await;
+        sessions.insert(session.id, session.clone());
+    }
+}
+
+async fn persist_session(persistence: &Option<Arc<SessionPersistence>>, session: &TransferSession) {
+    if let Some(persistence) = persistence
+        && session.options.resumable
+    {
+        let _ = persistence.save(session).await;
+    }
+}
+
+async fn fail_session(
+    session: &mut TransferSession,
+    session_store: &Option<SessionRegistry>,
+    persistence: &Option<Arc<SessionPersistence>>,
+    metrics: &Option<Arc<PrometheusMetrics>>,
+    kind: TransferKind,
+    err: FileTransferError,
+) -> FileTransferError {
+    session.fail(err.to_string());
+    store_session(session_store, session).await;
+    persist_session(persistence, session).await;
+    if let Some(metrics) = metrics {
+        metrics.record_transfer(kind, "failed");
+        metrics.active_transfers.dec();
+        metrics.set_chunks_in_flight(0);
+    }
+    err
+}
+
+async fn cancel_session(
+    session: &mut TransferSession,
+    session_store: &Option<SessionRegistry>,
+    persistence: &Option<Arc<SessionPersistence>>,
+    metrics: &Option<Arc<PrometheusMetrics>>,
+    kind: TransferKind,
+) -> FileTransferError {
+    let mut was_active = true;
+    if let Some(store) = session_store {
+        let sessions = store.read().await;
+        if let Some(existing) = sessions.get(&session.id) {
+            was_active = matches!(
+                existing.state,
+                TransferState::Initializing
+                    | TransferState::InProgress
+                    | TransferState::Paused
+                    | TransferState::Verifying
+            );
+        }
+    }
+    session.state = TransferState::Cancelled;
+    session.error = Some("cancelled".into());
+    session.updated_at = SystemTime::now();
+    store_session(session_store, session).await;
+    persist_session(persistence, session).await;
+    if let Some(metrics) = metrics {
+        if was_active {
+            metrics.record_transfer(kind, "cancelled");
+            metrics.active_transfers.dec();
+        }
+        metrics.set_chunks_in_flight(0);
+    }
+    FileTransferError::Cancelled
+}
+
+fn update_chunks_in_flight(metrics: &Option<Arc<PrometheusMetrics>>, in_flight: usize) {
+    if let Some(metrics) = metrics {
+        metrics.set_chunks_in_flight(in_flight as i64);
+    }
 }
 
 async fn send_transfer_request(
@@ -444,6 +821,7 @@ fn build_file_metadata(metadata: &std::fs::Metadata) -> FileMetadata {
         modified_at: to_unix_seconds(metadata.modified()),
         permissions: permissions_to_u32(metadata),
         file_type,
+        size: Some(metadata.len()),
     }
 }
 
@@ -531,5 +909,6 @@ fn to_wire_file_metadata(
             FileType::Directory => alopex_chirps_wire::file_transfer::FileType::Directory,
             FileType::Symlink => alopex_chirps_wire::file_transfer::FileType::Symlink,
         },
+        size: metadata.size,
     }
 }

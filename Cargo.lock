@@ -39,6 +39,7 @@ name = "alopex-chirps"
 version = "0.5.0"
 dependencies = [
  "alopex-chirps-core",
+ "alopex-chirps-file-transfer",
  "alopex-chirps-gossip-swim",
  "alopex-chirps-mock",
  "alopex-chirps-raft-storage",

@@ -11,11 +11,13 @@ pub mod config;
 pub mod error;
 pub mod integrity;
 pub mod manifest;
+pub mod metrics;
 pub mod ops;
 pub mod options;
 pub mod path;
 pub mod persistence;
 pub mod progress;
+pub mod service;
 pub mod session;
 pub mod stream;
 pub mod wire;
@@ -27,6 +29,7 @@ pub use config::FileTransferConfig;
 pub use error::FileTransferError;
 pub use integrity::IntegrityVerifier;
 pub use manifest::{FileMetadata, FileType, ManifestError, TransferManifest};
+pub use metrics::{FileTransferMetrics, PrometheusMetrics};
 pub use ops::{ChunkStreamOpener, ControlDispatcher, broadcast_file, send_file, sync_file};
 pub use options::{
     CompressionAlgorithm, ConflictResolution, HashAlgorithm, ListOptions, RemoveOptions,
@@ -37,5 +40,7 @@ pub use persistence::SessionPersistence;
 pub use progress::{
     BroadcastHandle, NodeTransferStatus, SyncHandle, TransferHandle, TransferProgress,
 };
-pub use session::{TransferKind, TransferSession, TransferState};
+pub use service::{FileTransferService, FileTransferServiceImpl};
+pub use session::{TransferKind, TransferSession, TransferSessionInfo, TransferState};
 pub use stream::{CHUNK_STREAM_MAGIC, ChunkStreamCodec};
+pub use wire::FileInfo;

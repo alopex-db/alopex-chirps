@@ -101,6 +101,7 @@ pub(crate) fn to_wire_file_metadata(metadata: &FileMetadata) -> wire::FileMetada
         modified_at: metadata.modified_at,
         permissions: metadata.permissions,
         file_type: to_wire_file_type(metadata.file_type),
+        size: metadata.size,
     }
 }
 
@@ -110,6 +111,7 @@ pub(crate) fn from_wire_file_metadata(metadata: wire::FileMetadata) -> FileMetad
         modified_at: metadata.modified_at,
         permissions: metadata.permissions,
         file_type: from_wire_file_type(metadata.file_type),
+        size: metadata.size,
     }
 }
 

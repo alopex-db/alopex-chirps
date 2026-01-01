@@ -1,10 +1,13 @@
 use crate::TransferSessionId;
 use crate::error::FileTransferError;
+use crate::metrics::PrometheusMetrics;
 use crate::ops::conversions::from_wire_file_metadata;
-use crate::ops::{ChunkStreamOpener, ControlDispatcher, ReceiveHandler, send_file};
+use crate::ops::send::{SessionRegistry, send_file_with_context};
+use crate::ops::{ChunkStreamOpener, ControlDispatcher, ReceiveHandler};
 use crate::options::{ConflictResolution, SyncDirection, SyncOptions};
+use crate::persistence::SessionPersistence;
 use crate::progress::SyncHandle;
-use crate::session::{TransferSession, TransferState};
+use crate::session::{TransferKind, TransferSession, TransferState};
 use alopex_chirps_wire::file_transfer::{FileTransferMessage, MetadataRequest, MetadataResponse};
 use alopex_chirps_wire::node_id::NodeId;
 use std::cmp::Ordering;
@@ -25,6 +28,38 @@ pub async fn sync_file(
     local_path: &Path,
     remote_path: &Path,
     options: SyncOptions,
+) -> Result<SyncHandle, FileTransferError> {
+    sync_file_with_context(
+        control,
+        stream_opener,
+        receive_handler,
+        config,
+        source_node,
+        target,
+        local_path,
+        remote_path,
+        options,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn sync_file_with_context(
+    control: Arc<ControlDispatcher>,
+    stream_opener: Arc<dyn ChunkStreamOpener>,
+    receive_handler: Arc<ReceiveHandler>,
+    config: crate::config::FileTransferConfig,
+    source_node: NodeId,
+    target: NodeId,
+    local_path: &Path,
+    remote_path: &Path,
+    options: SyncOptions,
+    session_store: Option<SessionRegistry>,
+    persistence: Option<Arc<SessionPersistence>>,
+    metrics: Option<Arc<PrometheusMetrics>>,
 ) -> Result<SyncHandle, FileTransferError> {
     let local_metadata = fs::metadata(local_path).await.ok();
     let local_modified = local_metadata
@@ -62,7 +97,7 @@ pub async fn sync_file(
             Ok(handle)
         }
         SyncAction::Push => {
-            let result = send_file(
+            let result = send_file_with_context(
                 control,
                 stream_opener,
                 config,
@@ -71,6 +106,12 @@ pub async fn sync_file(
                 local_path,
                 remote_path,
                 options.transfer.clone(),
+                TransferKind::Sync,
+                session_store.clone(),
+                persistence.clone(),
+                metrics.clone(),
+                None,
+                true,
             )
             .await?;
             let handle = SyncHandle::new(local_size);
@@ -309,6 +350,7 @@ async fn wait_for_pull_transfer(
                 .unwrap_or_else(|| "pull transfer rejected".into()),
         ));
     }
+    receive_handler.mark_sync_session(session_id).await;
 
     let (sender, message) = control
         .recv_filtered(session_id, config.manifest_timeout, |msg| {

@@ -1,10 +1,12 @@
 use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
-use crate::ops::send::send_file_with_cleanup;
+use crate::metrics::PrometheusMetrics;
+use crate::ops::send::{SessionRegistry, send_file_with_context};
 use crate::ops::{ChunkStreamOpener, ControlDispatcher};
 use crate::options::{TransferMode, TransferOptions};
+use crate::persistence::SessionPersistence;
 use crate::progress::BroadcastHandle;
-use crate::session::{TransferSession, TransferState};
+use crate::session::{TransferKind, TransferSession, TransferState};
 use alopex_chirps_wire::node_id::NodeId;
 use std::path::Path;
 use std::sync::Arc;
@@ -28,6 +30,36 @@ pub async fn broadcast_file(
     dest_path: &Path,
     options: TransferOptions,
 ) -> Result<BroadcastResult, FileTransferError> {
+    broadcast_file_with_context(
+        control,
+        stream_opener,
+        config,
+        source_node,
+        targets,
+        source_path,
+        dest_path,
+        options,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn broadcast_file_with_context(
+    control: Arc<ControlDispatcher>,
+    stream_opener: Arc<dyn ChunkStreamOpener>,
+    config: FileTransferConfig,
+    source_node: NodeId,
+    targets: Vec<NodeId>,
+    source_path: &Path,
+    dest_path: &Path,
+    options: TransferOptions,
+    session_store: Option<SessionRegistry>,
+    persistence: Option<Arc<SessionPersistence>>,
+    metrics: Option<Arc<PrometheusMetrics>>,
+) -> Result<BroadcastResult, FileTransferError> {
     let metadata = fs::metadata(source_path).await?;
     let file_size = metadata.len();
     let handle = BroadcastHandle::new(targets.clone(), file_size);
@@ -41,8 +73,11 @@ pub async fn broadcast_file(
         let dest_path = dest_path.to_path_buf();
         let handle = handle.clone();
         let per_target_options = options.clone();
+        let session_store = session_store.clone();
+        let persistence = persistence.clone();
+        let metrics = metrics.clone();
         join_set.spawn(async move {
-            let result = send_file_with_cleanup(
+            let result = send_file_with_context(
                 control,
                 stream_opener,
                 config,
@@ -51,6 +86,11 @@ pub async fn broadcast_file(
                 &source_path,
                 &dest_path,
                 per_target_options,
+                TransferKind::Broadcast,
+                session_store,
+                persistence,
+                metrics,
+                None,
                 false,
             )
             .await;

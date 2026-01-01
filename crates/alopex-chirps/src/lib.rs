@@ -18,6 +18,13 @@ pub use crate::raft::{
     ChirpsRaftTransport, MetricsError, RaftConfig, RaftError, RaftMessage, RaftMetricsCollector,
     RaftMetricsUpdate, RaftNode, serve_metrics,
 };
+pub use alopex_chirps_file_transfer::{
+    BroadcastHandle, CompressionAlgorithm, ConflictResolution, FileInfo, FileMetadata,
+    FileTransferConfig, FileTransferError, FileTransferService, FileTransferServiceImpl,
+    HashAlgorithm, ListOptions, RemoveOptions, RetryPolicy, SyncDirection, SyncHandle, SyncOptions,
+    TransferHandle, TransferKind, TransferMode, TransferOptions, TransferSessionId,
+    TransferSessionInfo, TransferState,
+};
 pub use alopex_chirps_wire::frame::{Frame, UserMessage};
 
 /// 新しいメッシュを起動する。設定の検証・NodeId永続化・QUICトランスポート・ゴシップエンジンをまとめて初期化する。

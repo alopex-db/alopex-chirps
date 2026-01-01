@@ -216,6 +216,7 @@ fn file_metadata_from_fs(metadata: &std::fs::Metadata) -> FileMetadata {
         modified_at: to_unix_seconds(metadata.modified()).ok(),
         permissions: permissions_to_u32(metadata),
         file_type: file_type_from_fs(metadata).into(),
+        size: Some(metadata.len()),
     }
 }
 
@@ -239,6 +240,7 @@ fn to_wire_metadata(metadata: &FileMetadata) -> alopex_chirps_wire::file_transfe
             FileType::Directory => alopex_chirps_wire::file_transfer::FileType::Directory,
             FileType::Symlink => alopex_chirps_wire::file_transfer::FileType::Symlink,
         },
+        size: metadata.size,
     }
 }
 
