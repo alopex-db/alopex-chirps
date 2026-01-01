@@ -26,11 +26,20 @@ jobs:
             exit 1
           fi
           tag_version="${tag#${prefix}}"
-          cargo_version="$(awk -F ' = ' '
-            $0 ~ /^\\[workspace\\.package\\]$/ { in_pkg=1; next }
-            in_pkg && $0 ~ /^version =/ { gsub(/"/, "", $2); print $2; exit }
-            $0 ~ /^\\[/ { if (in_pkg) exit }
-          ' Cargo.toml)"
+          cargo_version="$(python - <<'PY'
+import sys
+import tomllib
+
+with open("Cargo.toml", "rb") as handle:
+    data = tomllib.load(handle)
+
+version = data.get("workspace", {}).get("package", {}).get("version")
+if not version:
+    sys.exit("Failed to read workspace.package version from Cargo.toml")
+
+print(version)
+PY
+          )"
           if [[ -z "${cargo_version}" ]]; then
             echo "Failed to read workspace.package version from Cargo.toml"
             exit 1
