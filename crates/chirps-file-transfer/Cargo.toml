@@ -30,3 +30,4 @@ tracing.workspace = true
 tempfile = "3.8"
 rcgen = "0.12"
 rustls = "0.21"
+alopex-chirps-mock.workspace = true

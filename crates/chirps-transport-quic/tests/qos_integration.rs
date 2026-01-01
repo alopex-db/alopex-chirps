@@ -38,7 +38,7 @@ async fn raft_p99_latency_under_user_load_stays_within_10pct() {
         let _ = qos.dequeue().unwrap();
         baseline_lat.push(start.elapsed().as_micros() as u64);
     }
-    let baseline_p99 = p99(&baseline_lat);
+    let baseline_p99 = p99(&baseline_lat).max(1);
 
     // Loaded: heavy User backlog plus Raft messages
     let mut loaded_lat = Vec::new();

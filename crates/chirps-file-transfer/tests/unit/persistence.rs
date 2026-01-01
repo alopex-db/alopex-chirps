@@ -96,3 +96,47 @@ async fn session_persistence_gc_removes_expired() {
     let result = persistence.load(session_id).await;
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn session_persistence_gc_enforces_max_sessions() {
+    let dir = tempdir().expect("tempdir");
+    let mut config = FileTransferConfig::default();
+    config.base_path = dir.path().to_path_buf();
+    config.session_dir = Some(dir.path().join("sessions"));
+    config.session_retention = Duration::from_secs(60 * 60);
+    config.max_sessions = 2;
+    let persistence = SessionPersistence::new(&config);
+
+    let now = SystemTime::now();
+    let old_time = now
+        .checked_sub(Duration::from_secs(120))
+        .unwrap_or(UNIX_EPOCH);
+    let mid_time = now
+        .checked_sub(Duration::from_secs(60))
+        .unwrap_or(UNIX_EPOCH);
+
+    let old_id = TransferSessionId::new();
+    let mid_id = TransferSessionId::new();
+    let new_id = TransferSessionId::new();
+
+    let mut old_session = build_session(old_id);
+    old_session.created_at = old_time;
+    old_session.updated_at = old_time;
+    persistence.save(&old_session).await.expect("save old");
+
+    let mut mid_session = build_session(mid_id);
+    mid_session.created_at = mid_time;
+    mid_session.updated_at = mid_time;
+    persistence.save(&mid_session).await.expect("save mid");
+
+    let mut new_session = build_session(new_id);
+    new_session.created_at = now;
+    new_session.updated_at = now;
+    persistence.save(&new_session).await.expect("save new");
+
+    persistence.gc().await.expect("gc");
+
+    assert!(persistence.load(old_id).await.is_err());
+    assert!(persistence.load(mid_id).await.is_ok());
+    assert!(persistence.load(new_id).await.is_ok());
+}
