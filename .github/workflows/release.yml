@@ -60,11 +60,11 @@ jobs:
 
       # Layer 1: No internal dependencies
       - name: Publish alopex-chirps-wire
-        run: cargo publish -p alopex-chirps-wire
+        run: ./scripts/publish-crate.sh alopex-chirps-wire
         continue-on-error: true
 
       - name: Publish alopex-chirps-raft-storage
-        run: cargo publish -p alopex-chirps-raft-storage
+        run: ./scripts/publish-crate.sh alopex-chirps-raft-storage
         continue-on-error: true
 
       - name: Wait for crates.io index update
@@ -72,11 +72,11 @@ jobs:
 
       # Layer 2: Depends on alopex-chirps-wire
       - name: Publish alopex-chirps-core
-        run: cargo publish -p alopex-chirps-core
+        run: ./scripts/publish-crate.sh alopex-chirps-core
         continue-on-error: true
 
       - name: Publish alopex-chirps-gossip-swim
-        run: cargo publish -p alopex-chirps-gossip-swim
+        run: ./scripts/publish-crate.sh alopex-chirps-gossip-swim
         continue-on-error: true
 
       - name: Wait for crates.io index update
@@ -84,15 +84,15 @@ jobs:
 
       # Layer 3: Depends on alopex-chirps-wire + alopex-chirps-core
       - name: Publish alopex-chirps-mock
-        run: cargo publish -p alopex-chirps-mock
+        run: ./scripts/publish-crate.sh alopex-chirps-mock
         continue-on-error: true
 
       - name: Publish alopex-chirps-file-transfer
-        run: cargo publish -p alopex-chirps-file-transfer
+        run: ./scripts/publish-crate.sh alopex-chirps-file-transfer
         continue-on-error: true
 
       - name: Publish alopex-chirps-transport-quic
-        run: cargo publish -p alopex-chirps-transport-quic
+        run: ./scripts/publish-crate.sh alopex-chirps-transport-quic
         continue-on-error: true
 
       - name: Wait for crates.io index update
@@ -100,7 +100,7 @@ jobs:
 
       # Layer 4: Depends on all above
       - name: Publish alopex-chirps
-        run: cargo publish -p alopex-chirps
+        run: ./scripts/publish-crate.sh alopex-chirps
         continue-on-error: true
 
   create-release:
