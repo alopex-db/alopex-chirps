@@ -3,11 +3,21 @@ use crate::options::MAX_CHUNK_SIZE;
 use quinn::{ReadExactError, RecvStream, SendStream};
 use std::io::{self, ErrorKind};
 
+/// Magic byte prefix for chunk streams.
 pub const CHUNK_STREAM_MAGIC: u8 = 0x46;
 
+/// Codec for chunk stream frames.
 pub struct ChunkStreamCodec;
 
 impl ChunkStreamCodec {
+    /// Encodes a chunk frame to the provided send stream.
+    ///
+    /// # Errors
+    /// Returns an `io::Error` with `ErrorKind::InvalidInput` when the payload exceeds
+    /// `MAX_CHUNK_SIZE`, or propagates any I/O error from writing to the stream.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn encode(
         stream: &mut SendStream,
         session_id: &TransferSessionId,
@@ -28,6 +38,15 @@ impl ChunkStreamCodec {
         Ok(())
     }
 
+    /// Decodes a chunk frame from the provided receive stream.
+    ///
+    /// # Errors
+    /// Returns an `io::Error` with `ErrorKind::InvalidData` when the session id is invalid
+    /// or the payload exceeds `MAX_CHUNK_SIZE`, or propagates any I/O error from reading
+    /// the stream.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn decode(stream: &mut RecvStream) -> io::Result<(TransferSessionId, u32, Vec<u8>)> {
         let mut session_id_bytes = [0u8; 16];
         stream

@@ -26,8 +26,38 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// High-level file transfer service API.
 #[async_trait]
 pub trait FileTransferService: Send + Sync {
+    /// Sends a file to a target node.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` for validation, I/O, or transport failures.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::{FileTransferService, TransferOptions};
+    /// use alopex_chirps_wire::node_id::NodeId;
+    /// use std::path::Path;
+    ///
+    /// async fn send(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let target = NodeId::new();
+    ///     service
+    ///         .send_file(
+    ///             target,
+    ///             Path::new("source.bin"),
+    ///             Path::new("dest.bin"),
+    ///             TransferOptions::default(),
+    ///         )
+    ///         .await?;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn send_file(
         &self,
         target: NodeId,
@@ -36,6 +66,32 @@ pub trait FileTransferService: Send + Sync {
         options: TransferOptions,
     ) -> Result<TransferHandle, FileTransferError>;
 
+    /// Sends a file to all connected peers.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` for validation, I/O, or transport failures.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::{FileTransferService, TransferOptions};
+    /// use std::path::Path;
+    ///
+    /// async fn broadcast(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     service
+    ///         .broadcast_file(
+    ///             Path::new("source.bin"),
+    ///             Path::new("dest.bin"),
+    ///             TransferOptions::default(),
+    ///         )
+    ///         .await?;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn broadcast_file(
         &self,
         source_path: &Path,
@@ -43,6 +99,35 @@ pub trait FileTransferService: Send + Sync {
         options: TransferOptions,
     ) -> Result<BroadcastHandle, FileTransferError>;
 
+    /// Synchronizes a local path with a remote path.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` for validation, I/O, or transport failures.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::{FileTransferService, SyncOptions};
+    /// use alopex_chirps_wire::node_id::NodeId;
+    /// use std::path::Path;
+    ///
+    /// async fn sync(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let target = NodeId::new();
+    ///     service
+    ///         .sync_file(
+    ///             Path::new("local.db"),
+    ///             Path::new("remote.db"),
+    ///             Some(vec![target]),
+    ///             SyncOptions::default(),
+    ///         )
+    ///         .await?;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn sync_file(
         &self,
         local_path: &Path,
@@ -51,18 +136,113 @@ pub trait FileTransferService: Send + Sync {
         options: SyncOptions,
     ) -> Result<SyncHandle, FileTransferError>;
 
+    /// Checks if a path exists on a target node.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` for validation or transport failures.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::FileTransferService;
+    /// use alopex_chirps_wire::node_id::NodeId;
+    /// use std::path::Path;
+    ///
+    /// async fn check(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let target = NodeId::new();
+    ///     let exists = service.exists(target, Path::new("data.bin")).await?;
+    ///     let _ = exists;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn exists(&self, target: NodeId, path: &Path) -> Result<bool, FileTransferError>;
+    /// Removes a file or directory on a target node.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` for validation or transport failures.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::{FileTransferService, RemoveOptions};
+    /// use alopex_chirps_wire::node_id::NodeId;
+    /// use std::path::Path;
+    ///
+    /// async fn remove_path(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let target = NodeId::new();
+    ///     service
+    ///         .remove(target, Path::new("data.bin"), RemoveOptions::default())
+    ///         .await?;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn remove(
         &self,
         target: NodeId,
         path: &Path,
         options: RemoveOptions,
     ) -> Result<(), FileTransferError>;
+    /// Fetches metadata for a file or directory on a target node.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` for validation or transport failures.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::FileTransferService;
+    /// use alopex_chirps_wire::node_id::NodeId;
+    /// use std::path::Path;
+    ///
+    /// async fn read_metadata(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let target = NodeId::new();
+    ///     let metadata = service.metadata(target, Path::new("data.bin")).await?;
+    ///     let _ = metadata;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn metadata(
         &self,
         target: NodeId,
         path: &Path,
     ) -> Result<FileMetadata, FileTransferError>;
+    /// Lists files within a directory on a target node.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` for validation or transport failures.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::{FileTransferService, ListOptions};
+    /// use alopex_chirps_wire::node_id::NodeId;
+    /// use std::path::Path;
+    ///
+    /// async fn list(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let target = NodeId::new();
+    ///     let files = service
+    ///         .list_files(target, Path::new("data"), ListOptions::default())
+    ///         .await?;
+    ///     let _ = files;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn list_files(
         &self,
         target: NodeId,
@@ -70,16 +250,92 @@ pub trait FileTransferService: Send + Sync {
         options: ListOptions,
     ) -> Result<Vec<FileInfo>, FileTransferError>;
 
+    /// Cancels an active transfer by session id.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` if the session cannot be cancelled.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::{FileTransferService, TransferSessionId};
+    ///
+    /// async fn cancel(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let session_id = TransferSessionId::new();
+    ///     service.cancel_transfer(session_id).await?;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn cancel_transfer(&self, session_id: TransferSessionId)
     -> Result<(), FileTransferError>;
+    /// Pauses an active transfer by session id.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` if the session cannot be paused.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::{FileTransferService, TransferSessionId};
+    ///
+    /// async fn pause(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let session_id = TransferSessionId::new();
+    ///     service.pause_transfer(session_id).await?;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn pause_transfer(&self, session_id: TransferSessionId) -> Result<(), FileTransferError>;
+    /// Resumes a paused transfer by session id.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` if the session cannot be resumed.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::{FileTransferService, TransferSessionId};
+    ///
+    /// async fn resume(
+    ///     service: &dyn FileTransferService,
+    /// ) -> Result<(), alopex_chirps_file_transfer::FileTransferError> {
+    ///     let session_id = TransferSessionId::new();
+    ///     let handle = service.resume_transfer(session_id).await?;
+    ///     let _ = handle;
+    ///     Ok(())
+    /// }
+    /// ```
     async fn resume_transfer(
         &self,
         session_id: TransferSessionId,
     ) -> Result<TransferHandle, FileTransferError>;
+    /// Returns a snapshot of active transfer sessions.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use alopex_chirps_file_transfer::FileTransferService;
+    ///
+    /// fn snapshot(service: &dyn FileTransferService) {
+    ///     let sessions = service.active_transfers();
+    ///     let _ = sessions;
+    /// }
+    /// ```
+    ///
+    /// # Panics
+    /// This method does not panic.
     fn active_transfers(&self) -> Vec<TransferSessionInfo>;
 }
 
+/// Default file transfer service implementation.
 pub struct FileTransferServiceImpl {
     source_node: NodeId,
     backend: Arc<dyn MessageBackend>,
@@ -94,6 +350,13 @@ pub struct FileTransferServiceImpl {
 }
 
 impl FileTransferServiceImpl {
+    /// Creates a new service and starts internal control handling.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Transport` if subscribing to the backend fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn new(
         source_node: NodeId,
         backend: Arc<dyn MessageBackend>,
@@ -180,14 +443,26 @@ impl FileTransferServiceImpl {
         })
     }
 
+    /// Returns the control dispatcher for sending/receiving control messages.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn control(&self) -> Arc<ControlDispatcher> {
         Arc::clone(&self.control)
     }
 
+    /// Returns the receive handler for incoming transfer data.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn receive_handler(&self) -> Arc<ReceiveHandler> {
         Arc::clone(&self.receive_handler)
     }
 
+    /// Returns the path validator used for file operations.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn path_validator(&self) -> &PathValidator {
         &self.path_validator
     }

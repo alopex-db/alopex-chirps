@@ -4,6 +4,13 @@ use std::io::{Read, Write};
 
 const DEFAULT_ZSTD_LEVEL: i32 = 3;
 
+/// Compresses a byte slice using the requested algorithm.
+///
+/// # Errors
+/// Returns `FileTransferError::Compression` when the compression backend fails.
+///
+/// # Panics
+/// This function does not panic.
 pub fn compress_bytes(
     data: &[u8],
     algorithm: CompressionAlgorithm,
@@ -15,6 +22,13 @@ pub fn compress_bytes(
     }
 }
 
+/// Decompresses a byte slice using the requested algorithm.
+///
+/// # Errors
+/// Returns `FileTransferError::Compression` when zstd initialization or decoding fails.
+///
+/// # Panics
+/// This function does not panic.
 pub fn decompress_bytes(
     data: &[u8],
     algorithm: CompressionAlgorithm,
@@ -34,6 +48,14 @@ pub fn decompress_bytes(
     }
 }
 
+/// Streams compression from a reader into a writer.
+///
+/// # Errors
+/// Returns `FileTransferError::Compression` when the compression backend fails or when
+/// reading from or writing to the provided streams fails.
+///
+/// # Panics
+/// This function does not panic.
 pub fn compress_reader<R: Read, W: Write>(
     mut reader: R,
     writer: W,
@@ -53,6 +75,14 @@ pub fn compress_reader<R: Read, W: Write>(
     }
 }
 
+/// Streams decompression from a reader into a writer.
+///
+/// # Errors
+/// Returns `FileTransferError::Compression` when zstd initialization or decoding fails
+/// or when reading from or writing to the provided streams fails.
+///
+/// # Panics
+/// This function does not panic.
 pub fn decompress_reader<R: Read, W: Write>(
     mut reader: R,
     mut writer: W,

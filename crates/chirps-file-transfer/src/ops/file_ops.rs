@@ -10,6 +10,13 @@ use std::path::Path;
 use std::time::UNIX_EPOCH;
 use tokio::fs;
 
+/// Checks whether a path exists on disk.
+///
+/// # Errors
+/// Returns `FileTransferError::PathTraversal` if validation fails.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn exists(
     path_validator: &PathValidator,
     path: &Path,
@@ -18,6 +25,13 @@ pub async fn exists(
     Ok(fs::metadata(path).await.is_ok())
 }
 
+/// Removes a file or directory from disk.
+///
+/// # Errors
+/// Returns `FileTransferError` when validation fails or filesystem operations fail.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn remove(
     path_validator: &PathValidator,
     path: &Path,
@@ -51,6 +65,13 @@ pub async fn remove(
     Ok(())
 }
 
+/// Reads file metadata for a path.
+///
+/// # Errors
+/// Returns `FileTransferError` when validation fails or metadata lookup fails.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn metadata(
     path_validator: &PathValidator,
     path: &Path,
@@ -68,6 +89,13 @@ async fn metadata_with_size(
     Ok((file_metadata_from_fs(&metadata), metadata.len()))
 }
 
+/// Lists files under a directory based on list options.
+///
+/// # Errors
+/// Returns `FileTransferError` when validation fails or directory traversal fails.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn list_files(
     path_validator: &PathValidator,
     dir_path: &Path,
@@ -119,6 +147,13 @@ pub async fn list_files(
     Ok(entries)
 }
 
+/// Handles a wire exists request.
+///
+/// # Errors
+/// Returns `FileTransferError` when validation fails or metadata lookup fails.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn handle_exists_request(
     path_validator: &PathValidator,
     request: ExistsRequest,
@@ -140,6 +175,13 @@ pub async fn handle_exists_request(
     })
 }
 
+/// Handles a wire remove request.
+///
+/// # Errors
+/// Returns `FileTransferError` when validation fails or removal fails.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn handle_remove_request(
     path_validator: &PathValidator,
     request: RemoveRequest,
@@ -161,6 +203,13 @@ pub async fn handle_remove_request(
     }
 }
 
+/// Handles a wire metadata request.
+///
+/// # Errors
+/// Returns `FileTransferError` when validation fails or metadata lookup fails.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn handle_metadata_request(
     path_validator: &PathValidator,
     request: MetadataRequest,
@@ -188,6 +237,13 @@ pub async fn handle_metadata_request(
     }
 }
 
+/// Handles a wire list request.
+///
+/// # Errors
+/// Returns `FileTransferError` when validation fails or directory traversal fails.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn handle_list_request(
     path_validator: &PathValidator,
     request: ListRequest,

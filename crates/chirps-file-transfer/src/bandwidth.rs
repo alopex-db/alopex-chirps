@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
+/// Token-bucket bandwidth limiter for file transfer streams.
 #[derive(Debug)]
 pub struct BandwidthThrottle {
     limit: u64,
@@ -11,6 +12,11 @@ pub struct BandwidthThrottle {
 }
 
 impl BandwidthThrottle {
+    /// Creates a throttler with a bytes-per-second limit.
+    /// Use `0` for unlimited throughput.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(limit_bytes_per_sec: u64) -> Self {
         let tokens = if limit_bytes_per_sec == 0 {
             0
@@ -24,10 +30,18 @@ impl BandwidthThrottle {
         }
     }
 
+    /// Creates an unlimited throttler (no waiting).
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn unlimited() -> Self {
         Self::new(0)
     }
 
+    /// Waits until `bytes` can be consumed from the token bucket.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn acquire(&self, bytes: u64) {
         if bytes == 0 || self.limit == 0 {
             return;

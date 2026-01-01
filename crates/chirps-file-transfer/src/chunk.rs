@@ -6,6 +6,7 @@ use std::io::SeekFrom;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
+/// A chunk payload with checksum metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chunk {
     pub index: ChunkIndex,
@@ -15,6 +16,7 @@ pub struct Chunk {
     pub data: Vec<u8>,
 }
 
+/// Metadata describing a chunk without its payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkMeta {
     pub index: ChunkIndex,
@@ -23,24 +25,44 @@ pub struct ChunkMeta {
     pub checksum: ChunkChecksum,
 }
 
+/// Helper for chunk sizing and chunk I/O.
 pub struct ChunkManager {
     chunk_size: usize,
 }
 
 impl ChunkManager {
+    /// Creates a chunk manager, clamping size to `[MIN_CHUNK_SIZE, MAX_CHUNK_SIZE]`.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(chunk_size: usize) -> Self {
         let size = chunk_size.clamp(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE);
         ChunkManager { chunk_size: size }
     }
 
+    /// Returns the effective chunk size.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn chunk_size(&self) -> usize {
         self.chunk_size
     }
 
+    /// Calculates how many chunks are needed for a file size.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn calculate_chunk_count(&self, file_size: u64) -> u32 {
         file_size.div_ceil(self.chunk_size as u64) as u32
     }
 
+    /// Reads a chunk at the given index from an open file handle.
+    ///
+    /// # Errors
+    /// Returns an `io::Error` if seeking to the chunk offset or reading from the file fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn read_chunk(&self, file: &mut File, index: ChunkIndex) -> std::io::Result<Chunk> {
         let offset = index as u64 * self.chunk_size as u64;
         file.seek(SeekFrom::Start(offset)).await?;
@@ -60,17 +82,35 @@ impl ChunkManager {
         })
     }
 
+    /// Writes a chunk payload to the file at the chunk offset.
+    ///
+    /// # Errors
+    /// Returns an `io::Error` if seeking to the chunk offset or writing to the file fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn write_chunk(&self, file: &mut File, chunk: &Chunk) -> std::io::Result<()> {
         file.seek(SeekFrom::Start(chunk.offset)).await?;
         file.write_all(&chunk.data).await?;
         Ok(())
     }
 
+    /// Verifies that a chunk payload matches its checksum.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn verify_chunk(&self, chunk: &Chunk) -> bool {
         let computed = xxhash_rust::xxh64::xxh64(&chunk.data, 0);
         computed == chunk.checksum
     }
 
+    /// Generates chunk metadata for a file by reading each chunk.
+    ///
+    /// # Errors
+    /// Returns an `io::Error` if seeking to a chunk offset or reading chunk data fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn generate_chunk_metas(
         &self,
         file: &mut File,
@@ -103,6 +143,7 @@ impl ChunkManager {
     }
 }
 
+/// Tracks chunk completion, failures, and retry state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChunkTracker {
     pub total_chunks: u32,
@@ -113,6 +154,10 @@ pub struct ChunkTracker {
 }
 
 impl ChunkTracker {
+    /// Creates a tracker for a transfer with retry limits.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(total_chunks: u32, max_retries: u8) -> Self {
         ChunkTracker {
             total_chunks,
@@ -123,6 +168,10 @@ impl ChunkTracker {
         }
     }
 
+    /// Returns the next set of chunk indices to send.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn next_chunks(&self, count: usize) -> Vec<ChunkIndex> {
         let mut result = Vec::with_capacity(count);
 
@@ -150,26 +199,46 @@ impl ChunkTracker {
         result
     }
 
+    /// Marks a chunk as in-flight.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn mark_in_flight(&mut self, index: ChunkIndex) {
         self.in_flight.insert(index);
     }
 
+    /// Marks a chunk as completed and clears any failure state.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn mark_completed(&mut self, index: ChunkIndex) {
         self.in_flight.remove(&index);
         self.failed.remove(&index);
         self.completed.insert(index);
     }
 
+    /// Marks a chunk as failed and increments its retry count.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn mark_failed(&mut self, index: ChunkIndex) {
         self.in_flight.remove(&index);
         let retries = self.failed.entry(index).or_insert(0);
         *retries = retries.saturating_add(1);
     }
 
+    /// Returns true when all chunks have completed.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn is_complete(&self) -> bool {
         self.completed.len() == self.total_chunks as usize
     }
 
+    /// Returns completion ratio in `[0.0, 1.0]`.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn completion_ratio(&self) -> f64 {
         if self.total_chunks == 0 {
             return 1.0;
@@ -177,6 +246,10 @@ impl ChunkTracker {
         self.completed.len() as f64 / self.total_chunks as f64
     }
 
+    /// Returns chunk indices that exceeded retry limits.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn permanently_failed(&self) -> Vec<ChunkIndex> {
         self.failed
             .iter()

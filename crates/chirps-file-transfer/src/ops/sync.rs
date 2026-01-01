@@ -18,6 +18,14 @@ use tokio::fs;
 use tokio::time::{Instant, sleep};
 
 #[allow(clippy::too_many_arguments)]
+/// Synchronizes a local path with a remote path.
+///
+/// # Errors
+/// Returns `FileTransferError` when local I/O fails, remote metadata requests fail,
+/// or conflict resolution rejects the sync.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn sync_file(
     control: Arc<ControlDispatcher>,
     stream_opener: Arc<dyn ChunkStreamOpener>,

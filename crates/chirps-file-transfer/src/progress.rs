@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tokio::sync::Mutex;
 
+/// Snapshot of transfer progress and throughput.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TransferProgress {
     pub bytes_transferred: u64,
@@ -15,6 +16,10 @@ pub struct TransferProgress {
 }
 
 impl TransferProgress {
+    /// Returns completion ratio in `[0.0, 1.0]`.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn completion_ratio(&self) -> f64 {
         if self.total_bytes == 0 {
             1.0
@@ -68,6 +73,7 @@ impl ProgressState {
     }
 }
 
+/// Handle for tracking and controlling a single transfer.
 #[derive(Debug, Clone)]
 pub struct TransferHandle {
     state: Arc<Mutex<ProgressState>>,
@@ -75,6 +81,10 @@ pub struct TransferHandle {
 }
 
 impl TransferHandle {
+    /// Creates a new handle with the provided total byte count.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(total_bytes: u64) -> Self {
         TransferHandle {
             state: Arc::new(Mutex::new(ProgressState::new(total_bytes))),
@@ -82,30 +92,51 @@ impl TransferHandle {
         }
     }
 
+    /// Returns the latest progress snapshot.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn progress(&self) -> TransferProgress {
         let state = self.state.lock().await;
         state.snapshot()
     }
 
+    /// Applies a progress delta for bytes and chunks.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn update_progress(&self, bytes_delta: u64, chunks_delta: u32) {
         let mut state = self.state.lock().await;
         state.update(bytes_delta, chunks_delta);
     }
 
+    /// Updates the total bytes for the transfer.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn set_total_bytes(&self, total_bytes: u64) {
         let mut state = self.state.lock().await;
         state.set_total_bytes(total_bytes);
     }
 
+    /// Requests cancellation of the transfer.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 
+    /// Returns true when cancellation has been requested.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
 }
 
+/// Per-node status snapshot for broadcast transfers.
 #[derive(Debug, Clone)]
 pub struct NodeTransferStatus {
     pub progress: TransferProgress,
@@ -130,6 +161,7 @@ impl NodeProgressState {
     }
 }
 
+/// Handle for tracking broadcast progress across multiple nodes.
 #[derive(Debug, Clone)]
 pub struct BroadcastHandle {
     state: Arc<Mutex<HashMap<NodeId, NodeProgressState>>>,
@@ -137,6 +169,10 @@ pub struct BroadcastHandle {
 }
 
 impl BroadcastHandle {
+    /// Creates a broadcast handle for the target list.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(targets: Vec<NodeId>, total_bytes: u64) -> Self {
         let mut map = HashMap::new();
         for node_id in targets {
@@ -148,6 +184,10 @@ impl BroadcastHandle {
         }
     }
 
+    /// Returns a snapshot of progress for all targets.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn progress(&self) -> HashMap<NodeId, NodeTransferStatus> {
         let state = self.state.lock().await;
         state
@@ -165,6 +205,10 @@ impl BroadcastHandle {
             .collect()
     }
 
+    /// Updates progress for a specific target.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn update_node_progress(&self, node_id: NodeId, bytes_delta: u64, chunks_delta: u32) {
         let mut state = self.state.lock().await;
         if let Some(node_state) = state.get_mut(&node_id) {
@@ -172,6 +216,10 @@ impl BroadcastHandle {
         }
     }
 
+    /// Updates the transfer state for a specific target.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn set_node_state(
         &self,
         node_id: NodeId,
@@ -185,15 +233,24 @@ impl BroadcastHandle {
         }
     }
 
+    /// Requests cancellation of the broadcast operation.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 
+    /// Returns true when cancellation has been requested.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
 }
 
+/// Handle for tracking sync progress.
 #[derive(Debug, Clone)]
 pub struct SyncHandle {
     state: Arc<Mutex<ProgressState>>,
@@ -201,6 +258,10 @@ pub struct SyncHandle {
 }
 
 impl SyncHandle {
+    /// Creates a new sync handle with the provided total byte count.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(total_bytes: u64) -> Self {
         SyncHandle {
             state: Arc::new(Mutex::new(ProgressState::new(total_bytes))),
@@ -208,25 +269,45 @@ impl SyncHandle {
         }
     }
 
+    /// Returns the latest progress snapshot.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn progress(&self) -> TransferProgress {
         let state = self.state.lock().await;
         state.snapshot()
     }
 
+    /// Applies a progress delta for bytes and chunks.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn update_progress(&self, bytes_delta: u64, chunks_delta: u32) {
         let mut state = self.state.lock().await;
         state.update(bytes_delta, chunks_delta);
     }
 
+    /// Updates the total bytes for the sync.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn set_total_bytes(&self, total_bytes: u64) {
         let mut state = self.state.lock().await;
         state.set_total_bytes(total_bytes);
     }
 
+    /// Requests cancellation of the sync.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 
+    /// Returns true when cancellation has been requested.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }

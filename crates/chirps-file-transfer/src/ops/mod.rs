@@ -28,14 +28,23 @@ pub use receive::{ReceiveHandler, ReceiveOutcome};
 pub use send::{SendFileResult, send_file};
 pub use sync::sync_file;
 
+/// Opens chunk data streams to peers.
 #[async_trait]
 pub trait ChunkStreamOpener: Send + Sync {
+    /// Opens a send stream for chunk data to a target.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` if the connection is unavailable or stream creation fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     async fn open_chunk_stream(
         &self,
         target: NodeId,
     ) -> Result<quinn::SendStream, FileTransferError>;
 }
 
+/// Dispatches control messages by session id.
 pub struct ControlDispatcher {
     backend: Arc<dyn MessageBackend>,
     inbox: Mutex<HashMap<TransferSessionId, VecDeque<(NodeId, FileTransferMessage)>>>,
@@ -44,6 +53,10 @@ pub struct ControlDispatcher {
 }
 
 impl ControlDispatcher {
+    /// Creates a dispatcher and spawns a background receiver task.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(
         backend: Arc<dyn MessageBackend>,
         mut receiver: mpsc::Receiver<(NodeId, Frame)>,
@@ -75,6 +88,13 @@ impl ControlDispatcher {
         dispatcher
     }
 
+    /// Sends a control message to a specific target.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Transport` if the backend send fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn send_message(
         &self,
         target: NodeId,
@@ -93,6 +113,13 @@ impl ControlDispatcher {
             .map_err(|err| FileTransferError::Transport(err.to_string()))
     }
 
+    /// Broadcasts a control message to all connected peers.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Transport` if the backend broadcast fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn broadcast_message(
         &self,
         session_id: TransferSessionId,
@@ -107,6 +134,14 @@ impl ControlDispatcher {
             .map_err(|err| FileTransferError::Transport(err.to_string()))
     }
 
+    /// Receives the next message for a session, regardless of type.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Timeout` when the wait expires, or
+    /// `FileTransferError::Transport` if the control channel closes.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn recv_any(
         &self,
         session_id: TransferSessionId,
@@ -115,6 +150,14 @@ impl ControlDispatcher {
         self.recv_filtered(session_id, wait, |_| true).await
     }
 
+    /// Receives the next message matching a predicate across sessions.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Timeout` when the wait expires, or
+    /// `FileTransferError::Transport` if the control channel closes.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn recv_any_filtered<F>(
         &self,
         wait: Duration,
@@ -149,6 +192,14 @@ impl ControlDispatcher {
         }
     }
 
+    /// Receives the next message matching a predicate for a session.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Timeout` when the wait expires, or
+    /// `FileTransferError::Transport` if the control channel closes.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn recv_filtered<F>(
         &self,
         session_id: TransferSessionId,

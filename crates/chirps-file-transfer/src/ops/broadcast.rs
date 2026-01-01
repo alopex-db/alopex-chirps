@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::task::JoinSet;
 
+/// Result of a broadcast transfer request.
 pub struct BroadcastResult {
     pub handle: BroadcastHandle,
     pub sessions: Vec<TransferSession>,
@@ -20,6 +21,14 @@ pub struct BroadcastResult {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Broadcasts a file to multiple targets.
+///
+/// # Errors
+/// Returns `FileTransferError` if the source metadata cannot be read or if
+/// removing the source file fails after a successful move.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn broadcast_file(
     control: Arc<ControlDispatcher>,
     stream_opener: Arc<dyn ChunkStreamOpener>,

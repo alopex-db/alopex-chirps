@@ -25,6 +25,7 @@ use tokio::fs;
 use tokio::sync::{RwLock, mpsc};
 use tokio::time::sleep;
 
+/// Result of a send operation.
 pub struct SendFileResult {
     pub session: TransferSession,
     pub handle: TransferHandle,
@@ -33,6 +34,14 @@ pub struct SendFileResult {
 pub(crate) type SessionRegistry = Arc<RwLock<HashMap<TransferSessionId, TransferSession>>>;
 
 #[allow(clippy::too_many_arguments)]
+/// Sends a file to a target node.
+///
+/// # Errors
+/// Returns `FileTransferError` when the source path is invalid, a local I/O operation
+/// fails, the peer rejects the transfer, or control messages time out or fail to send.
+///
+/// # Panics
+/// This function does not panic.
 pub async fn send_file(
     control: Arc<ControlDispatcher>,
     stream_opener: Arc<dyn ChunkStreamOpener>,

@@ -9,6 +9,7 @@ const DEFAULT_MAX_TRANSFERS: usize = 32;
 const DEFAULT_SESSION_RETENTION_HOURS: u64 = 24;
 const DEFAULT_MAX_SESSIONS: usize = 100;
 
+/// Global configuration for file transfer operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileTransferConfig {
     pub default_chunk_size: usize,
@@ -51,82 +52,143 @@ impl Default for FileTransferConfig {
 }
 
 impl FileTransferConfig {
+    /// Sets the default chunk size for transfers.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_default_chunk_size(mut self, default_chunk_size: usize) -> Self {
         self.default_chunk_size = default_chunk_size;
         self
     }
 
+    /// Sets the default concurrency used for chunk uploads.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_default_concurrency(mut self, default_concurrency: usize) -> Self {
         self.default_concurrency = default_concurrency;
         self
     }
 
+    /// Sets the maximum allowed concurrency for transfers.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_max_concurrency(mut self, max_concurrency: usize) -> Self {
         self.max_concurrency = max_concurrency;
         self
     }
 
+    /// Sets the default compression algorithm.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_default_compression(mut self, default_compression: CompressionAlgorithm) -> Self {
         self.default_compression = default_compression;
         self
     }
 
+    /// Sets a global bandwidth limit (bytes/sec) across transfers.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_global_bandwidth_limit(mut self, global_bandwidth_limit: Option<u64>) -> Self {
         self.global_bandwidth_limit = global_bandwidth_limit;
         self
     }
 
+    /// Sets the maximum concurrent transfers.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_max_concurrent_transfers(mut self, max_concurrent_transfers: usize) -> Self {
         self.max_concurrent_transfers = max_concurrent_transfers;
         self
     }
 
+    /// Sets the per-chunk acknowledgement timeout.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_chunk_timeout(mut self, chunk_timeout: Duration) -> Self {
         self.chunk_timeout = chunk_timeout;
         self
     }
 
+    /// Sets the timeout for manifest exchange.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_manifest_timeout(mut self, manifest_timeout: Duration) -> Self {
         self.manifest_timeout = manifest_timeout;
         self
     }
 
+    /// Sets the idle timeout for transfer progress.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_idle_timeout(mut self, idle_timeout: Duration) -> Self {
         self.idle_timeout = idle_timeout;
         self
     }
 
+    /// Sets retry configuration used for transfers.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_retry(mut self, retry: RetryConfig) -> Self {
         self.retry = retry;
         self
     }
 
+    /// Sets the base path for file operations.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_base_path(mut self, base_path: PathBuf) -> Self {
         self.base_path = base_path;
         self
     }
 
+    /// Sets the directory for temporary files.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_temp_dir(mut self, temp_dir: Option<PathBuf>) -> Self {
         self.temp_dir = temp_dir;
         self
     }
 
+    /// Sets the directory for persisted sessions.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_session_dir(mut self, session_dir: Option<PathBuf>) -> Self {
         self.session_dir = session_dir;
         self
     }
 
+    /// Sets how long to retain persisted sessions.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_session_retention(mut self, session_retention: Duration) -> Self {
         self.session_retention = session_retention;
         self
     }
 
+    /// Sets the maximum number of persisted sessions to keep.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_max_sessions(mut self, max_sessions: usize) -> Self {
         self.max_sessions = max_sessions;
         self
     }
 }
 
+/// Retry configuration for chunk transmissions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetryConfig {
     pub max_retries: u8,
@@ -147,21 +209,37 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
+    /// Sets the maximum retry count for a chunk.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_max_retries(mut self, max_retries: u8) -> Self {
         self.max_retries = max_retries;
         self
     }
 
+    /// Sets the initial retry backoff delay.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_initial_delay(mut self, initial_delay: Duration) -> Self {
         self.initial_delay = initial_delay;
         self
     }
 
+    /// Sets the maximum retry backoff delay.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_max_delay(mut self, max_delay: Duration) -> Self {
         self.max_delay = max_delay;
         self
     }
 
+    /// Sets the retry backoff multiplier.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn with_backoff_multiplier(mut self, backoff_multiplier: f64) -> Self {
         self.backoff_multiplier = backoff_multiplier;
         self

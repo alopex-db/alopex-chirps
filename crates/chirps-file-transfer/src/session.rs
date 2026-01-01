@@ -9,24 +9,37 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use tokio::sync::watch;
 
+/// Kind of transfer session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransferKind {
+    /// Single target send.
     Send,
+    /// Broadcast to multiple targets.
     Broadcast,
+    /// Sync operation.
     Sync,
 }
 
+/// State machine for a transfer session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransferState {
+    /// Session is being initialized.
     Initializing,
+    /// Transfer is in progress.
     InProgress,
+    /// Transfer is paused.
     Paused,
+    /// Transfer is verifying integrity.
     Verifying,
+    /// Transfer completed successfully.
     Completed,
+    /// Transfer failed.
     Failed,
+    /// Transfer was cancelled.
     Cancelled,
 }
 
+/// Persistent record of an in-progress or completed transfer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferSession {
     pub id: TransferSessionId,
@@ -47,13 +60,18 @@ pub struct TransferSession {
     pub control: TransferControl,
 }
 
+/// Control state exposed to transfer loops.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferControlState {
+    /// Transfer should continue.
     Running,
+    /// Transfer should wait without progressing.
     Paused,
+    /// Transfer should abort.
     Cancelled,
 }
 
+/// Control channel for pausing or cancelling a transfer.
 #[derive(Debug, Clone)]
 pub struct TransferControl {
     state: watch::Sender<TransferControlState>,
@@ -67,19 +85,32 @@ impl Default for TransferControl {
 }
 
 impl TransferControl {
+    /// Subscribes to control state changes.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn subscribe(&self) -> watch::Receiver<TransferControlState> {
         self.state.subscribe()
     }
 
+    /// Returns the current control state.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn state(&self) -> TransferControlState {
         *self.state.borrow()
     }
 
+    /// Updates the control state.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn set_state(&self, state: TransferControlState) {
         let _ = self.state.send(state);
     }
 }
 
+/// Public snapshot of a transfer session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferSessionInfo {
     pub id: TransferSessionId,
@@ -97,6 +128,10 @@ pub struct TransferSessionInfo {
 
 impl TransferSession {
     #[allow(clippy::too_many_arguments)]
+    /// Creates a new transfer session in the initializing state.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(
         id: TransferSessionId,
         kind: TransferKind,
@@ -129,6 +164,13 @@ impl TransferSession {
         }
     }
 
+    /// Transitions the session to a new state if allowed.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::InvalidState` if the transition is not allowed.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn transition_to(&mut self, next: TransferState) -> Result<(), FileTransferError> {
         if !Self::can_transition(self.state, next) {
             return Err(FileTransferError::InvalidState {
@@ -144,6 +186,10 @@ impl TransferSession {
         Ok(())
     }
 
+    /// Marks the session as failed with an error message.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn fail(&mut self, message: impl Into<String>) {
         self.state = TransferState::Failed;
         self.error = Some(message.into());

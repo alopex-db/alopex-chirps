@@ -9,6 +9,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
+/// Persists transfer sessions on disk for resume support.
 #[derive(Debug)]
 pub struct SessionPersistence {
     dir: PathBuf,
@@ -18,6 +19,10 @@ pub struct SessionPersistence {
 }
 
 impl SessionPersistence {
+    /// Creates a persistence store from configuration.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(config: &FileTransferConfig) -> Self {
         let dir = config
             .session_dir
@@ -31,6 +36,14 @@ impl SessionPersistence {
         }
     }
 
+    /// Saves a session to disk using an atomic write.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Serialization` when serialization fails, or
+    /// `FileTransferError::Io` when directory creation, file writes, or renames fail.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn save(&self, session: &TransferSession) -> Result<(), FileTransferError> {
         let _guard = self.guard.lock().await;
         fs::create_dir_all(&self.dir).await?;
@@ -46,6 +59,15 @@ impl SessionPersistence {
         Ok(())
     }
 
+    /// Loads a session from disk.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::SessionNotFound` when no session exists,
+    /// `FileTransferError::Serialization` when deserialization fails, or
+    /// `FileTransferError::Io` when reading from disk fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn load(&self, id: TransferSessionId) -> Result<TransferSession, FileTransferError> {
         let _guard = self.guard.lock().await;
         let path = self.session_path(&id);
@@ -61,6 +83,13 @@ impl SessionPersistence {
         Ok(session)
     }
 
+    /// Removes a persisted session if it exists.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Io` if removing the session file fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn remove(&self, id: TransferSessionId) -> Result<(), FileTransferError> {
         let _guard = self.guard.lock().await;
         let path = self.session_path(&id);
@@ -71,6 +100,13 @@ impl SessionPersistence {
         }
     }
 
+    /// Runs garbage collection for expired sessions and enforces `max_sessions`.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Io` if creating or reading the sessions directory fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn gc(&self) -> Result<(), FileTransferError> {
         let _guard = self.guard.lock().await;
         fs::create_dir_all(&self.dir).await?;
@@ -115,10 +151,12 @@ impl SessionPersistence {
         Ok(())
     }
 
+    /// Returns the path for a session file.
     fn session_path(&self, id: &TransferSessionId) -> PathBuf {
         self.dir.join(format!("session_{}.bin", id))
     }
 
+    /// Returns the temporary path used for atomic session writes.
     fn temp_path(&self, id: &TransferSessionId) -> PathBuf {
         self.dir.join(format!("session_{}.tmp", id))
     }

@@ -1,6 +1,7 @@
 use crate::{ChunkIndex, TransferSessionId};
 use thiserror::Error;
 
+/// Errors returned by file transfer operations.
 #[derive(Debug, Error)]
 pub enum FileTransferError {
     // Session errors (1xxx)
@@ -55,6 +56,10 @@ pub enum FileTransferError {
 }
 
 impl FileTransferError {
+    /// Returns the numeric error code used by the wire protocol.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn code(&self) -> u32 {
         match self {
             FileTransferError::SessionNotFound(_) => 1001,
@@ -80,6 +85,10 @@ impl FileTransferError {
         }
     }
 
+    /// Returns true if the error is considered recoverable by retry logic.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn is_recoverable(&self) -> bool {
         matches!(
             self,

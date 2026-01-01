@@ -5,17 +5,33 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use xxhash_rust::xxh64::Xxh64;
 
+/// Utilities for computing and verifying checksums and hashes.
 pub struct IntegrityVerifier;
 
 impl IntegrityVerifier {
+    /// Computes an XXHash64 checksum for a chunk payload.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn compute_chunk_checksum(data: &[u8]) -> ChunkChecksum {
         xxhash_rust::xxh64::xxh64(data, 0)
     }
 
+    /// Verifies a chunk checksum against an expected value.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn verify_chunk_checksum(data: &[u8], expected: ChunkChecksum) -> bool {
         Self::compute_chunk_checksum(data) == expected
     }
 
+    /// Computes a file hash using the requested algorithm.
+    ///
+    /// # Errors
+    /// Returns an `io::Error` if opening or reading the file fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn compute_file_hash(
         path: &std::path::Path,
         algorithm: HashAlgorithm,
@@ -60,6 +76,13 @@ impl IntegrityVerifier {
         }
     }
 
+    /// Verifies a file hash against an expected value.
+    ///
+    /// # Errors
+    /// Returns an `io::Error` if opening or reading the file fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn verify_file_hash(
         path: &std::path::Path,
         expected: &[u8],

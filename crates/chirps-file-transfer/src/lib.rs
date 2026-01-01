@@ -1,7 +1,12 @@
 //! File transfer APIs for Chirps.
+//!
+//! This crate exposes high-level file transfer operations along with reusable
+//! building blocks (chunking, manifests, integrity verification, persistence).
 
 pub use alopex_chirps_wire::file_transfer::TransferSessionId;
+/// Index of a chunk within a transfer manifest.
 pub type ChunkIndex = u32;
+/// XXHash64 checksum for chunk payloads.
 pub type ChunkChecksum = u64;
 
 pub mod bandwidth;

@@ -25,6 +25,7 @@ use tokio::sync::RwLock;
 
 use crate::stream::ChunkStreamCodec;
 
+/// Handles incoming transfer control messages and chunk data.
 pub struct ReceiveHandler {
     config: FileTransferConfig,
     path_validator: PathValidator,
@@ -34,6 +35,7 @@ pub struct ReceiveHandler {
     sync_sessions: Arc<RwLock<HashSet<TransferSessionId>>>,
 }
 
+/// Outcome of processing an incoming chunk stream.
 #[derive(Debug, Clone, Copy)]
 pub struct ReceiveOutcome {
     pub session_id: TransferSessionId,
@@ -43,6 +45,10 @@ pub struct ReceiveOutcome {
 }
 
 impl ReceiveHandler {
+    /// Creates a new receive handler.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn new(
         config: FileTransferConfig,
         path_validator: PathValidator,
@@ -61,16 +67,31 @@ impl ReceiveHandler {
         }
     }
 
+    /// Returns a snapshot of a session if it is registered.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn session_snapshot(&self, session_id: TransferSessionId) -> Option<TransferSession> {
         let sessions = self.sessions.read().await;
         sessions.get(&session_id).cloned()
     }
 
+    /// Marks a session as a sync transfer for lifecycle tracking.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn mark_sync_session(&self, session_id: TransferSessionId) {
         let mut sync_sessions = self.sync_sessions.write().await;
         sync_sessions.insert(session_id);
     }
 
+    /// Validates an incoming transfer request and builds a response.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` if path validation fails or persistence lookup fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn handle_transfer_request(
         &self,
         session_id: TransferSessionId,
@@ -137,6 +158,13 @@ impl ReceiveHandler {
         })
     }
 
+    /// Validates and prepares to receive a transfer manifest.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` if path validation or persistence access fails.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn handle_manifest(
         &self,
         sender: NodeId,
@@ -332,6 +360,14 @@ impl ReceiveHandler {
         })
     }
 
+    /// Handles an incoming chunk stream and writes data to disk.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError` if chunk decoding fails, the session is not found,
+    /// an I/O error occurs while writing, or the transfer is cancelled.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub async fn handle_chunk_stream(
         &self,
         sender: NodeId,

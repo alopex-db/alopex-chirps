@@ -23,8 +23,17 @@ pub struct TransferManifest {
 }
 
 impl TransferManifest {
+    /// Current supported manifest version.
     pub const CURRENT_VERSION: u16 = 1;
 
+    /// Validates chunk layout, size totals, and manifest version.
+    ///
+    /// # Errors
+    /// Returns a [`ManifestError`] if the manifest version is unsupported, chunk counts
+    /// or indices mismatch, or the chunk sizes do not sum to the file size.
+    ///
+    /// # Panics
+    /// This method does not panic.
     pub fn validate(&self) -> Result<(), ManifestError> {
         if self.version > Self::CURRENT_VERSION {
             return Err(ManifestError::UnsupportedVersion(self.version));
@@ -59,6 +68,7 @@ impl TransferManifest {
     }
 }
 
+/// Errors reported while validating a transfer manifest.
 #[derive(Debug, Error)]
 pub enum ManifestError {
     #[error("unsupported manifest version {0}")]
@@ -71,7 +81,7 @@ pub enum ManifestError {
     SizeMismatch { expected: u64, actual: u64 },
 }
 
-/// File metadata for transfer.
+/// File metadata captured at transfer time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMetadata {
     pub created_at: Option<u64>,
@@ -81,6 +91,7 @@ pub struct FileMetadata {
     pub size: Option<u64>,
 }
 
+/// File type captured in metadata.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum FileType {
     File,
