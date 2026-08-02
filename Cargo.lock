@@ -79,6 +79,7 @@ version = "0.5.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-mock",
+ "alopex-chirps-transport-quic",
  "alopex-chirps-wire",
  "async-trait",
  "bincode",

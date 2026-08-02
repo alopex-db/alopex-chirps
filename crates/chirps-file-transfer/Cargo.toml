@@ -32,6 +32,7 @@ tempfile = "3.8"
 rcgen = "0.12"
 rustls = "0.21"
 alopex-chirps-mock.workspace = true
+alopex-chirps-transport-quic.workspace = true
 
 [[test]]
 name = "file_transfer"

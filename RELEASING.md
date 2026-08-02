@@ -57,11 +57,11 @@ chirps-v{major}.{minor}.{patch}
 タグをプッシュすると、GitHub Actions が以下を自動実行します：
 
 1. **CI Gate**: fmt, clippy、全 workspace test、doc test、File Transfer 受入テスト、実 QUIC/mesh E2E の実行
-2. **性能 Gate**: `self-hosted`, `linux`, `chirps-1gbps` ラベルを持つ専用 runner で、128 MiB の end-to-end File Transfer が 100 MB/s 以上であることを確認
+2. **性能 Gate**: `self-hosted`, `linux`, `chirps-1gbps-controller` ラベルを持つ controller が、二台の物理 host 上で 128 MiB の File Transfer を実行する。sender 側 `iperf3` が 900 Mbit/s 以上、実 Chirps QUIC control / QUIC chunk stream の end-to-end transfer が 100 MB/s 以上、sender/receiver SHA-256 が一致した hash-manifested evidence を必須とする
 3. **Publish Crate**: crates.io への公開（依存順）
 4. **Create Release**: GitHub Release の作成
 
-専用 runner が未登録または性能ゲートが失敗した場合、公開ジョブは開始されない。通常の CI やローカル実行でこの要件を代替してはならない。
+controller runner・二台の測定 host・必要な repository variables が未登録、または evidence が不適格な場合、公開ジョブは開始されない。通常の CI、同一プロセス fixture、ローカル二プロセス実行でこの要件を代替してはならない。構成と artifact の確認方法は [二ノード性能測定・証跡手順](docs/v0_5_2_two_node_performance.md) を参照する。
 
 ## リリース手順
 
