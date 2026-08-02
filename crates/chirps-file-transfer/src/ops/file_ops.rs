@@ -303,8 +303,8 @@ fn to_wire_metadata(metadata: &FileMetadata) -> alopex_chirps_wire::file_transfe
 fn sort_files(files: &mut [FileInfo], sort_by: SortBy) {
     match sort_by {
         SortBy::Name => files.sort_by(|a, b| a.path.cmp(&b.path)),
-        SortBy::Size => files.sort_by(|a, b| a.size.cmp(&b.size)),
-        SortBy::ModifiedTime => files.sort_by(|a, b| a.modified_at.cmp(&b.modified_at)),
+        SortBy::Size => files.sort_by_key(|entry| entry.size),
+        SortBy::ModifiedTime => files.sort_by_key(|entry| entry.modified_at),
     }
 }
 

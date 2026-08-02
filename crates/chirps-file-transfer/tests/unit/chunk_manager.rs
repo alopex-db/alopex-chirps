@@ -31,10 +31,7 @@ async fn chunk_manager_reads_chunks_and_metas() {
     assert_eq!(metas[0].size as usize, manager.chunk_size());
     assert_eq!(metas[1].index, 1);
     assert_eq!(metas[1].offset as usize, manager.chunk_size());
-    assert_eq!(
-        metas[1].size as usize,
-        data.len() - manager.chunk_size()
-    );
+    assert_eq!(metas[1].size as usize, data.len() - manager.chunk_size());
 
     let mut file = File::open(&path).await.expect("open file for chunk");
     let chunk0 = manager.read_chunk(&mut file, 0).await.expect("read chunk0");

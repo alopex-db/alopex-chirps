@@ -1,5 +1,6 @@
 use crate::TransferSessionId;
 use crate::chunk::ChunkTracker;
+use crate::compression::decompress_bytes;
 use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
 use crate::integrity::IntegrityVerifier;
@@ -374,7 +375,59 @@ impl ReceiveHandler {
         control: &ControlDispatcher,
         recv: &mut RecvStream,
     ) -> Result<ReceiveOutcome, FileTransferError> {
-        let (session_id, chunk_index, data) = ChunkStreamCodec::decode(recv).await?;
+        let (session_id, chunk_index, payload) = ChunkStreamCodec::decode(recv).await?;
+        let compression = {
+            let sessions = self.sessions.read().await;
+            sessions.get(&session_id).map(|session| {
+                (
+                    session.options.compression,
+                    session
+                        .manifest
+                        .chunks
+                        .get(chunk_index as usize)
+                        .map(|chunk| chunk.size as usize),
+                )
+            })
+        };
+
+        let Some((compression, expected_size)) = compression else {
+            return self
+                .handle_chunk_data(sender, control, session_id, chunk_index, payload)
+                .await;
+        };
+        let data = match decompress_bytes(&payload, compression, expected_size) {
+            Ok(data) => data,
+            Err(error) => {
+                let _ = send_chunk_ack(
+                    control,
+                    sender,
+                    session_id,
+                    chunk_index,
+                    false,
+                    Some(format!("chunk decompression failed: {error}")),
+                )
+                .await;
+                return Ok(ReceiveOutcome {
+                    session_id,
+                    chunk_index,
+                    verified: false,
+                    completed: false,
+                });
+            }
+        };
+
+        self.handle_chunk_data(sender, control, session_id, chunk_index, data)
+            .await
+    }
+
+    async fn handle_chunk_data(
+        &self,
+        sender: NodeId,
+        control: &ControlDispatcher,
+        session_id: TransferSessionId,
+        chunk_index: u32,
+        data: Vec<u8>,
+    ) -> Result<ReceiveOutcome, FileTransferError> {
         let (mut control_rx, kind) = {
             let sessions = self.sessions.read().await;
             let Some(session) = sessions.get(&session_id) else {

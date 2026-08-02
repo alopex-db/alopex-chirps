@@ -1,6 +1,7 @@
 use crate::TransferSessionId;
 use crate::bandwidth::BandwidthThrottle;
 use crate::chunk::ChunkManager;
+use crate::compression::compress_bytes;
 use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
 use crate::integrity::IntegrityVerifier;
@@ -9,7 +10,7 @@ use crate::metrics::PrometheusMetrics;
 use crate::ops::conversions::to_wire_manifest;
 use crate::ops::conversions::to_wire_transfer_options;
 use crate::ops::{ChunkStreamOpener, ControlDispatcher};
-use crate::options::TransferOptions;
+use crate::options::{CompressionAlgorithm, TransferOptions};
 use crate::persistence::SessionPersistence;
 use crate::progress::TransferHandle;
 use crate::session::{TransferControlState, TransferKind, TransferSession, TransferState};
@@ -354,6 +355,7 @@ pub(crate) async fn send_file_with_context(
             let source_path = source_path.to_path_buf();
             let session_id = session.id;
             let chunk_size = chunk_manager.chunk_size();
+            let compression = options.compression;
             tokio::spawn(async move {
                 let result = send_chunk(
                     opener,
@@ -362,6 +364,7 @@ pub(crate) async fn send_file_with_context(
                     session_id,
                     index,
                     chunk_size,
+                    compression,
                     throttle,
                 )
                 .await;
@@ -728,6 +731,7 @@ async fn wait_for_manifest_ack(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_chunk(
     opener: Arc<dyn ChunkStreamOpener>,
     target: NodeId,
@@ -735,6 +739,7 @@ async fn send_chunk(
     session_id: TransferSessionId,
     index: u32,
     chunk_size: usize,
+    compression: CompressionAlgorithm,
     throttle: Option<Arc<BandwidthThrottle>>,
 ) -> Result<(), FileTransferError> {
     let mut file = fs::File::open(&source_path).await?;
@@ -743,13 +748,14 @@ async fn send_chunk(
         .read_chunk(&mut file, index)
         .await
         .map_err(FileTransferError::Io)?;
+    let payload = compress_bytes(&chunk.data, compression)?;
 
     if let Some(throttle) = throttle {
-        throttle.acquire(chunk.data.len() as u64).await;
+        throttle.acquire(payload.len() as u64).await;
     }
 
     let mut stream = opener.open_chunk_stream(target).await?;
-    crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, &chunk.data).await?;
+    crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, &payload).await?;
     stream
         .finish()
         .await
@@ -919,5 +925,134 @@ fn to_wire_file_metadata(
             FileType::Symlink => alopex_chirps_wire::file_transfer::FileType::Symlink,
         },
         size: metadata.size,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::send_chunk;
+    use crate::compression::decompress_bytes;
+    use crate::ops::ChunkStreamOpener;
+    use crate::{CHUNK_STREAM_MAGIC, CompressionAlgorithm, FileTransferError, TransferSessionId};
+    use alopex_chirps_wire::node_id::NodeId;
+    use async_trait::async_trait;
+    use quinn::{ClientConfig, Endpoint, ServerConfig};
+    use rcgen::generate_simple_self_signed;
+    use rustls::{Certificate, PrivateKey, RootCertStore};
+    use std::net::{Ipv4Addr, SocketAddr};
+    use std::sync::Arc;
+
+    const SERVER_NAME: &str = "localhost";
+
+    #[derive(Clone)]
+    struct FixedChunkOpener {
+        endpoint: Endpoint,
+        target_addr: SocketAddr,
+    }
+
+    #[async_trait]
+    impl ChunkStreamOpener for FixedChunkOpener {
+        async fn open_chunk_stream(
+            &self,
+            _target: NodeId,
+        ) -> Result<quinn::SendStream, FileTransferError> {
+            let connection = self
+                .endpoint
+                .connect(self.target_addr, SERVER_NAME)
+                .map_err(|error| FileTransferError::Transport(error.to_string()))?
+                .await
+                .map_err(|error| FileTransferError::Transport(error.to_string()))?;
+            connection
+                .open_uni()
+                .await
+                .map_err(|error| FileTransferError::Transport(error.to_string()))
+        }
+    }
+
+    fn build_tls_configs() -> (ServerConfig, ClientConfig) {
+        let cert = generate_simple_self_signed([SERVER_NAME.to_owned()]).expect("certificate");
+        let cert_der = cert.serialize_der().expect("certificate DER");
+        let key_der = cert.serialize_private_key_der();
+        let cert_chain = vec![Certificate(cert_der.clone())];
+        let key = PrivateKey(key_der);
+        let server_config = ServerConfig::with_single_cert(cert_chain, key).expect("server TLS");
+
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(&Certificate(cert_der))
+            .expect("trusted certificate");
+        let crypto = rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        (server_config, ClientConfig::new(Arc::new(crypto)))
+    }
+
+    #[tokio::test]
+    async fn zstd_compresses_chunk_payload_on_the_wire() {
+        let source = tempfile::tempdir().expect("source directory");
+        let source_path = source.path().join("compressible.bin");
+        let source_data = vec![b'x'; 64 * 1024];
+        tokio::fs::write(&source_path, &source_data)
+            .await
+            .expect("source file");
+
+        let (server_config, client_config) = build_tls_configs();
+        let receiver = Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .expect("receiver endpoint");
+        let receiver_addr = receiver.local_addr().expect("receiver address");
+
+        let mut sender =
+            Endpoint::client(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).expect("sender endpoint");
+        sender.set_default_client_config(client_config);
+
+        let received_payload = tokio::spawn(async move {
+            let connection = receiver
+                .accept()
+                .await
+                .expect("incoming connection")
+                .await
+                .expect("connection");
+            let mut stream = connection.accept_uni().await.expect("chunk stream");
+            let mut magic = [0u8; 1];
+            stream.read_exact(&mut magic).await.expect("stream magic");
+            assert_eq!(magic[0], CHUNK_STREAM_MAGIC);
+            let (_, chunk_index, payload) = crate::stream::ChunkStreamCodec::decode(&mut stream)
+                .await
+                .expect("chunk frame");
+            assert_eq!(chunk_index, 0);
+            payload
+        });
+
+        send_chunk(
+            Arc::new(FixedChunkOpener {
+                endpoint: sender,
+                target_addr: receiver_addr,
+            }),
+            NodeId::new(),
+            source_path,
+            TransferSessionId::new(),
+            0,
+            64 * 1024,
+            CompressionAlgorithm::Zstd,
+            None,
+        )
+        .await
+        .expect("send compressed chunk");
+
+        let payload = received_payload.await.expect("receiver task");
+        assert!(
+            payload.len() < source_data.len(),
+            "Zstd payload should be smaller than the original chunk"
+        );
+        assert_eq!(
+            decompress_bytes(
+                &payload,
+                CompressionAlgorithm::Zstd,
+                Some(source_data.len()),
+            )
+            .expect("decompress payload"),
+            source_data
+        );
     }
 }

@@ -5,6 +5,8 @@ use std::io::{self, ErrorKind};
 
 /// Magic byte prefix for chunk streams.
 pub const CHUNK_STREAM_MAGIC: u8 = 0x46;
+/// Maximum encoded chunk size, including bounded Zstd expansion overhead.
+pub const MAX_WIRE_CHUNK_SIZE: usize = MAX_CHUNK_SIZE + 128 * 1024;
 
 /// Codec for chunk stream frames.
 pub struct ChunkStreamCodec;
@@ -24,10 +26,10 @@ impl ChunkStreamCodec {
         chunk_index: u32,
         data: &[u8],
     ) -> io::Result<()> {
-        if data.len() > MAX_CHUNK_SIZE {
+        if data.len() > MAX_WIRE_CHUNK_SIZE {
             return Err(io::Error::new(
                 ErrorKind::InvalidInput,
-                "chunk data exceeds maximum size",
+                "encoded chunk data exceeds maximum size",
             ));
         }
         stream.write_all(&[CHUNK_STREAM_MAGIC]).await?;
@@ -69,10 +71,10 @@ impl ChunkStreamCodec {
             .await
             .map_err(map_read_exact)?;
         let data_len = u32::from_le_bytes(len_bytes) as usize;
-        if data_len > MAX_CHUNK_SIZE {
+        if data_len > MAX_WIRE_CHUNK_SIZE {
             return Err(io::Error::new(
                 ErrorKind::InvalidData,
-                "chunk data exceeds maximum size",
+                "encoded chunk data exceeds maximum size",
             ));
         }
 

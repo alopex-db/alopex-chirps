@@ -31,3 +31,35 @@ tempfile = "3.8"
 rcgen = "0.12"
 rustls = "0.21"
 alopex-chirps-mock.workspace = true
+
+[[test]]
+name = "file_transfer"
+path = "tests/integration/file_transfer.rs"
+
+[[test]]
+name = "bandwidth"
+path = "tests/unit/bandwidth.rs"
+
+[[test]]
+name = "chunk_manager"
+path = "tests/unit/chunk_manager.rs"
+
+[[test]]
+name = "chunk_tracker"
+path = "tests/unit/chunk_tracker.rs"
+
+[[test]]
+name = "integrity"
+path = "tests/unit/integrity.rs"
+
+[[test]]
+name = "path_validator"
+path = "tests/unit/path_validator.rs"
+
+[[test]]
+name = "persistence"
+path = "tests/unit/persistence.rs"
+
+[[test]]
+name = "stream_codec"
+path = "tests/unit/stream_codec.rs"

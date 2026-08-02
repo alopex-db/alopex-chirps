@@ -1,10 +1,9 @@
-use alopex_chirps_file_transfer::{ChunkStreamCodec, TransferSessionId, CHUNK_STREAM_MAGIC};
+use alopex_chirps_file_transfer::{CHUNK_STREAM_MAGIC, ChunkStreamCodec, TransferSessionId};
 use quinn::{ClientConfig, Endpoint, ServerConfig};
 use rcgen::generate_simple_self_signed;
 use rustls::{Certificate, PrivateKey, RootCertStore};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
 
 fn build_configs() -> (ServerConfig, ClientConfig) {
     let cert = generate_simple_self_signed(["localhost".to_string()]).expect("cert");
@@ -33,26 +32,32 @@ async fn chunk_stream_codec_round_trip() {
     let server_endpoint = Endpoint::server(server_config, server_addr).expect("server endpoint");
     let local_addr = server_endpoint.local_addr().expect("local addr");
 
-    let mut client_endpoint = Endpoint::client(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
-        .expect("client endpoint");
+    let mut client_endpoint =
+        Endpoint::client(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).expect("client endpoint");
     client_endpoint.set_default_client_config(client_config);
+
+    let server_accept = {
+        let server_endpoint = server_endpoint.clone();
+        tokio::spawn(async move {
+            server_endpoint
+                .accept()
+                .await
+                .expect("accept")
+                .await
+                .expect("server conn")
+        })
+    };
 
     let client_connect = client_endpoint
         .connect(local_addr, "localhost")
         .expect("connect");
     let client_conn = client_connect.await.expect("client conn");
 
-    let server_conn = server_endpoint
-        .accept()
-        .await
-        .expect("accept")
-        .await
-        .expect("server conn");
+    let server_conn = server_accept.await.expect("server accept task");
 
-    let (mut send, mut recv) = tokio::try_join!(
-        async { client_conn.open_uni().await },
-        async { server_conn.accept_uni().await },
-    )
+    let (mut send, mut recv) = tokio::try_join!(async { client_conn.open_uni().await }, async {
+        server_conn.accept_uni().await
+    },)
     .expect("open stream");
 
     let session_id = TransferSessionId::new();
