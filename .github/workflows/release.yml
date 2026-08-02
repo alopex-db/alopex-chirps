@@ -45,11 +45,34 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo test --workspace --all-features
+      - name: Run documentation tests
+        run: cargo test --doc --workspace
+      - name: Run File Transfer release acceptance tests
+        run: cargo test -p alopex-chirps-file-transfer --all-features
+      - name: Run QUIC network integration tests
+        run: cargo test -p alopex-chirps-transport-quic --test quic_integration -- --ignored
+      - name: Run three-node mesh integration tests
+        run: cargo test -p chirps-e2e --test three_node_mesh -- --ignored
+
+  file-transfer-performance:
+    name: File Transfer 1 Gbps performance gate
+    needs: ci-gate
+    runs-on: [self-hosted, linux, chirps-1gbps]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify v0.5.2 end-to-end throughput
+        env:
+          CHIRPS_FILE_TRANSFER_PERF_1GBPS: "1"
+        run: >-
+          cargo test -p alopex-chirps-file-transfer --test file_transfer
+          file_transfer_throughput_meets_v0_5_2_target -- --ignored --nocapture
 
   publish-crate:
     name: Publish to crates.io
-    needs: ci-gate
+    needs: [ci-gate, file-transfer-performance]
     runs-on: ubuntu-latest
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
@@ -61,11 +84,9 @@ jobs:
       # Layer 1: No internal dependencies
       - name: Publish alopex-chirps-wire
         run: ./scripts/publish-crate.sh alopex-chirps-wire
-        continue-on-error: true
 
       - name: Publish alopex-chirps-raft-storage
         run: ./scripts/publish-crate.sh alopex-chirps-raft-storage
-        continue-on-error: true
 
       - name: Wait for crates.io index update
         run: sleep 30
@@ -73,11 +94,9 @@ jobs:
       # Layer 2: Depends on alopex-chirps-wire
       - name: Publish alopex-chirps-core
         run: ./scripts/publish-crate.sh alopex-chirps-core
-        continue-on-error: true
 
       - name: Publish alopex-chirps-gossip-swim
         run: ./scripts/publish-crate.sh alopex-chirps-gossip-swim
-        continue-on-error: true
 
       - name: Wait for crates.io index update
         run: sleep 30
@@ -85,15 +104,12 @@ jobs:
       # Layer 3: Depends on alopex-chirps-wire + alopex-chirps-core
       - name: Publish alopex-chirps-mock
         run: ./scripts/publish-crate.sh alopex-chirps-mock
-        continue-on-error: true
 
       - name: Publish alopex-chirps-file-transfer
         run: ./scripts/publish-crate.sh alopex-chirps-file-transfer
-        continue-on-error: true
 
       - name: Publish alopex-chirps-transport-quic
         run: ./scripts/publish-crate.sh alopex-chirps-transport-quic
-        continue-on-error: true
 
       - name: Wait for crates.io index update
         run: sleep 30
@@ -101,7 +117,6 @@ jobs:
       # Layer 4: Depends on all above
       - name: Publish alopex-chirps
         run: ./scripts/publish-crate.sh alopex-chirps
-        continue-on-error: true
 
   create-release:
     name: Create GitHub Release

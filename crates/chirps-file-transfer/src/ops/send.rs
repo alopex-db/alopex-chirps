@@ -67,6 +67,7 @@ pub async fn send_file(
         None,
         None,
         None,
+        None,
         true,
     )
     .await
@@ -81,14 +82,16 @@ pub(crate) async fn send_file_with_context(
     target: NodeId,
     source_path: &Path,
     dest_path: &Path,
-    options: TransferOptions,
+    mut options: TransferOptions,
     kind: TransferKind,
     session_store: Option<SessionRegistry>,
     persistence: Option<Arc<SessionPersistence>>,
     metrics: Option<Arc<PrometheusMetrics>>,
     resume_session: Option<TransferSession>,
+    requested_session_id: Option<TransferSessionId>,
     delete_source: bool,
 ) -> Result<SendFileResult, FileTransferError> {
+    options = resolve_transfer_options(&config, options)?;
     let metadata = fs::metadata(source_path).await?;
     if !metadata.is_file() {
         return Err(FileTransferError::FileNotFound(
@@ -132,11 +135,15 @@ pub(crate) async fn send_file_with_context(
         }
         resume.id
     } else {
-        TransferSessionId::new()
+        requested_session_id.unwrap_or_default()
     };
 
-    let file_hash =
-        IntegrityVerifier::compute_file_hash(source_path, options.hash_algorithm).await?;
+    let (file_hash, chunks) = IntegrityVerifier::compute_file_hash_and_chunk_metas(
+        source_path,
+        options.hash_algorithm,
+        chunk_manager.chunk_size(),
+    )
+    .await?;
 
     if let Some(resume) = resume_session.as_ref() {
         let manifest = &resume.manifest;
@@ -162,6 +169,7 @@ pub(crate) async fn send_file_with_context(
         &chunk_manager,
         &options,
         file_hash,
+        chunks,
         &metadata,
         session_id,
     )
@@ -307,6 +315,7 @@ pub(crate) async fn send_file_with_context(
         .collect();
     let mut in_flight: HashMap<u32, Instant> = HashMap::new();
     let mut retry_counts: HashMap<u32, u8> = HashMap::new();
+    let mut scheduled_retries = 0usize;
     let concurrency = options.concurrency.max(1).min(config.max_concurrency);
 
     let (send_tx, mut send_rx) =
@@ -315,7 +324,7 @@ pub(crate) async fn send_file_with_context(
 
     let start_time = Instant::now();
 
-    while !pending.is_empty() || !in_flight.is_empty() {
+    while !pending.is_empty() || !in_flight.is_empty() || scheduled_retries != 0 {
         loop {
             let state = *control_rx.borrow();
             match state {
@@ -402,6 +411,7 @@ pub(crate) async fn send_file_with_context(
                             metrics.record_retry();
                         }
                         schedule_retry(index, &options.retry_policy, attempt, &retry_tx);
+                        scheduled_retries = scheduled_retries.saturating_add(1);
                     } else {
                         return Err(fail_session(
                             &mut session,
@@ -416,6 +426,7 @@ pub(crate) async fn send_file_with_context(
                 }
             }
             Some(retry_index) = retry_rx.recv() => {
+                scheduled_retries = scheduled_retries.saturating_sub(1);
                 if !session.chunk_tracker.completed.contains(&retry_index)
                     && !in_flight.contains_key(&retry_index)
                 {
@@ -467,6 +478,7 @@ pub(crate) async fn send_file_with_context(
                                     metrics.record_retry();
                                 }
                                 schedule_retry(index, &options.retry_policy, attempt, &retry_tx);
+                                scheduled_retries = scheduled_retries.saturating_add(1);
                             } else {
                                 return Err(fail_session(
                                     &mut session,
@@ -523,18 +535,19 @@ pub(crate) async fn send_file_with_context(
         .await);
     }
 
-    let duration_ms = start_time.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    let complete = TransferComplete {
-        bytes_transferred: file_size,
-        duration_ms,
-        file_hash: session.manifest.file_hash.clone(),
-        hash_algorithm: to_wire_hash_algorithm(session.manifest.hash_algorithm),
-    };
-    if let Err(err) = control
-        .send_message(
-            session.target_nodes[0],
+    // The receiver emits Complete only after it has verified the final hash,
+    // restored requested metadata, and atomically renamed the temporary file.
+    // Empty files are finalized while accepting the manifest, so its accepted
+    // ManifestAck is already that completion proof.
+    if skip_chunks.len() != chunk_count as usize
+        && let Err(err) = wait_for_receiver_completion(
+            &control,
             session.id,
-            FileTransferMessage::Complete(complete),
+            target,
+            config.idle_timeout,
+            &session.manifest.file_hash,
+            session.manifest.hash_algorithm,
+            file_size,
         )
         .await
     {
@@ -732,6 +745,82 @@ async fn wait_for_manifest_ack(
 }
 
 #[allow(clippy::too_many_arguments)]
+async fn wait_for_receiver_completion(
+    control: &ControlDispatcher,
+    session_id: TransferSessionId,
+    target: NodeId,
+    timeout: Duration,
+    expected_hash: &[u8],
+    expected_algorithm: crate::options::HashAlgorithm,
+    expected_bytes: u64,
+) -> Result<(), FileTransferError> {
+    let (sender, message) = control
+        .recv_filtered(session_id, timeout, |message| {
+            matches!(
+                message,
+                FileTransferMessage::Complete(_)
+                    | FileTransferMessage::Error(_)
+                    | FileTransferMessage::Cancel(_)
+            )
+        })
+        .await?;
+    if sender != target {
+        return Err(FileTransferError::Transport(
+            "receiver completion came from an unexpected peer".into(),
+        ));
+    }
+
+    match message {
+        FileTransferMessage::Complete(TransferComplete {
+            bytes_transferred,
+            file_hash,
+            hash_algorithm,
+            ..
+        }) if bytes_transferred == expected_bytes
+            && file_hash == expected_hash
+            && hash_algorithm == to_wire_hash_algorithm(expected_algorithm) =>
+        {
+            Ok(())
+        }
+        FileTransferMessage::Complete(_) => Err(FileTransferError::FileHashMismatch),
+        FileTransferMessage::Error(error) => Err(FileTransferError::Transport(error.message)),
+        FileTransferMessage::Cancel(_) => Err(FileTransferError::Cancelled),
+        _ => Err(FileTransferError::Internal(
+            "unexpected receiver completion message".into(),
+        )),
+    }
+}
+
+fn resolve_transfer_options(
+    config: &FileTransferConfig,
+    mut options: TransferOptions,
+) -> Result<TransferOptions, FileTransferError> {
+    let defaults = TransferOptions::default();
+    if options.chunk_size == defaults.chunk_size {
+        options.chunk_size = config.default_chunk_size;
+    }
+    if options.concurrency == defaults.concurrency {
+        options.concurrency = config.default_concurrency;
+    }
+    if options.compression == defaults.compression {
+        options.compression = config.default_compression;
+    }
+
+    if options.chunk_size == 0 || options.chunk_size > u32::MAX as usize {
+        return Err(FileTransferError::Internal(
+            "chunk size must be between 1 and u32::MAX".into(),
+        ));
+    }
+    if config.max_concurrency == 0 || options.concurrency == 0 {
+        return Err(FileTransferError::Internal(
+            "transfer concurrency must be greater than zero".into(),
+        ));
+    }
+    options.concurrency = options.concurrency.min(config.max_concurrency);
+    Ok(options)
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn send_chunk(
     opener: Arc<dyn ChunkStreamOpener>,
     target: NodeId,
@@ -787,14 +876,10 @@ async fn build_manifest(
     chunk_manager: &ChunkManager,
     options: &TransferOptions,
     file_hash: Vec<u8>,
+    chunks: Vec<crate::ChunkMeta>,
     metadata: &std::fs::Metadata,
     session_id: TransferSessionId,
 ) -> Result<TransferManifest, FileTransferError> {
-    let mut file = fs::File::open(source_path).await?;
-    let chunks = chunk_manager
-        .generate_chunk_metas(&mut file, file_size)
-        .await
-        .map_err(FileTransferError::Io)?;
     let created_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::from_secs(0))
@@ -930,10 +1015,13 @@ fn to_wire_file_metadata(
 
 #[cfg(test)]
 mod tests {
-    use super::send_chunk;
+    use super::{resolve_transfer_options, send_chunk};
     use crate::compression::decompress_bytes;
     use crate::ops::ChunkStreamOpener;
-    use crate::{CHUNK_STREAM_MAGIC, CompressionAlgorithm, FileTransferError, TransferSessionId};
+    use crate::{
+        CHUNK_STREAM_MAGIC, CompressionAlgorithm, FileTransferConfig, FileTransferError,
+        TransferSessionId,
+    };
     use alopex_chirps_wire::node_id::NodeId;
     use async_trait::async_trait;
     use quinn::{ClientConfig, Endpoint, ServerConfig};
@@ -943,6 +1031,31 @@ mod tests {
     use std::sync::Arc;
 
     const SERVER_NAME: &str = "localhost";
+
+    #[test]
+    fn config_defaults_are_applied_to_default_transfer_options() {
+        let config = FileTransferConfig {
+            default_chunk_size: 32 * 1024,
+            default_concurrency: 3,
+            default_compression: CompressionAlgorithm::ZstdLevel(5),
+            max_concurrency: 4,
+            ..FileTransferConfig::default()
+        };
+        let options = resolve_transfer_options(&config, crate::TransferOptions::default())
+            .expect("resolve defaults");
+        assert_eq!(options.chunk_size, 32 * 1024);
+        assert_eq!(options.concurrency, 3);
+        assert_eq!(options.compression, CompressionAlgorithm::ZstdLevel(5));
+    }
+
+    #[test]
+    fn invalid_configured_transfer_defaults_are_rejected() {
+        let config = FileTransferConfig {
+            default_chunk_size: 0,
+            ..FileTransferConfig::default()
+        };
+        assert!(resolve_transfer_options(&config, crate::TransferOptions::default()).is_err());
+    }
 
     #[derive(Clone)]
     struct FixedChunkOpener {

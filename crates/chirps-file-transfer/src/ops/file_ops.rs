@@ -189,7 +189,7 @@ pub async fn handle_remove_request(
     let path = Path::new(&request.path);
     let options = RemoveOptions {
         recursive: request.recursive,
-        ignore_not_found: true,
+        ignore_not_found: request.ignore_not_found,
     };
     match remove(path_validator, path, options).await {
         Ok(()) => Ok(RemoveResponse {

@@ -1,5 +1,22 @@
 # Chirps リリースノート
 
+## [0.5.2] - 2026-08-02
+
+### 修正
+
+- File Transfer の成功条件を受信側の完全ハッシュ検証、指定メタデータ適用、原子的配置完了後の `Complete` 応答まで拡張し、Move 元ファイルはこの確認後だけ削除するようにした。
+- 実 QUIC 経路で Zstd 圧縮/展開、ストリーム障害再送、改変チャンクの checksum NACK→再送を検証・修正した。
+- Pull とリモート側が新しい Bidirectional 同期を、別途 remote `send_file` を呼ばずに完了できる `SyncRequest` wire 契約へ拡張した。
+- `FileTransferConfig` の chunk/concurrency/compression default とグローバル同時転送上限を実送信へ適用し、上限の統合テストを追加した。
+- 公称する最大 chunk size に対し、短い read を完全 chunk と誤認しないよう `read_exact` で読み取る回帰テストを追加した。
+- symlink 方針、`remove(ignore_not_found)`、Unix mode/mtime 保存を wire と受信処理まで接続した。
+- Prometheus collector をサービス固有の `Registry` へ登録し、複数サービス作成時のグローバル二重登録を解消した。
+
+### 検証
+
+- marimo による File Transfer 検証ノートブックを v0.5.2 用へ更新した。
+- QUIC 統合テストで、圧縮、NACK 再送、最終配置、Move、Pull、双方向同期、resume、メタデータ、並行数制限を確認した。
+
 ## [0.5.0] - 2025-12-04
 ### 追加
 - `chirps-raft-storage`: openraft v0.9.17 互換の RaftStorage/StateMachine 抽象と WAL ベース実装 (`WalRaftStorage`)、CRC 付きレコードフォーマット、スナップショット管理ヘルパーを追加。

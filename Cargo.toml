@@ -13,7 +13,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.5.1"
+version = "0.5.2"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/alopex-db/alopex-chirps"
 homepage = "https://github.com/alopex-db/alopex-chirps"
@@ -21,13 +21,14 @@ categories = ["network-programming", "asynchronous", "database"]
 
 [workspace.dependencies]
 # Internal crates
-alopex-chirps-wire = { version = "0.5.1", path = "crates/chirps-wire" }
-alopex-chirps-core = { version = "0.5.1", path = "crates/chirps-core" }
-alopex-chirps-gossip-swim = { version = "0.5.1", path = "crates/chirps-gossip-swim" }
-alopex-chirps-mock = { version = "0.5.1", path = "crates/chirps-mock" }
-alopex-chirps-raft-storage = { version = "0.5.1", path = "crates/chirps-raft-storage" }
-alopex-chirps-transport-quic = { version = "0.5.1", path = "crates/chirps-transport-quic" }
-alopex-chirps-file-transfer = { version = "0.5.1", path = "crates/chirps-file-transfer" }
+alopex-chirps = { version = "0.5.2", path = "crates/alopex-chirps" }
+alopex-chirps-wire = { version = "0.5.2", path = "crates/chirps-wire" }
+alopex-chirps-core = { version = "0.5.2", path = "crates/chirps-core" }
+alopex-chirps-gossip-swim = { version = "0.5.2", path = "crates/chirps-gossip-swim" }
+alopex-chirps-mock = { version = "0.5.2", path = "crates/chirps-mock" }
+alopex-chirps-raft-storage = { version = "0.5.2", path = "crates/chirps-raft-storage" }
+alopex-chirps-transport-quic = { version = "0.5.2", path = "crates/chirps-transport-quic" }
+alopex-chirps-file-transfer = { version = "0.5.2", path = "crates/chirps-file-transfer" }
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }

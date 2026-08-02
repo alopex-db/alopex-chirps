@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-file-transfer",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-core"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "alopex-chirps-wire",
  "async-trait",
@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-file-transfer"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-mock",
@@ -82,6 +82,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "blake3",
+ "filetime",
  "prometheus",
  "quinn",
  "rcgen",
@@ -99,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-gossip-swim"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "alopex-chirps-wire",
  "async-trait",
@@ -112,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-mock"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-wire",
@@ -123,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-raft-storage"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "alopex-core",
  "anyhow",
@@ -138,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-transport-quic"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-wire",
@@ -165,7 +166,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-wire"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "bincode",
  "serde",
@@ -509,7 +510,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chirps-e2e"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "alopex-chirps",
  "alopex-chirps-gossip-swim",
@@ -831,6 +832,16 @@ name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
+
+[[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
 
 [[package]]
 name = "find-msvc-tools"

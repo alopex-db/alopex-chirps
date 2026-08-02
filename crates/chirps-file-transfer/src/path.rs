@@ -77,7 +77,32 @@ impl PathValidator {
     /// # Panics
     /// This method does not panic.
     pub fn resolve_symlink(&self, path: &Path) -> io::Result<PathBuf> {
-        std::fs::canonicalize(path)
+        // A destination often does not exist yet. Resolve the deepest existing
+        // ancestor, then append the missing suffix so that a symlink in an
+        // existing parent is still checked before the caller creates a file.
+        let mut existing = path.to_path_buf();
+        let mut missing = Vec::new();
+        while !existing.exists() {
+            let Some(component) = existing.file_name() else {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("no existing ancestor for {}", path.display()),
+                ));
+            };
+            missing.push(component.to_os_string());
+            if !existing.pop() {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("no existing ancestor for {}", path.display()),
+                ));
+            }
+        }
+
+        let mut resolved = std::fs::canonicalize(existing)?;
+        for component in missing.iter().rev() {
+            resolved.push(component);
+        }
+        Ok(resolved)
     }
 
     fn reject_symlink_components(&self, path: &Path) -> Result<(), FileTransferError> {

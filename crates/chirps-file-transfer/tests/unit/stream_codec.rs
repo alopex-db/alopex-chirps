@@ -55,10 +55,10 @@ async fn chunk_stream_codec_round_trip() {
 
     let server_conn = server_accept.await.expect("server accept task");
 
-    let (mut send, mut recv) = tokio::try_join!(async { client_conn.open_uni().await }, async {
-        server_conn.accept_uni().await
-    },)
-    .expect("open stream");
+    // QUIC does not guarantee that an inbound unidirectional stream becomes
+    // observable before the sender writes to it. Write and finish first, then
+    // accept the stream, as a real transfer receiver does.
+    let mut send = client_conn.open_uni().await.expect("open stream");
 
     let session_id = TransferSessionId::new();
     let chunk_index = 7u32;
@@ -68,6 +68,8 @@ async fn chunk_stream_codec_round_trip() {
         .await
         .expect("encode");
     send.finish().await.expect("finish");
+
+    let mut recv = server_conn.accept_uni().await.expect("accept stream");
 
     let mut magic = [0u8; 1];
     recv.read_exact(&mut magic).await.expect("read magic");

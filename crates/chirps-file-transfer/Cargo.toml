@@ -22,6 +22,7 @@ xxhash-rust = { version = "0.8", features = ["xxh64"] }
 sha2 = "0.10"
 blake3 = "1.5"
 zstd = "0.13"
+filetime = "0.2"
 thiserror.workspace = true
 prometheus = "0.13"
 tracing.workspace = true

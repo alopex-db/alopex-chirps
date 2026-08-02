@@ -67,16 +67,17 @@ impl ChunkManager {
         let offset = index as u64 * self.chunk_size as u64;
         file.seek(SeekFrom::Start(offset)).await?;
 
-        let mut data = vec![0u8; self.chunk_size];
-        let bytes_read = file.read(&mut data).await?;
-        data.truncate(bytes_read);
+        let file_size = file.metadata().await?.len();
+        let bytes_to_read = file_size.saturating_sub(offset).min(self.chunk_size as u64) as usize;
+        let mut data = vec![0u8; bytes_to_read];
+        file.read_exact(&mut data).await?;
 
         let checksum = xxhash_rust::xxh64::xxh64(&data, 0);
 
         Ok(Chunk {
             index,
             offset,
-            size: bytes_read as u32,
+            size: bytes_to_read as u32,
             checksum,
             data,
         })

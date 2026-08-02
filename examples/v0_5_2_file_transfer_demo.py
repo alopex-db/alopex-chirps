@@ -3,11 +3,11 @@
 # dependencies = ["marimo>=0.23,<0.24"]
 # ///
 
-"""Interactive verification demo for Chirps v0.5.1 file transfer.
+"""Interactive verification demo for Chirps v0.5.2 file transfer.
 
 Run with:
 
-    uv run marimo edit examples/v0_5_1_file_transfer_demo.py
+    uv run marimo edit examples/v0_5_2_file_transfer_demo.py
 
 Each run compiles into a disposable CARGO_TARGET_DIR outside the repository.
 """
@@ -41,9 +41,9 @@ def _(Path):
 def _(mo):
     mo.md(
         """
-        # Chirps v0.5.1 File Transfer — verification demo
+        # Chirps v0.5.2 File Transfer — verification demo
 
-        このノートブックは、v0.5.1 ロードマップの File Transfer API を
+        このノートブックは、v0.5.2 の File Transfer 信頼性修正を
         実際の統合テストで動かして確認します。制御メッセージには `MockBackend`、
         チャンク本体にはローカル QUIC ストリームを使うため、ファイル転送のプロトコル、
         整合性検証、再送、永続化をネットワーク越しに検証できます。
@@ -88,6 +88,31 @@ def _():
             "filter": "sync_push_transfers_to_remote",
             "proves": "SyncOptions::Push によるリモートへの同期と完了進捗",
         },
+        "pull": {
+            "label": "単独 Pull 同期",
+            "filter": "sync_pull_receives_from_remote",
+            "proves": "remote 側で send_file を別途起動せず、SyncRequest により Pull を完了",
+        },
+        "bidirectional": {
+            "label": "新しい側優先の双方向同期",
+            "filter": "sync_bidirectional_pulls_remote_newer_without_manual_send",
+            "proves": "remote が新しい場合に local を原子的に置換する Bidirectional 同期",
+        },
+        "limit": {
+            "label": "同時転送上限",
+            "filter": "service_applies_max_concurrent_transfer_limit",
+            "proves": "max_concurrent_transfers=1 で二本目の送信 stream が待機すること",
+        },
+        "metadata": {
+            "label": "Unix メタデータ保存",
+            "filter": "send_file_preserves_unix_permissions_and_modified_time",
+            "proves": "receiver の最終配置前に mode と modified time を保存すること",
+        },
+        "metrics": {
+            "label": "サービス固有 Metrics Registry",
+            "filter": "each_service_exposes_its_own_metrics_registry",
+            "proves": "複数サービスで Prometheus collector の二重グローバル登録が起きないこと",
+        },
         "resume": {
             "label": "キャンセル後のレジューム",
             "filter": "resume_transfer_restores_progress",
@@ -101,7 +126,7 @@ def _():
         "all": {
             "label": "全シナリオ（時間がかかります）",
             "filter": None,
-            "proves": "登録済みの v0.5.1 ファイル転送統合テストをすべて実行",
+            "proves": "登録済みの v0.5.2 File Transfer 統合テストをすべて実行（性能テストは除外）",
         },
     }
     return (scenarios,)
@@ -139,7 +164,7 @@ def _(manifest_path, mo, os, repo_root, run_button, scenarios, selector, subproc
     command.extend(["--", "--nocapture"])
 
     environment = os.environ.copy()
-    with tempfile.TemporaryDirectory(prefix="chirps-v0_5_1-demo-") as target_dir:
+    with tempfile.TemporaryDirectory(prefix="chirps-v0_5_2-demo-") as target_dir:
         environment["CARGO_TARGET_DIR"] = target_dir
         try:
             completed = subprocess.run(
@@ -186,17 +211,16 @@ def _(mo):
         | Zstd 圧縮・圧縮レベル指定 | Zstd / ZstdLevel 往復テスト、wire payload 圧縮ユニットテスト |
         | ネットワーク障害・破損チャンクからの復旧 | ストリーム障害再送、改変した QUIC フレームの NACK→再送 |
         | 1対N ブロードキャスト | 1対Nブロードキャストシナリオ |
-        | Push / Pull / 双方向同期 | Push シナリオ（全シナリオでは Pull と Manual conflict も実行） |
+        | Push / 単独 Pull / 双方向同期 | Push・単独 Pull・新しい側優先の双方向同期シナリオ |
         | セッション永続化・レジューム | キャンセル後のレジュームシナリオ |
-        | exists / remove / metadata / list_files | リモートファイル操作シナリオ |
-        | Prometheus メトリクス | 実装には登録・記録処理があるが、このデモでは公開 scrape endpoint までは検証しない |
+        | exists / remove / metadata / list_files | リモートファイル操作シナリオ（`ignore_not_found` を含む） |
+        | Unix mode / mtime 保存 | Unix メタデータ保存シナリオ |
+        | 設定 default / 同時転送上限 | default の単体テストと、service の同時転送上限シナリオ |
+        | Prometheus メトリクス | サービス固有 Registry の複数インスタンス検証 |
 
         ## 残るリリース判定上の注意
 
-        - `FileTransferServiceImpl` の `alopex_chirps` からの再エクスポートは
-          v0.5.1 ロードマップの要件を満たします。`MeshHandle` の公開ファクトリは
-          この版の明示要件ではなく、利用者向けの将来の利便性改善です。
-        - 100 MB/s の性能目標は、`file_transfer_throughput_meets_v0_5_1_target` として
+        - 100 MB/s の性能目標は、`file_transfer_throughput_meets_v0_5_2_target` として
           登録されていますが、1 Gbps 専用ランナーでのみ実行する ignored test です。
           通常 CI やこのローカルデモの成功を、性能達成の証跡としては扱いません。
         - このデモは実 QUIC チャンクストリームと MockBackend の制御面を組み合わせます。

@@ -1,7 +1,7 @@
 use crate::session::TransferKind;
 use prometheus::{
-    Counter, CounterVec, Error as PrometheusError, Gauge, HistogramVec, register_counter,
-    register_counter_vec, register_gauge, register_histogram_vec,
+    Counter, CounterVec, Error as PrometheusError, Gauge, HistogramOpts, HistogramVec, Opts,
+    Registry,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -150,65 +150,98 @@ pub struct PrometheusMetrics {
 }
 
 impl PrometheusMetrics {
-    /// Registers and returns the default metrics set.
+    /// Registers and returns a metrics set owned by `registry`.
     ///
     /// # Errors
     /// Returns `PrometheusError` if metric registration fails.
     ///
     /// # Panics
     /// This method does not panic.
-    pub fn register() -> Result<Self, PrometheusError> {
-        Ok(PrometheusMetrics {
-            transfers_total: register_counter_vec!(
+    pub fn register(registry: &Registry) -> Result<Self, PrometheusError> {
+        let transfers_total = CounterVec::new(
+            Opts::new(
                 "chirps_ft_transfers_total",
                 "Total number of file transfers",
-                &["kind", "status"]
-            )?,
-            chunks_total: register_counter_vec!(
+            ),
+            &["kind", "status"],
+        )?;
+        let chunks_total = CounterVec::new(
+            Opts::new(
                 "chirps_ft_chunks_total",
                 "Total number of chunks transferred",
-                &["direction"]
-            )?,
-            bytes_total: register_counter_vec!(
-                "chirps_ft_bytes_total",
-                "Total bytes transferred",
-                &["direction"]
-            )?,
-            checksum_failures_total: register_counter_vec!(
+            ),
+            &["direction"],
+        )?;
+        let bytes_total = CounterVec::new(
+            Opts::new("chirps_ft_bytes_total", "Total bytes transferred"),
+            &["direction"],
+        )?;
+        let checksum_failures_total = CounterVec::new(
+            Opts::new(
                 "chirps_ft_checksum_failures_total",
                 "Total checksum verification failures",
-                &["level"]
-            )?,
-            retries_total: register_counter!(
-                "chirps_ft_retries_total",
-                "Total number of chunk retries"
-            )?,
-            active_transfers: register_gauge!(
-                "chirps_ft_active_transfers",
-                "Number of active transfers"
-            )?,
-            chunks_in_flight: register_gauge!(
-                "chirps_ft_chunks_in_flight",
-                "Number of chunks currently in flight"
-            )?,
-            transfer_duration: register_histogram_vec!(
+            ),
+            &["level"],
+        )?;
+        let retries_total = Counter::with_opts(Opts::new(
+            "chirps_ft_retries_total",
+            "Total number of chunk retries",
+        ))?;
+        let active_transfers = Gauge::with_opts(Opts::new(
+            "chirps_ft_active_transfers",
+            "Number of active transfers",
+        ))?;
+        let chunks_in_flight = Gauge::with_opts(Opts::new(
+            "chirps_ft_chunks_in_flight",
+            "Number of chunks currently in flight",
+        ))?;
+        let transfer_duration = HistogramVec::new(
+            HistogramOpts::new(
                 "chirps_ft_transfer_duration_seconds",
                 "Transfer duration in seconds",
-                &["kind"],
-                vec![0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]
-            )?,
-            chunk_latency: register_histogram_vec!(
+            )
+            .buckets(vec![0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]),
+            &["kind"],
+        )?;
+        let chunk_latency = HistogramVec::new(
+            HistogramOpts::new(
                 "chirps_ft_chunk_latency_seconds",
                 "Chunk transfer latency in seconds",
-                &[],
-                vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
-            )?,
-            throughput: register_histogram_vec!(
+            )
+            .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]),
+            &[],
+        )?;
+        let throughput = HistogramVec::new(
+            HistogramOpts::new(
                 "chirps_ft_throughput_bytes_per_sec",
                 "Transfer throughput in bytes per second",
-                &["kind"],
-                vec![1e6, 1e7, 5e7, 1e8, 5e8, 1e9]
-            )?,
+            )
+            .buckets(vec![1e6, 1e7, 5e7, 1e8, 5e8, 1e9]),
+            &["kind"],
+        )?;
+
+        registry.register(Box::new(transfers_total.clone()))?;
+        registry.register(Box::new(chunks_total.clone()))?;
+        registry.register(Box::new(bytes_total.clone()))?;
+        registry.register(Box::new(checksum_failures_total.clone()))?;
+        registry.register(Box::new(retries_total.clone()))?;
+        registry.register(Box::new(active_transfers.clone()))?;
+        registry.register(Box::new(chunks_in_flight.clone()))?;
+        registry.register(Box::new(transfer_duration.clone()))?;
+        registry.register(Box::new(chunk_latency.clone()))?;
+        registry.register(Box::new(throughput.clone()))?;
+
+        Ok(PrometheusMetrics {
+            transfers_total,
+            chunks_total,
+            bytes_total,
+            checksum_failures_total,
+            retries_total,
+            active_transfers,
+            chunks_in_flight,
+            transfer_duration,
+            chunk_latency,
+            throughput,
         })
     }
 

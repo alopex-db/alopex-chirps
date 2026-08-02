@@ -18,6 +18,7 @@ pub(crate) fn to_wire_transfer_options(options: &TransferOptions) -> wire::Trans
         overwrite: options.overwrite,
         mode: to_wire_transfer_mode(options.mode),
         preserve_metadata: options.preserve_metadata,
+        follow_symlinks: options.follow_symlinks,
     }
 }
 
@@ -34,6 +35,7 @@ pub(crate) fn from_wire_transfer_options(options: &wire::TransferOptions) -> Tra
         overwrite: options.overwrite,
         mode: from_wire_transfer_mode(options.mode),
         preserve_metadata: options.preserve_metadata,
+        follow_symlinks: options.follow_symlinks,
     }
 }
 

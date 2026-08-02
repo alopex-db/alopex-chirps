@@ -12,7 +12,7 @@
 
 ```toml
 [workspace.package]
-version = "0.5.0"  # ← ここを変更すると全クレートに反映
+version = "0.5.2"  # ← ここを変更すると全クレートに反映
 ```
 
 ### クレート一覧
@@ -24,6 +24,7 @@ version = "0.5.0"  # ← ここを変更すると全クレートに反映
 | `alopex-chirps-gossip-swim` | SWIM ゴシッププロトコル | alopex-chirps-wire |
 | `alopex-chirps-raft-storage` | Raft ログストレージ | alopex-core |
 | `alopex-chirps-mock` | テスト用モック実装 | alopex-chirps-wire, alopex-chirps-core |
+| `alopex-chirps-file-transfer` | ファイル転送 API | alopex-chirps-wire, alopex-chirps-core |
 | `alopex-chirps-transport-quic` | QUIC トランスポート層 | alopex-chirps-wire, alopex-chirps-core |
 | `alopex-chirps` | メインライブラリ | 全上記クレート |
 
@@ -36,7 +37,7 @@ Layer 1: alopex-chirps-wire, alopex-chirps-raft-storage
     ↓
 Layer 2: alopex-chirps-core, alopex-chirps-gossip-swim
     ↓
-Layer 3: alopex-chirps-mock, alopex-chirps-transport-quic
+Layer 3: alopex-chirps-mock, alopex-chirps-file-transfer, alopex-chirps-transport-quic
     ↓
 Layer 4: alopex-chirps
 ```
@@ -49,15 +50,18 @@ Layer 4: alopex-chirps
 chirps-v{major}.{minor}.{patch}
 ```
 
-例: `chirps-v0.5.0`
+例: `chirps-v0.5.2`
 
 ### 自動化される処理
 
 タグをプッシュすると、GitHub Actions が以下を自動実行します：
 
-1. **CI Gate**: fmt, clippy, test の実行
-2. **Publish Crate**: crates.io への公開（依存順）
-3. **Create Release**: GitHub Release の作成
+1. **CI Gate**: fmt, clippy、全 workspace test、doc test、File Transfer 受入テスト、実 QUIC/mesh E2E の実行
+2. **性能 Gate**: `self-hosted`, `linux`, `chirps-1gbps` ラベルを持つ専用 runner で、128 MiB の end-to-end File Transfer が 100 MB/s 以上であることを確認
+3. **Publish Crate**: crates.io への公開（依存順）
+4. **Create Release**: GitHub Release の作成
+
+専用 runner が未登録または性能ゲートが失敗した場合、公開ジョブは開始されない。通常の CI やローカル実行でこの要件を代替してはならない。
 
 ## リリース手順
 

@@ -53,3 +53,23 @@ async fn chunk_manager_reads_chunks_and_metas() {
         chunk1.checksum
     ));
 }
+
+#[tokio::test]
+async fn chunk_manager_reads_a_full_large_chunk() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("large-chunk.bin");
+    let data = vec![0x5a; 4 * 1024 * 1024];
+    tokio::fs::write(&path, &data)
+        .await
+        .expect("write test file");
+
+    let manager = ChunkManager::new(4 * 1024 * 1024);
+    let mut file = File::open(&path).await.expect("open test file");
+    let chunk = manager
+        .read_chunk(&mut file, 0)
+        .await
+        .expect("read full chunk");
+
+    assert_eq!(chunk.size, data.len() as u32);
+    assert_eq!(chunk.data, data);
+}

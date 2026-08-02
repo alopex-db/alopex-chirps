@@ -49,3 +49,18 @@ fn path_validator_rejects_symlink_components() {
         .expect("validate symlink");
     assert!(resolved.starts_with(&target));
 }
+
+#[cfg(unix)]
+#[test]
+fn path_validator_follow_symlink_rejects_escape() {
+    use std::os::unix::fs as unix_fs;
+
+    let dir = tempdir().expect("tempdir");
+    let outside = tempdir().expect("outside tempdir");
+    let link = dir.path().join("escape");
+    unix_fs::symlink(outside.path(), &link).expect("symlink");
+
+    let validator = PathValidator::new(dir.path().to_path_buf(), true);
+    let result = validator.validate(Path::new("escape/new.txt"));
+    assert!(matches!(result, Err(FileTransferError::PathTraversal(_))));
+}

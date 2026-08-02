@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{Notify, RwLock, broadcast};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 
@@ -136,6 +136,60 @@ impl ChunkStreamOpener for TestChunkEndpoint {
 struct FlakyChunkOpener {
     inner: Arc<dyn ChunkStreamOpener>,
     remaining_failures: AtomicUsize,
+}
+
+/// Holds the first outgoing chunk stream open until the test releases it.
+/// This makes service-level transfer-slot admission observable without
+/// changing production timing or relying on wall-clock transfer duration.
+#[derive(Clone)]
+struct GateFirstChunkOpener {
+    inner: Arc<dyn ChunkStreamOpener>,
+    opened_streams: Arc<AtomicUsize>,
+    first_opened: Arc<Notify>,
+    release_first: Arc<Notify>,
+}
+
+impl GateFirstChunkOpener {
+    fn new(inner: Arc<dyn ChunkStreamOpener>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            opened_streams: Arc::new(AtomicUsize::new(0)),
+            first_opened: Arc::new(Notify::new()),
+            release_first: Arc::new(Notify::new()),
+        })
+    }
+
+    fn opened_streams(&self) -> usize {
+        self.opened_streams.load(Ordering::SeqCst)
+    }
+
+    async fn wait_for_first_open(&self) {
+        while self.opened_streams() == 0 {
+            self.first_opened.notified().await;
+        }
+    }
+
+    fn release(&self) {
+        self.release_first.notify_waiters();
+    }
+}
+
+#[async_trait]
+impl ChunkStreamOpener for GateFirstChunkOpener {
+    async fn open_chunk_stream(
+        &self,
+        target: NodeId,
+    ) -> Result<quinn::SendStream, FileTransferError> {
+        let stream = self.inner.open_chunk_stream(target).await?;
+        if self.opened_streams.fetch_add(1, Ordering::SeqCst) == 0 {
+            // Create the waiter before publishing first_opened, so a release
+            // immediately after observation cannot be lost.
+            let release = self.release_first.notified();
+            self.first_opened.notify_waiters();
+            release.await;
+        }
+        Ok(stream)
+    }
 }
 
 impl FlakyChunkOpener {
@@ -297,7 +351,7 @@ impl CorruptingChunkProxy {
                         };
                         let corrupted = remaining_corruptions
                             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
-                                (remaining > 0).then_some(remaining - 1)
+                                (remaining > 0).then(|| remaining - 1)
                             })
                             .is_ok();
                         if corrupted {
@@ -364,7 +418,25 @@ impl TestCluster {
         base_path: PathBuf,
         endpoint: Arc<TestChunkEndpoint>,
         opener: Arc<dyn ChunkStreamOpener>,
-        handle_transfer_messages: bool,
+        _handle_transfer_messages: bool,
+    ) -> TestNode {
+        self.add_node_with_endpoint_and_config(
+            node_id,
+            base_path,
+            endpoint,
+            opener,
+            FileTransferConfig::default(),
+        )
+        .await
+    }
+
+    async fn add_node_with_endpoint_and_config(
+        &self,
+        node_id: NodeId,
+        base_path: PathBuf,
+        endpoint: Arc<TestChunkEndpoint>,
+        opener: Arc<dyn ChunkStreamOpener>,
+        config: FileTransferConfig,
     ) -> TestNode {
         let backend = self
             .network
@@ -377,7 +449,7 @@ impl TestCluster {
         let _ = tokio::fs::create_dir_all(&session_dir).await;
         let _ = tokio::fs::create_dir_all(&temp_dir).await;
 
-        let config = FileTransferConfig::default()
+        let config = config
             .with_base_path(base_path.clone())
             .with_session_dir(Some(session_dir))
             .with_temp_dir(Some(temp_dir));
@@ -388,13 +460,15 @@ impl TestCluster {
         let service = Arc::new(service);
 
         let (shutdown, _) = broadcast::channel(4);
-        let control_task = spawn_control_responder(
-            service.control(),
-            service.receive_handler(),
-            service.path_validator().clone(),
-            shutdown.subscribe(),
-            handle_transfer_messages,
-        );
+        // FileTransferServiceImpl owns its control-plane responder. Keep a
+        // shutdown task only so this fixture retains one lifecycle handle for
+        // the test node.
+        let control_task = tokio::spawn({
+            let mut shutdown = shutdown.subscribe();
+            async move {
+                let _ = shutdown.recv().await;
+            }
+        });
         let chunk_task = spawn_chunk_acceptor(
             endpoint.endpoint.clone(),
             Arc::clone(&self.chunk_network.reverse_peers),
@@ -429,6 +503,7 @@ impl TestNode {
     }
 }
 
+#[allow(dead_code)]
 fn spawn_control_responder(
     control: Arc<ControlDispatcher>,
     receive_handler: Arc<ReceiveHandler>,
@@ -580,19 +655,23 @@ fn spawn_chunk_acceptor(
                                 Ok(recv) => recv,
                                 Err(_) => break,
                             };
-                            let mut magic = [0u8; 1];
-                            if recv.read_exact(&mut magic).await.is_err() {
-                                break;
-                            }
-                            if magic[0] != CHUNK_STREAM_MAGIC {
-                                continue;
-                            }
-                            if let Err(err) = receive_handler
-                                .handle_chunk_stream(peer_id, &control, &mut recv)
-                                .await
-                            {
-                                eprintln!("chunk stream error: {err}");
-                            }
+                            let receive_handler = Arc::clone(&receive_handler);
+                            let control = Arc::clone(&control);
+                            tokio::spawn(async move {
+                                let mut magic = [0u8; 1];
+                                if recv.read_exact(&mut magic).await.is_err() {
+                                    return;
+                                }
+                                if magic[0] != CHUNK_STREAM_MAGIC {
+                                    return;
+                                }
+                                if let Err(err) = receive_handler
+                                    .handle_chunk_stream(peer_id, &control, &mut recv)
+                                    .await
+                                {
+                                    eprintln!("chunk stream error: {err}");
+                                }
+                            });
                         }
                     });
                 }
@@ -744,6 +823,82 @@ async fn send_file_transfers_small_file() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn service_applies_max_concurrent_transfer_limit() {
+    let cluster = TestCluster::new();
+    let sender_dir = TempDir::new().expect("sender dir");
+    let receiver_dir = TempDir::new().expect("receiver dir");
+    let sender_id = NodeId::new();
+    let receiver_id = NodeId::new();
+
+    let sender_endpoint = cluster.chunk_network.add_endpoint(sender_id).await;
+    let gate = GateFirstChunkOpener::new(sender_endpoint.clone());
+    let sender = cluster
+        .add_node_with_endpoint_and_config(
+            sender_id,
+            sender_dir.path().to_path_buf(),
+            sender_endpoint.clone(),
+            gate.clone(),
+            FileTransferConfig::default().with_max_concurrent_transfers(1),
+        )
+        .await;
+    let receiver = cluster
+        .add_node(receiver_id, receiver_dir.path().to_path_buf())
+        .await;
+
+    let first_source = sender_dir.path().join("first-source.bin");
+    let second_source = sender_dir.path().join("second-source.bin");
+    let first_dest = receiver_dir.path().join("first-destination.bin");
+    let second_dest = receiver_dir.path().join("second-destination.bin");
+    write_pattern_file(&first_source, 64 * 1024)
+        .await
+        .expect("write first source");
+    write_pattern_file(&second_source, 64 * 1024)
+        .await
+        .expect("write second source");
+
+    let first_service = Arc::clone(&sender.service);
+    let first = tokio::spawn(async move {
+        first_service
+            .send_file(
+                receiver_id,
+                &first_source,
+                &first_dest,
+                TransferOptions::default().with_chunk_size(64 * 1024),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), gate.wait_for_first_open())
+        .await
+        .expect("first transfer should open its chunk stream");
+
+    let second_service = Arc::clone(&sender.service);
+    let second = tokio::spawn(async move {
+        second_service
+            .send_file(
+                receiver_id,
+                &second_source,
+                &second_dest,
+                TransferOptions::default().with_chunk_size(64 * 1024),
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        gate.opened_streams(),
+        1,
+        "the second transfer must wait for the sole service transfer slot"
+    );
+
+    gate.release();
+    first.await.expect("first task").expect("first transfer");
+    second.await.expect("second task").expect("second transfer");
+    assert_eq!(gate.opened_streams(), 2);
+
+    receiver.shutdown().await;
+    sender.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn send_file_transfers_medium_file() {
     let cluster = TestCluster::new();
     assert_send_file(&cluster, 10 * 1024 * 1024).await;
@@ -807,6 +962,59 @@ async fn send_file_move_removes_source() {
         .await
         .expect("dest hash");
     assert_eq!(dest_hash, expected_hash);
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn send_file_preserves_unix_permissions_and_modified_time() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let cluster = TestCluster::new();
+    let sender_dir = TempDir::new().expect("sender dir");
+    let receiver_dir = TempDir::new().expect("receiver dir");
+    let sender_id = NodeId::new();
+    let receiver_id = NodeId::new();
+    let sender = cluster
+        .add_node(sender_id, sender_dir.path().to_path_buf())
+        .await;
+    let _receiver = cluster
+        .add_node(receiver_id, receiver_dir.path().to_path_buf())
+        .await;
+
+    let source_path = sender_dir.path().join("metadata-source.bin");
+    let dest_path = receiver_dir.path().join("metadata-dest.bin");
+    write_pattern_file(&source_path, 32 * 1024)
+        .await
+        .expect("write source");
+    std::fs::set_permissions(&source_path, std::fs::Permissions::from_mode(0o640))
+        .expect("set source mode");
+    let expected_mtime = 1_700_000_000_i64;
+    filetime::set_file_mtime(
+        &source_path,
+        filetime::FileTime::from_unix_time(expected_mtime, 0),
+    )
+    .expect("set source mtime");
+
+    sender
+        .service
+        .send_file(
+            receiver_id,
+            &source_path,
+            &dest_path,
+            TransferOptions::default().with_chunk_size(8 * 1024),
+        )
+        .await
+        .expect("send with metadata preservation");
+
+    let destination_metadata = std::fs::metadata(&dest_path).expect("destination metadata");
+    assert_eq!(destination_metadata.permissions().mode() & 0o777, 0o640);
+    let destination_mtime = destination_metadata
+        .modified()
+        .expect("destination mtime")
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("mtime after epoch")
+        .as_secs() as i64;
+    assert_eq!(destination_mtime, expected_mtime);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1103,6 +1311,33 @@ async fn file_ops_round_trip() {
         .await
         .expect("exists");
     assert!(!exists);
+
+    let missing_path = receiver_dir.path().join("data/missing.txt");
+    let strict_remove = sender
+        .service
+        .remove(
+            receiver_id,
+            &missing_path,
+            RemoveOptions {
+                recursive: false,
+                ignore_not_found: false,
+            },
+        )
+        .await;
+    assert!(strict_remove.is_err());
+
+    sender
+        .service
+        .remove(
+            receiver_id,
+            &missing_path,
+            RemoveOptions {
+                recursive: false,
+                ignore_not_found: true,
+            },
+        )
+        .await
+        .expect("ignore missing remote path");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1151,7 +1386,7 @@ async fn sync_pull_receives_from_remote() {
     let local = cluster
         .add_node(local_id, local_dir.path().to_path_buf())
         .await;
-    let remote = cluster
+    let _remote = cluster
         .add_node(remote_id, remote_dir.path().to_path_buf())
         .await;
 
@@ -1163,44 +1398,85 @@ async fn sync_pull_receives_from_remote() {
 
     let sync_options = SyncOptions::default().with_direction(SyncDirection::Pull);
 
-    let sync_task = {
-        let local = Arc::clone(&local.service);
-        let local_path = local_path.clone();
-        let remote_path = remote_path.clone();
-        tokio::spawn(async move {
-            local
-                .sync_file(
-                    &local_path,
-                    &remote_path,
-                    Some(vec![remote_id]),
-                    sync_options,
-                )
-                .await
-        })
-    };
-
-    let send_task = {
-        let remote = Arc::clone(&remote.service);
-        let local_path = local_path.clone();
-        let remote_path = remote_path.clone();
-        tokio::spawn(async move {
-            remote
-                .send_file(
-                    local_id,
-                    &remote_path,
-                    &local_path,
-                    TransferOptions::default(),
-                )
-                .await
-        })
-    };
-
-    let handle = sync_task.await.expect("sync task").expect("sync");
-    send_task.await.expect("send task").expect("send");
+    let handle = local
+        .service
+        .sync_file(
+            &local_path,
+            &remote_path,
+            Some(vec![remote_id]),
+            sync_options,
+        )
+        .await
+        .expect("standalone pull sync");
 
     let progress = handle.progress().await;
     assert_eq!(progress.bytes_transferred, 8 * 1024);
     assert_files_match(&remote_path, &local_path).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sync_bidirectional_pulls_remote_newer_without_manual_send() {
+    let cluster = TestCluster::new();
+    let local_dir = TempDir::new().expect("local dir");
+    let remote_dir = TempDir::new().expect("remote dir");
+    let local_id = NodeId::new();
+    let remote_id = NodeId::new();
+    let local = cluster
+        .add_node(local_id, local_dir.path().to_path_buf())
+        .await;
+    let _remote = cluster
+        .add_node(remote_id, remote_dir.path().to_path_buf())
+        .await;
+
+    let local_path = local_dir.path().join("sync.txt");
+    let remote_path = remote_dir.path().join("sync.txt");
+    write_pattern_file(&local_path, 4 * 1024)
+        .await
+        .expect("write local");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    write_pattern_file(&remote_path, 10 * 1024)
+        .await
+        .expect("write remote");
+
+    let handle = local
+        .service
+        .sync_file(
+            &local_path,
+            &remote_path,
+            Some(vec![remote_id]),
+            SyncOptions::default()
+                .with_direction(SyncDirection::Bidirectional)
+                .with_conflict_resolution(ConflictResolution::NewerWins)
+                .with_clock_skew_tolerance(Duration::ZERO),
+        )
+        .await
+        .expect("remote-newer bidirectional sync");
+
+    assert_eq!(handle.progress().await.bytes_transferred, 10 * 1024);
+    assert_files_match(&remote_path, &local_path).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn each_service_exposes_its_own_metrics_registry() {
+    let cluster = TestCluster::new();
+    let first_dir = TempDir::new().expect("first dir");
+    let second_dir = TempDir::new().expect("second dir");
+    let first = cluster
+        .add_node(NodeId::new(), first_dir.path().to_path_buf())
+        .await;
+    let second = cluster
+        .add_node(NodeId::new(), second_dir.path().to_path_buf())
+        .await;
+
+    for service in [&first.service, &second.service] {
+        assert!(
+            service
+                .metrics_registry()
+                .gather()
+                .iter()
+                .any(|family| family.get_name() == "chirps_ft_active_transfers")
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1310,7 +1586,7 @@ async fn resume_transfer_restores_progress() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires a dedicated 1 Gbps performance runner; set CHIRPS_FILE_TRANSFER_PERF_1GBPS=1"]
-async fn file_transfer_throughput_meets_v0_5_1_target() {
+async fn file_transfer_throughput_meets_v0_5_2_target() {
     assert_eq!(
         std::env::var("CHIRPS_FILE_TRANSFER_PERF_1GBPS").as_deref(),
         Ok("1"),
@@ -1319,6 +1595,8 @@ async fn file_transfer_throughput_meets_v0_5_1_target() {
 
     const FILE_SIZE: usize = 128 * 1024 * 1024;
     const MIN_THROUGHPUT_BYTES_PER_SEC: f64 = 100_000_000.0;
+    const PERFORMANCE_CONCURRENCY: usize = 4;
+    const PERFORMANCE_CHUNK_SIZE: usize = 1024 * 1024;
 
     let cluster = TestCluster::new();
     let sender_dir = TempDir::new().expect("sender dir");
@@ -1346,21 +1624,27 @@ async fn file_transfer_throughput_meets_v0_5_1_target() {
             &source_path,
             &dest_path,
             TransferOptions::default()
-                .with_chunk_size(1024 * 1024)
-                .with_concurrency(4),
+                .with_chunk_size(PERFORMANCE_CHUNK_SIZE)
+                .with_concurrency(PERFORMANCE_CONCURRENCY),
         )
         .await
         .expect("transfer source");
     let elapsed = started.elapsed();
     let throughput = FILE_SIZE as f64 / elapsed.as_secs_f64();
 
-    assert_eq!(handle.progress().await.bytes_transferred, FILE_SIZE as u64);
+    let progress = handle.progress().await;
+    assert_eq!(progress.bytes_transferred, FILE_SIZE as u64);
+    eprintln!(
+        "v0.5.2 performance: end-to-end={throughput:.0} B/s, payload={payload:.0} B/s, chunk_size={PERFORMANCE_CHUNK_SIZE}, concurrency={PERFORMANCE_CONCURRENCY}",
+        payload = progress.throughput,
+    );
     assert_files_match(&source_path, &dest_path).await;
     receiver.shutdown().await;
     sender.shutdown().await;
 
     assert!(
         throughput >= MIN_THROUGHPUT_BYTES_PER_SEC,
-        "throughput was {throughput:.0} bytes/s, below the v0.5.1 target of {MIN_THROUGHPUT_BYTES_PER_SEC:.0} bytes/s"
+        "end-to-end throughput was {throughput:.0} bytes/s (payload progress {payload_throughput:.0} bytes/s), below the v0.5.2 target of {MIN_THROUGHPUT_BYTES_PER_SEC:.0} bytes/s",
+        payload_throughput = progress.throughput,
     );
 }
