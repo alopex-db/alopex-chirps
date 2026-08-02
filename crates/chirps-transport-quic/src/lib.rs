@@ -19,7 +19,10 @@ use async_trait::async_trait;
 use bincode::{deserialize, serialize, serialized_size};
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream, ServerConfig};
 use rcgen::generate_simple_self_signed;
-use rustls::{Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore};
+use rustls::{
+    Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore,
+    ServerConfig as RustlsServerConfig,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -30,7 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::select;
-use tokio::sync::{Mutex, RwLock, broadcast, mpsc, oneshot};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, RwLock, Semaphore, broadcast, mpsc, oneshot};
 use tokio::time;
 use tokio::time::Instant;
 use tracing::{info, warn};
@@ -56,7 +59,7 @@ pub use handshake::{
     PROTOCOL_VERSION, negotiate,
 };
 pub use metrics::{ExtendedTransportMetrics, LatencySnapshot, MetricsSnapshot};
-use priority::Priority;
+use priority::{Priority, PriorityScheduler, ScheduledMessage, SchedulerConfig};
 pub use qos::{QosController, QosError, QosMetrics, TokenBucket};
 pub use receive::ReceiveHandler;
 use reconnect::{ReconnectCommand, start_seed_reconnector};
@@ -157,11 +160,21 @@ enum SendCommand {
         target: NodeId,
         frame: Frame,
         respond_to: oneshot::Sender<Result<(), TransportError>>,
+        _slot: OwnedSemaphorePermit,
     },
     Broadcast {
         frame: Frame,
         respond_to: oneshot::Sender<Result<usize, TransportError>>,
+        _slot: OwnedSemaphorePermit,
     },
+}
+
+impl SendCommand {
+    fn frame(&self) -> &Frame {
+        match self {
+            Self::Unicast { frame, .. } | Self::Broadcast { frame, .. } => frame,
+        }
+    }
 }
 
 /// QUIC transport backend implementing the `MessageBackend` trait with QoS, retransmission, and versioned handshakes.
@@ -176,6 +189,7 @@ pub struct QuicBackend {
     shutdown: broadcast::Sender<()>,
     reconnect_tx: mpsc::Sender<ReconnectCommand>,
     send_tx: mpsc::Sender<SendCommand>,
+    send_slots: Arc<Semaphore>,
     send_timeout: Duration,
     metrics: Arc<TransportCounters>,
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
@@ -187,7 +201,11 @@ pub struct QuicBackend {
 impl QuicBackend {
     /// Create a backend using default transport config (v0.4) and provided node config.
     pub async fn new(node_id: NodeId, config: Arc<NodeConfig>) -> anyhow::Result<Self> {
-        Self::new_with_config(node_id, config, TransportConfigV04::default()).await
+        let transport_config = TransportConfigV04 {
+            send_queue_capacity: config.send_queue_capacity,
+            ..Default::default()
+        };
+        Self::new_with_config(node_id, config, transport_config).await
     }
 
     /// Create a backend with explicit transport configuration (priority, retransmit, QoS, handshake settings).
@@ -196,12 +214,17 @@ impl QuicBackend {
         config: Arc<NodeConfig>,
         transport_config: TransportConfigV04,
     ) -> anyhow::Result<Self> {
+        config.validate()?;
+        if transport_config.send_queue_capacity == 0 {
+            anyhow::bail!("send_queue_capacity must be greater than zero");
+        }
         let (server_config, client_config) = build_tls_configs(&config)?;
         let mut endpoint = Endpoint::server(server_config, config.bind_addr)?;
         endpoint.set_default_client_config(ClientConfig::new(client_config.clone()));
 
         let (incoming_tx, incoming_rx) = mpsc::channel(1024);
         let (send_tx, send_rx) = mpsc::channel(transport_config.send_queue_capacity);
+        let send_slots = Arc::new(Semaphore::new(transport_config.send_queue_capacity));
         let (shutdown, _) = broadcast::channel(4);
         let connections = Arc::new(RwLock::new(HashMap::new()));
         let peer_capabilities = Arc::new(RwLock::new(HashMap::new()));
@@ -239,6 +262,7 @@ impl QuicBackend {
             shutdown,
             reconnect_tx,
             send_tx,
+            send_slots,
             send_timeout: transport_config.send_timeout,
             metrics: Arc::clone(&metrics),
             retransmit_buffer: Arc::clone(&retransmit_buffer),
@@ -259,6 +283,7 @@ impl QuicBackend {
             backend.shutdown.subscribe(),
             backend.node_id,
             backend.send_timeout,
+            transport_config.priority.clone(),
         );
         let _ = backend.reconnect_tx.try_send(ReconnectCommand::Trigger);
 
@@ -346,11 +371,16 @@ impl QuicBackend {
 #[async_trait]
 impl MessageBackend for QuicBackend {
     async fn send(&self, target: NodeId, frame: Frame) -> Result<(), TransportError> {
+        let slot = self.send_slots.clone().try_acquire_owned().map_err(|_| {
+            self.metrics.dropped.fetch_add(1, Ordering::Relaxed);
+            TransportError::Timeout("send queue is full".into())
+        })?;
         let (respond_to, recv) = oneshot::channel();
         if let Err(err) = self.send_tx.try_send(SendCommand::Unicast {
             target,
             frame,
             respond_to,
+            _slot: slot,
         }) {
             if matches!(err, mpsc::error::TrySendError::Full(_)) {
                 self.metrics.dropped.fetch_add(1, Ordering::Relaxed);
@@ -363,11 +393,16 @@ impl MessageBackend for QuicBackend {
     }
 
     async fn broadcast(&self, frame: Frame) -> Result<usize, TransportError> {
+        let slot = self.send_slots.clone().try_acquire_owned().map_err(|_| {
+            self.metrics.dropped.fetch_add(1, Ordering::Relaxed);
+            TransportError::Timeout("send queue is full".into())
+        })?;
         let (respond_to, recv) = oneshot::channel();
-        if let Err(err) = self
-            .send_tx
-            .try_send(SendCommand::Broadcast { frame, respond_to })
-        {
+        if let Err(err) = self.send_tx.try_send(SendCommand::Broadcast {
+            frame,
+            respond_to,
+            _slot: slot,
+        }) {
             if matches!(err, mpsc::error::TrySendError::Full(_)) {
                 self.metrics.dropped.fetch_add(1, Ordering::Relaxed);
                 warn!("send queue is full; rejecting broadcast");
@@ -721,49 +756,95 @@ fn spawn_send_loop(
     mut shutdown_rx: broadcast::Receiver<()>,
     node_id: NodeId,
     timeout: Duration,
+    priority_config: PriorityConfig,
 ) {
     tokio::spawn(async move {
+        let mut scheduler = PriorityScheduler::new(SchedulerConfig {
+            weights: priority_config.weights,
+            quantum_bytes: MAX_FRAME_SIZE,
+        });
         loop {
-            select! {
-                    _ = shutdown_rx.recv() => break,
-                    cmd = rx.recv() => match cmd {
-                        Some(SendCommand::Unicast { target, frame, respond_to }) => {
-                            let send_res = send_with_retry(
-                                &connections,
-                                &peer_capabilities,
-                                &metrics,
-                                &retransmit_buffer,
-                                &metrics_ext,
-                                &receive_handler,
-                                node_id,
-                                target,
-                                frame,
-                                timeout,
-                            )
-                            .await;
-                            let _ = respond_to.send(send_res);
-                        }
-                        Some(SendCommand::Broadcast { frame, respond_to }) => {
-                            let send_res =
-                                broadcast_with_retry(
-                                    &connections,
-                                    &peer_capabilities,
-                                    &metrics,
-                                    &retransmit_buffer,
-                                    &metrics_ext,
-                                    &receive_handler,
-                                    node_id,
-                                    frame,
-                                    timeout,
-                                )
-                                .await;
-                            let _ = respond_to.send(send_res);
-                        }
-                    None => break,
+            if let Some(command) = scheduler.dequeue() {
+                match command.payload {
+                    SendCommand::Unicast {
+                        target,
+                        frame,
+                        respond_to,
+                        ..
+                    } => {
+                        let send_res = send_with_retry(
+                            &connections,
+                            &peer_capabilities,
+                            &metrics,
+                            &retransmit_buffer,
+                            &metrics_ext,
+                            &receive_handler,
+                            node_id,
+                            target,
+                            frame,
+                            timeout,
+                        )
+                        .await;
+                        let _ = respond_to.send(send_res);
+                    }
+                    SendCommand::Broadcast {
+                        frame, respond_to, ..
+                    } => {
+                        let send_res = broadcast_with_retry(
+                            &connections,
+                            &peer_capabilities,
+                            &metrics,
+                            &retransmit_buffer,
+                            &metrics_ext,
+                            &receive_handler,
+                            node_id,
+                            frame,
+                            timeout,
+                        )
+                        .await;
+                        let _ = respond_to.send(send_res);
+                    }
                 }
+                continue;
+            }
+
+            let command = select! {
+                _ = shutdown_rx.recv() => break,
+                command = rx.recv() => command,
+            };
+            let Some(command) = command else {
+                break;
+            };
+            enqueue_send_command(&mut scheduler, command, priority_config.enabled);
+
+            // Batch commands that were woken in the same scheduler turn before
+            // selecting one.  This lets a control/gossip frame overtake queued
+            // low-priority user traffic without preempting an active QUIC write.
+            tokio::task::yield_now().await;
+            while let Ok(command) = rx.try_recv() {
+                enqueue_send_command(&mut scheduler, command, priority_config.enabled);
             }
         }
     });
+}
+
+fn enqueue_send_command(
+    scheduler: &mut PriorityScheduler<SendCommand>,
+    command: SendCommand,
+    priority_enabled: bool,
+) {
+    let size_bytes = serialized_size(command.frame())
+        .unwrap_or_default()
+        .min(usize::MAX as u64) as usize;
+    let priority = if priority_enabled {
+        stream_kind_for_frame(command.frame()).priority()
+    } else {
+        Priority::Normal
+    };
+    scheduler.enqueue(
+        ScheduledMessage::new(priority, size_bytes, command),
+        priority,
+    );
 }
 
 async fn send_with_retry(
@@ -994,12 +1075,23 @@ fn build_tls_configs(
 
     let cert_chain = vec![Certificate(cert_der.clone())];
     let priv_key = PrivateKey(key_der);
-    let server_config = ServerConfig::with_single_cert(cert_chain.clone(), priv_key)?;
+    let mut server_crypto = RustlsServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, priv_key)?;
+    server_crypto.alpn_protocols = vec![b"alopex".to_vec()];
+    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
 
     let mut roots = RootCertStore::empty();
     roots
         .add(&Certificate(cert_der))
         .map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
+    for cert_path in &config.trusted_cert_paths {
+        let trusted_cert = fs::read(cert_path)?;
+        roots
+            .add(&Certificate(trusted_cert))
+            .map_err(|_| anyhow::anyhow!("failed to add trusted root cert"))?;
+    }
 
     let mut client_crypto = RustlsClientConfig::builder()
         .with_safe_defaults()

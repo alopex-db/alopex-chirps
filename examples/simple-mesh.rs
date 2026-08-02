@@ -2,20 +2,60 @@
 
 use alopex_chirps::{start, Frame, MeshHandle, UserMessage};
 use alopex_chirps::config::NodeConfig;
+use std::fs;
 use std::io;
 use std::net::{SocketAddr, TcpListener};
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
+
+/// Credentials deliberately shared by the local development mesh.
+///
+/// Production nodes should instead use separate certificates issued by a
+/// cluster CA and configure `trusted_cert_paths` with the CA certificate.
+struct DevelopmentTls {
+    _directory: tempfile::TempDir,
+    cert_path: PathBuf,
+    key_path: PathBuf,
+}
+
+impl DevelopmentTls {
+    fn new() -> anyhow::Result<Self> {
+        let certificate = rcgen::generate_simple_self_signed(["localhost".to_string()])?;
+        let directory = tempfile::tempdir()?;
+        let cert_path = directory.path().join("development-cert.der");
+        let key_path = directory.path().join("development-key.der");
+        fs::write(&cert_path, certificate.serialize_der()?)?;
+        fs::write(&key_path, certificate.serialize_private_key_der())?;
+
+        Ok(Self {
+            _directory: directory,
+            cert_path,
+            key_path,
+        })
+    }
+
+    fn node_id_path(&self, node_file: &str) -> PathBuf {
+        self._directory.path().join(node_file)
+    }
+}
 
 fn free_addr() -> io::Result<SocketAddr> {
     TcpListener::bind("127.0.0.1:0").map(|l| l.local_addr().unwrap())
 }
 
-fn config(bind_addr: SocketAddr, seeds: Vec<SocketAddr>, node_file: &str) -> NodeConfig {
+fn config(
+    bind_addr: SocketAddr,
+    seeds: Vec<SocketAddr>,
+    node_file: &str,
+    tls: &DevelopmentTls,
+) -> NodeConfig {
     let mut cfg = NodeConfig::default();
     cfg.bind_addr = bind_addr;
     cfg.seeds = seeds;
-    cfg.node_id_path = std::env::temp_dir().join(node_file);
+    cfg.node_id_path = tls.node_id_path(node_file);
+    cfg.cert_path = Some(tls.cert_path.clone());
+    cfg.key_path = Some(tls.key_path.clone());
     cfg
 }
 
@@ -36,11 +76,13 @@ async fn main() -> anyhow::Result<()> {
     let addr_a = free_addr()?;
     let addr_b = free_addr()?;
     let addr_c = free_addr()?;
+    // この例だけで用いる共有の自己署名資格情報を明示的に作成する。
+    let tls = DevelopmentTls::new()?;
 
     // 参加ノードは A をシードとして接続
-    let mesh_a = start(config(addr_a, vec![], "chirps_node_a.id")).await?;
-    let mesh_b = start(config(addr_b, vec![addr_a], "chirps_node_b.id")).await?;
-    let mesh_c = start(config(addr_c, vec![addr_a], "chirps_node_c.id")).await?;
+    let mesh_a = start(config(addr_a, vec![], "chirps_node_a.id", &tls)).await?;
+    let mesh_b = start(config(addr_b, vec![addr_a], "chirps_node_b.id", &tls)).await?;
+    let mesh_c = start(config(addr_c, vec![addr_a], "chirps_node_c.id", &tls)).await?;
 
     println!("node A = {:?}", mesh_a.node_id());
     println!("node B = {:?}", mesh_b.node_id());

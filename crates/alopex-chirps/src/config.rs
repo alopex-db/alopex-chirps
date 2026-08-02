@@ -40,5 +40,12 @@ mod tests {
             ..Default::default()
         };
         assert!(config.validate().is_err());
+
+        // Trust anchor missing
+        let config = NodeConfig {
+            trusted_cert_paths: vec![std::path::PathBuf::from("missing-trust-anchor.der")],
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
     }
 }

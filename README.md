@@ -48,3 +48,7 @@ cargo run --example simple-mesh
 - `send_to` で特定ピアへ直接メッセージ送信
 
 `examples/simple-mesh.rs` を参照すれば、`start` / `broadcast` / `send_to` / イベント購読の使い方を最小コードで確認できます。
+
+### TLS の運用
+
+`simple-mesh` はローカル開発専用に、1組の自己署名 DER 証明書と秘密鍵を3ノードへ明示的に渡します。本番では各ノードに個別の証明書と秘密鍵を設定し、`NodeConfig::trusted_cert_paths` にクラスタ CA 証明書、または許可する自己署名ピア証明書（DER）を指定してください。検証は常に有効であり、未知の証明書を受け入れる設定はありません。

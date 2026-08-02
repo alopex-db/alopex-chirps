@@ -2,23 +2,67 @@
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
 use alopex_chirps_core::error::TransportError;
-use alopex_chirps_transport_quic::QuicBackend;
+use alopex_chirps_transport_quic::{QuicBackend, init_test_tracing};
 use alopex_chirps_wire::frame::{Frame, UserMessage};
 use alopex_chirps_wire::node_id::NodeId;
+use rcgen::generate_simple_self_signed;
+use std::fs;
 use std::io;
 use std::net::{SocketAddr, TcpListener};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use tempfile::TempDir;
+use tokio::sync::Barrier;
 
 fn free_addr() -> io::Result<SocketAddr> {
     TcpListener::bind("127.0.0.1:0").map(|l| l.local_addr().unwrap())
 }
 
-fn config(bind_addr: SocketAddr, seeds: Vec<SocketAddr>) -> Arc<NodeConfig> {
-    let mut cfg = NodeConfig::default();
-    cfg.bind_addr = bind_addr;
-    cfg.seeds = seeds;
-    Arc::new(cfg)
+struct TestTls {
+    _dir: TempDir,
+    cert_paths: Vec<PathBuf>,
+    key_paths: Vec<PathBuf>,
+}
+
+impl TestTls {
+    fn two_nodes() -> Self {
+        let dir = TempDir::new().expect("temporary certificate directory");
+        let mut cert_paths = Vec::with_capacity(2);
+        let mut key_paths = Vec::with_capacity(2);
+        for index in 0..2 {
+            let cert = generate_simple_self_signed(["alopex.local".to_string()])
+                .expect("self-signed test certificate");
+            let cert_path = dir.path().join(format!("node-{index}.crt"));
+            let key_path = dir.path().join(format!("node-{index}.key"));
+            fs::write(&cert_path, cert.serialize_der().expect("certificate DER"))
+                .expect("write test certificate");
+            fs::write(&key_path, cert.serialize_private_key_der()).expect("write test key");
+            cert_paths.push(cert_path);
+            key_paths.push(key_path);
+        }
+        Self {
+            _dir: dir,
+            cert_paths,
+            key_paths,
+        }
+    }
+
+    fn config(
+        &self,
+        node: usize,
+        bind_addr: SocketAddr,
+        seeds: Vec<SocketAddr>,
+    ) -> Arc<NodeConfig> {
+        init_test_tracing();
+        let mut cfg = NodeConfig::default();
+        cfg.bind_addr = bind_addr;
+        cfg.seeds = seeds;
+        cfg.cert_path = Some(self.cert_paths[node].clone());
+        cfg.key_path = Some(self.key_paths[node].clone());
+        cfg.trusted_cert_paths = self.cert_paths.clone();
+        Arc::new(cfg)
+    }
 }
 
 async fn wait_for_connected(backend: &QuicBackend, expected: usize) {
@@ -47,6 +91,7 @@ async fn wait_for_connected_with_timeout(
 async fn ping_ack_roundtrip() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
+    let tls = TestTls::two_nodes();
 
     let addr_a = match free_addr() {
         Ok(a) => a,
@@ -65,7 +110,7 @@ async fn ping_ack_roundtrip() -> anyhow::Result<()> {
         Err(e) => return Err(e.into()),
     };
 
-    let backend_a = match QuicBackend::new(node_a, config(addr_a, vec![])).await {
+    let backend_a = match QuicBackend::new(node_a, tls.config(0, addr_a, vec![])).await {
         Ok(b) => b,
         Err(e) => {
             let msg = e.to_string();
@@ -76,7 +121,7 @@ async fn ping_ack_roundtrip() -> anyhow::Result<()> {
             return Err(e);
         }
     };
-    let backend_b = match QuicBackend::new(node_b, config(addr_b, vec![addr_a])).await {
+    let backend_b = match QuicBackend::new(node_b, tls.config(1, addr_b, vec![addr_a])).await {
         Ok(b) => b,
         Err(e) => {
             let msg = e.to_string();
@@ -142,6 +187,7 @@ async fn ping_ack_roundtrip() -> anyhow::Result<()> {
 async fn broadcast_delivers_to_connected_peers() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
+    let tls = TestTls::two_nodes();
 
     let addr_a = match free_addr() {
         Ok(a) => a,
@@ -160,7 +206,7 @@ async fn broadcast_delivers_to_connected_peers() -> anyhow::Result<()> {
         Err(e) => return Err(e.into()),
     };
 
-    let backend_a = match QuicBackend::new(node_a, config(addr_a, vec![])).await {
+    let backend_a = match QuicBackend::new(node_a, tls.config(0, addr_a, vec![])).await {
         Ok(b) => b,
         Err(e) => {
             let msg = e.to_string();
@@ -171,7 +217,7 @@ async fn broadcast_delivers_to_connected_peers() -> anyhow::Result<()> {
             return Err(e);
         }
     };
-    let backend_b = match QuicBackend::new(node_b, config(addr_b, vec![addr_a])).await {
+    let backend_b = match QuicBackend::new(node_b, tls.config(1, addr_b, vec![addr_a])).await {
         Ok(b) => b,
         Err(e) => {
             let msg = e.to_string();
@@ -215,6 +261,7 @@ async fn broadcast_delivers_to_connected_peers() -> anyhow::Result<()> {
 async fn gossip_not_blocked_by_large_user_stream() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
+    let tls = TestTls::two_nodes();
 
     let addr_a = match free_addr() {
         Ok(a) => a,
@@ -233,7 +280,7 @@ async fn gossip_not_blocked_by_large_user_stream() -> anyhow::Result<()> {
         Err(e) => return Err(e.into()),
     };
 
-    let backend_a = match QuicBackend::new(node_a, config(addr_a, vec![])).await {
+    let backend_a = match QuicBackend::new(node_a, tls.config(0, addr_a, vec![])).await {
         Ok(b) => b,
         Err(e) => {
             let msg = e.to_string();
@@ -244,7 +291,7 @@ async fn gossip_not_blocked_by_large_user_stream() -> anyhow::Result<()> {
             return Err(e);
         }
     };
-    let backend_b = match QuicBackend::new(node_b, config(addr_b, vec![addr_a])).await {
+    let backend_b = match QuicBackend::new(node_b, tls.config(1, addr_b, vec![addr_a])).await {
         Ok(b) => b,
         Err(e) => {
             let msg = e.to_string();
@@ -269,18 +316,13 @@ async fn gossip_not_blocked_by_large_user_stream() -> anyhow::Result<()> {
             payload: payload.clone(),
         }),
     );
-    let send_ping = async {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        backend_b
-            .send(
-                node_a,
-                Frame::Ping {
-                    seq: 99,
-                    from: node_b,
-                },
-            )
-            .await
-    };
+    let send_ping = backend_b.send(
+        node_a,
+        Frame::Ping {
+            seq: 99,
+            from: node_b,
+        },
+    );
     let (user_res, ping_res) = tokio::join!(send_user, send_ping);
     user_res?;
     ping_res?;
@@ -321,6 +363,7 @@ async fn gossip_not_blocked_by_large_user_stream() -> anyhow::Result<()> {
 async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
+    let tls = TestTls::two_nodes();
 
     let addr_a = match free_addr() {
         Ok(a) => a,
@@ -339,8 +382,7 @@ async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
         Err(e) => return Err(e.into()),
     };
 
-    let mut cfg_a = NodeConfig::default();
-    cfg_a.bind_addr = addr_a;
+    let mut cfg_a = (*tls.config(0, addr_a, vec![])).clone();
     cfg_a.send_queue_capacity = 1;
     let backend_a = match QuicBackend::new(node_a, Arc::new(cfg_a)).await {
         Ok(b) => b,
@@ -354,9 +396,7 @@ async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
         }
     };
 
-    let mut cfg_b = NodeConfig::default();
-    cfg_b.bind_addr = addr_b;
-    cfg_b.seeds = vec![addr_a];
+    let mut cfg_b = (*tls.config(1, addr_b, vec![addr_a])).clone();
     cfg_b.send_queue_capacity = 1;
     let backend_b = match QuicBackend::new(node_b, Arc::new(cfg_b)).await {
         Ok(b) => b,
@@ -379,9 +419,12 @@ async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
     wait_for_connected(&backend_a, 1).await;
     wait_for_connected(&backend_b, 1).await;
 
+    let barrier = Arc::new(Barrier::new(4));
     let t1 = {
         let backend = Arc::clone(&backend_b);
+        let barrier = Arc::clone(&barrier);
         tokio::spawn(async move {
+            barrier.wait().await;
             backend
                 .send(
                     node_a,
@@ -394,7 +437,9 @@ async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
     };
     let t2 = {
         let backend = Arc::clone(&backend_b);
+        let barrier = Arc::clone(&barrier);
         tokio::spawn(async move {
+            barrier.wait().await;
             backend
                 .send(
                     node_a,
@@ -407,7 +452,9 @@ async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
     };
     let t3 = {
         let backend = Arc::clone(&backend_b);
+        let barrier = Arc::clone(&barrier);
         tokio::spawn(async move {
+            barrier.wait().await;
             backend
                 .send(
                     node_a,
@@ -418,6 +465,7 @@ async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
                 .await
         })
     };
+    barrier.wait().await;
 
     let results = vec![t1.await?, t2.await?, t3.await?];
     let overflow_errors = results
@@ -448,6 +496,7 @@ async fn send_queue_overflow_returns_error() -> anyhow::Result<()> {
 async fn reconnects_when_seed_becomes_available() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();
+    let tls = TestTls::two_nodes();
 
     let addr_a = match free_addr() {
         Ok(a) => a,
@@ -466,7 +515,7 @@ async fn reconnects_when_seed_becomes_available() -> anyhow::Result<()> {
         Err(e) => return Err(e.into()),
     };
 
-    let backend_b = match QuicBackend::new(node_b, config(addr_b, vec![addr_a])).await {
+    let backend_b = match QuicBackend::new(node_b, tls.config(1, addr_b, vec![addr_a])).await {
         Ok(b) => b,
         Err(e) => {
             let msg = e.to_string();
@@ -480,7 +529,7 @@ async fn reconnects_when_seed_becomes_available() -> anyhow::Result<()> {
 
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let backend_a = match QuicBackend::new(node_a, config(addr_a, vec![])).await {
+    let backend_a = match QuicBackend::new(node_a, tls.config(0, addr_a, vec![])).await {
         Ok(b) => b,
         Err(e) => {
             let msg = e.to_string();
