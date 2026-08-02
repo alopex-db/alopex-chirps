@@ -3,7 +3,9 @@ use alopex_chirps::config::NodeConfig;
 use alopex_chirps_gossip_swim::engine::{GossipConfig, GossipEngine, Transport, TransportError};
 use alopex_chirps_gossip_swim::types::{MembershipView, Status};
 use alopex_chirps_transport_quic::{QuicBackend, init_test_tracing};
-use alopex_chirps_wire::frame::{Frame, MemberStatus, MembershipUpdate, UserMessage};
+use alopex_chirps_wire::frame::{
+    Frame, GossipMessage, MemberStatus, MembershipUpdate, UserMessage,
+};
 use alopex_chirps_wire::node_id::NodeId;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -24,6 +26,7 @@ const WAIT_LONG: Duration = Duration::from_secs(15);
 
 struct TestNode {
     id: NodeId,
+    addr: SocketAddr,
     backend: Arc<QuicBackend>,
     engine: Arc<Mutex<GossipEngine>>,
     user_rx: mpsc::Receiver<(NodeId, Vec<u8>)>,
@@ -104,6 +107,7 @@ impl TestNode {
     async fn start(id: NodeId, config: NodeConfig) -> Result<Self> {
         init_test_tracing();
         let config = Arc::new(config);
+        let addr = config.bind_addr;
         let backend = QuicBackend::new(id, Arc::clone(&config)).await?;
         let backend = Arc::new(backend);
 
@@ -190,6 +194,7 @@ impl TestNode {
 
         Ok(Self {
             id,
+            addr,
             backend,
             engine,
             user_rx,
@@ -238,6 +243,23 @@ impl TestNode {
             }))
             .await
             .map_err(Into::into)
+    }
+
+    /// Announces this node's new incarnation after reconnecting. A peer that
+    /// marked this NodeId dead accepts an Alive update only when its
+    /// incarnation is strictly newer than the old one.
+    async fn announce_alive(&self, incarnation: u64) -> Result<()> {
+        self.backend
+            .broadcast(Frame::Gossip(GossipMessage {
+                updates: vec![MembershipUpdate {
+                    node_id: self.id,
+                    incarnation,
+                    addr: self.addr,
+                    status: MemberStatus::Alive,
+                }],
+            }))
+            .await?;
+        Ok(())
     }
 
     async fn expect_user_from(
@@ -505,13 +527,22 @@ async fn run_three_node_mesh(tls: MeshTls) -> Result<()> {
         )
         .await;
     node_b2.wait_connected(2, WAIT_SHORT).await?;
-
-    node_a
-        .wait_membership_status(old_b_id, Status::Alive, WAIT_LONG)
-        .await?;
-    node_c
-        .wait_membership_status(old_b_id, Status::Alive, WAIT_LONG)
-        .await?;
+    let rejoin_deadline = tokio::time::Instant::now() + WAIT_LONG;
+    loop {
+        // SWIM disseminates an Alive update repeatedly; a single control frame
+        // is not a delivery acknowledgement for both peers in this real QUIC
+        // harness. Keep announcing until both membership views converge.
+        node_b2.announce_alive(1).await?;
+        if node_a.membership_status(old_b_id).await == Some(Status::Alive)
+            && node_c.membership_status(old_b_id).await == Some(Status::Alive)
+        {
+            break;
+        }
+        if tokio::time::Instant::now() > rejoin_deadline {
+            anyhow::bail!("再参加ノードの Alive gossip が全 peer へ収束しませんでした");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 
     node_b2.broadcast_user(b"mesh-back-again").await?;
     node_a

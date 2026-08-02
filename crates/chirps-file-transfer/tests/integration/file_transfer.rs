@@ -12,7 +12,7 @@ use alopex_chirps_mock::{MockBackend, MockNetwork};
 use alopex_chirps_wire::file_transfer::{FileTransferMessage, ManifestAck, TransferResponse};
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
-use quinn::{ClientConfig, Connection, Endpoint, ServerConfig};
+use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
 use rcgen::generate_simple_self_signed;
 use rustls::{Certificate, PrivateKey, RootCertStore};
 use std::collections::HashMap;
@@ -22,20 +22,26 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{Notify, RwLock, broadcast};
+use tokio::sync::{Mutex, Notify, RwLock, broadcast};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 
 const SERVER_NAME: &str = "localhost";
+// The Quinn 0.10 defaults are tuned for a 100 Mbps / 100 ms path.  The
+// release performance gate is explicitly a 1 Gbps profile, so its test
+// endpoint must advertise enough flow-control credit for that contract.
+const PERFORMANCE_STREAM_WINDOW_BYTES: u32 = 16 * 1024 * 1024;
+const PERFORMANCE_CONNECTION_WINDOW_BYTES: u32 = 64 * 1024 * 1024;
+const PERFORMANCE_MAX_UNI_STREAMS: u32 = 256;
 
-fn build_tls_configs() -> (ServerConfig, ClientConfig) {
+fn build_tls_configs(transport: Option<Arc<TransportConfig>>) -> (ServerConfig, ClientConfig) {
     let cert = generate_simple_self_signed([SERVER_NAME.to_string()]).expect("cert");
     let cert_der = cert.serialize_der().expect("cert der");
     let key_der = cert.serialize_private_key_der();
     let cert_chain = vec![Certificate(cert_der.clone())];
     let key = PrivateKey(key_der);
 
-    let server_config = ServerConfig::with_single_cert(cert_chain, key).expect("server config");
+    let mut server_config = ServerConfig::with_single_cert(cert_chain, key).expect("server config");
 
     let mut roots = RootCertStore::empty();
     roots.add(&Certificate(cert_der)).expect("add cert");
@@ -43,9 +49,23 @@ fn build_tls_configs() -> (ServerConfig, ClientConfig) {
         .with_safe_defaults()
         .with_root_certificates(roots)
         .with_no_client_auth();
-    let client_config = ClientConfig::new(Arc::new(crypto));
+    let mut client_config = ClientConfig::new(Arc::new(crypto));
+    if let Some(transport) = transport {
+        server_config.transport_config(Arc::clone(&transport));
+        client_config.transport_config(transport);
+    }
 
     (server_config, client_config)
+}
+
+fn performance_transport_config() -> Arc<TransportConfig> {
+    let mut transport = TransportConfig::default();
+    transport
+        .stream_receive_window(PERFORMANCE_STREAM_WINDOW_BYTES.into())
+        .receive_window(PERFORMANCE_CONNECTION_WINDOW_BYTES.into())
+        .send_window(PERFORMANCE_CONNECTION_WINDOW_BYTES as u64)
+        .max_concurrent_uni_streams(PERFORMANCE_MAX_UNI_STREAMS.into());
+    Arc::new(transport)
 }
 
 struct TestChunkNetwork {
@@ -57,7 +77,15 @@ struct TestChunkNetwork {
 
 impl TestChunkNetwork {
     fn new() -> Self {
-        let (server_config, client_config) = build_tls_configs();
+        Self::with_transport(None)
+    }
+
+    fn for_1gbps_runner() -> Self {
+        Self::with_transport(Some(performance_transport_config()))
+    }
+
+    fn with_transport(transport: Option<Arc<TransportConfig>>) -> Self {
+        let (server_config, client_config) = build_tls_configs(transport);
         TestChunkNetwork {
             server_config,
             client_config,
@@ -80,7 +108,7 @@ impl TestChunkNetwork {
 
         Arc::new(TestChunkEndpoint {
             endpoint,
-            connections: Arc::new(RwLock::new(HashMap::new())),
+            connections: Arc::new(Mutex::new(HashMap::new())),
             peers: Arc::clone(&self.peers),
         })
     }
@@ -89,7 +117,7 @@ impl TestChunkNetwork {
 #[derive(Clone)]
 struct TestChunkEndpoint {
     endpoint: Endpoint,
-    connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    connections: Arc<Mutex<HashMap<NodeId, Connection>>>,
     peers: Arc<RwLock<HashMap<NodeId, SocketAddr>>>,
 }
 
@@ -99,13 +127,6 @@ impl ChunkStreamOpener for TestChunkEndpoint {
         &self,
         target: NodeId,
     ) -> Result<quinn::SendStream, FileTransferError> {
-        if let Some(connection) = self.connections.read().await.get(&target).cloned() {
-            return connection
-                .open_uni()
-                .await
-                .map_err(|err| FileTransferError::Transport(err.to_string()));
-        }
-
         let addr = {
             let peers = self.peers.read().await;
             peers
@@ -114,17 +135,26 @@ impl ChunkStreamOpener for TestChunkEndpoint {
                 .ok_or_else(|| FileTransferError::Internal("target not registered".to_string()))?
         };
 
-        let connecting = self
-            .endpoint
-            .connect(addr, SERVER_NAME)
-            .map_err(|err| FileTransferError::Transport(err.to_string()))?;
-        let connection = connecting
-            .await
-            .map_err(|err| FileTransferError::Transport(err.to_string()))?;
-        self.connections
-            .write()
-            .await
-            .insert(target, connection.clone());
+        // Establish exactly one connection per peer.  The first transfer can
+        // launch several chunk tasks concurrently; without this critical
+        // section every task performs an independent TLS/QUIC handshake and
+        // skews the performance gate away from steady-state file transfer.
+        let connection = {
+            let mut connections = self.connections.lock().await;
+            if let Some(connection) = connections.get(&target) {
+                connection.clone()
+            } else {
+                let connecting = self
+                    .endpoint
+                    .connect(addr, SERVER_NAME)
+                    .map_err(|err| FileTransferError::Transport(err.to_string()))?;
+                let connection = connecting
+                    .await
+                    .map_err(|err| FileTransferError::Transport(err.to_string()))?;
+                connections.insert(target, connection.clone());
+                connection
+            }
+        };
 
         connection
             .open_uni()
@@ -388,6 +418,13 @@ impl TestCluster {
         TestCluster {
             network: MockNetwork::new(),
             chunk_network: TestChunkNetwork::new(),
+        }
+    }
+
+    fn for_1gbps_runner() -> Self {
+        TestCluster {
+            network: MockNetwork::new(),
+            chunk_network: TestChunkNetwork::for_1gbps_runner(),
         }
     }
 
@@ -1595,10 +1632,12 @@ async fn file_transfer_throughput_meets_v0_5_2_target() {
 
     const FILE_SIZE: usize = 128 * 1024 * 1024;
     const MIN_THROUGHPUT_BYTES_PER_SEC: f64 = 100_000_000.0;
+    // Keep the public default: increasing this to the 16-stream ceiling was
+    // measured to reduce, rather than raise, local QUIC throughput.
     const PERFORMANCE_CONCURRENCY: usize = 4;
     const PERFORMANCE_CHUNK_SIZE: usize = 1024 * 1024;
 
-    let cluster = TestCluster::new();
+    let cluster = TestCluster::for_1gbps_runner();
     let sender_dir = TempDir::new().expect("sender dir");
     let receiver_dir = TempDir::new().expect("receiver dir");
     let sender_id = NodeId::new();
@@ -1635,7 +1674,7 @@ async fn file_transfer_throughput_meets_v0_5_2_target() {
     let progress = handle.progress().await;
     assert_eq!(progress.bytes_transferred, FILE_SIZE as u64);
     eprintln!(
-        "v0.5.2 performance: end-to-end={throughput:.0} B/s, payload={payload:.0} B/s, chunk_size={PERFORMANCE_CHUNK_SIZE}, concurrency={PERFORMANCE_CONCURRENCY}",
+        "v0.5.2 performance: end-to-end={throughput:.0} B/s, payload={payload:.0} B/s, chunk_size={PERFORMANCE_CHUNK_SIZE}, concurrency={PERFORMANCE_CONCURRENCY}, stream_window={PERFORMANCE_STREAM_WINDOW_BYTES}, connection_window={PERFORMANCE_CONNECTION_WINDOW_BYTES}",
         payload = progress.throughput,
     );
     assert_files_match(&source_path, &dest_path).await;

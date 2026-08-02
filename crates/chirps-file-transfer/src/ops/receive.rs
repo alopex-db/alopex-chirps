@@ -20,11 +20,15 @@ use alopex_chirps_wire::file_transfer::{
 use alopex_chirps_wire::node_id::NodeId;
 use quinn::RecvStream;
 use std::collections::{HashMap, HashSet};
+#[cfg(unix)]
+use std::fs::OpenOptions as StdOpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs::{self, OpenOptions};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+#[cfg(not(unix))]
+use tokio::io::AsyncSeekExt;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 
 use crate::stream::ChunkStreamCodec;
@@ -234,6 +238,11 @@ impl ReceiveHandler {
             }
         }
 
+        // Do not create or resize a resumable transfer's temporary file until
+        // the persisted manifest has been accepted.  A mismatched manifest
+        // must be a read-only rejection of the existing resumable transfer.
+        prepare_temp_file(&self.config, &final_path, session_id, manifest.file_size).await?;
+
         let chunk_tracker = ChunkTracker::new(
             manifest.chunk_count,
             manifest.options.retry_policy.max_retries,
@@ -303,17 +312,6 @@ impl ReceiveHandler {
             false
         };
         if is_empty || is_complete {
-            if is_empty {
-                write_chunk_to_temp(
-                    &self.config,
-                    &final_path,
-                    session_id,
-                    0,
-                    &[],
-                    manifest.file_size,
-                )
-                .await?;
-            }
             if let Err(err) = verify_and_finalize(
                 &temp_path_for(&self.config, &final_path, session_id),
                 &final_path,
@@ -493,7 +491,7 @@ impl ReceiveHandler {
         // Snapshot only the immutable data needed for validation and disk I/O.
         // Stream handlers may write distinct offsets in parallel; holding the
         // session lock across an async file write would serialize every chunk.
-        let (meta, dest_path, file_size) = {
+        let (meta, dest_path) = {
             let sessions = self.sessions.read().await;
             let session = match sessions.get(&session_id) {
                 Some(session) => session,
@@ -522,7 +520,7 @@ impl ReceiveHandler {
                 .await;
                 return Err(FileTransferError::ChunkChecksumMismatch { index: chunk_index });
             };
-            (meta, session.dest_path.clone(), session.manifest.file_size)
+            (meta, session.dest_path.clone())
         };
 
         if data.len() != meta.size as usize {
@@ -565,15 +563,7 @@ impl ReceiveHandler {
             });
         }
 
-        write_chunk_to_temp(
-            &self.config,
-            &dest_path,
-            session_id,
-            meta.offset,
-            &data,
-            file_size,
-        )
-        .await?;
+        write_chunk_to_temp(&self.config, &dest_path, session_id, meta.offset, &data).await?;
 
         // Only the task that changes InProgress to Verifying owns finalization.
         // This keeps hash verification and rename single-shot even when streams
@@ -826,6 +816,56 @@ async fn write_chunk_to_temp(
     session_id: TransferSessionId,
     offset: u64,
     data: &[u8],
+) -> Result<(), FileTransferError> {
+    let temp_path = temp_path_for(config, dest_path, session_id);
+
+    #[cfg(unix)]
+    {
+        let data = data.to_vec();
+        let write_result = tokio::task::spawn_blocking(move || {
+            use std::os::unix::fs::FileExt;
+
+            let file = StdOpenOptions::new().write(true).open(&temp_path)?;
+            let mut written = 0usize;
+            while written < data.len() {
+                let write_offset = offset.checked_add(written as u64).ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "chunk offset overflow")
+                })?;
+                let bytes = file.write_at(&data[written..], write_offset)?;
+                if bytes == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        "chunk write made no progress",
+                    ));
+                }
+                written += bytes;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|error| {
+            FileTransferError::Internal(format!("chunk write task failed: {error}"))
+        })?;
+        write_result.map_err(FileTransferError::Io)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let mut file = OpenOptions::new().write(true).open(&temp_path).await?;
+        file.seek(std::io::SeekFrom::Start(offset)).await?;
+        file.write_all(data).await?;
+        // Tokio requires a flush before drop when the next operation may read
+        // the same file.  Unix uses positional blocking writes above, which
+        // complete before the handler continues.
+        file.flush().await?;
+        Ok(())
+    }
+}
+
+async fn prepare_temp_file(
+    config: &FileTransferConfig,
+    dest_path: &Path,
+    session_id: TransferSessionId,
     file_size: u64,
 ) -> Result<(), FileTransferError> {
     let temp_path = temp_path_for(config, dest_path, session_id);
@@ -840,14 +880,7 @@ async fn write_chunk_to_temp(
         .truncate(false)
         .open(&temp_path)
         .await?;
-
-    let metadata = file.metadata().await?;
-    if metadata.len() < file_size {
-        file.set_len(file_size).await?;
-    }
-
-    file.seek(std::io::SeekFrom::Start(offset)).await?;
-    file.write_all(data).await?;
+    file.set_len(file_size).await?;
     file.flush().await?;
     Ok(())
 }

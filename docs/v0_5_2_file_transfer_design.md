@@ -56,3 +56,41 @@ checksum-NACK retries, standalone Pull and remote-newer Bidirectional sync,
 configuration defaults and transfer limits, remove/symlink option propagation,
 metadata preservation, and multiple service metric exposition.  The dedicated
 1 Gbps performance runner records the 100 MB/s gate separately from normal CI.
+
+## 1 Gbps performance-gate transport profile
+
+The performance test's `TestChunkNetwork` is the QUIC `ChunkStreamOpener` used
+by that gate.  Quinn 0.10.6 documents its default transport configuration as
+being tuned for a 100 Mbps, 100 ms path and defines a 1.25 MB per-stream
+receive window.  That default is not the transport contract of this release
+gate.  For the dedicated `chirps-1gbps` runner, both client and server now use
+16 MiB per-stream and 64 MiB connection flow-control/send windows, with 256
+incoming uni-streams.  This bounds the benchmark's advertised receive memory
+while providing at least 1 Gbps bandwidth-delay product capacity.
+
+The test opener also coalesces concurrent first chunk requests into one QUIC
+connection per peer.  This removes duplicate handshakes from a transfer that
+starts multiple chunk tasks while keeping every chunk on a separate
+unidirectional stream.  The dedicated profile keeps the public default of four
+concurrent chunks; raising it to the 16-stream ceiling reduced local QUIC
+throughput during release preparation. The performance assertion remains
+end-to-end: source metadata/hash creation, chunk transfer, receiver
+verification, metadata application, atomic placement, and `Complete`
+acknowledgement are all within the measured interval.
+
+This fixture places both QUIC endpoints in the same test process. It verifies
+the complete QUIC transfer path, but it is not evidence for a two-host physical
+1 Gbps link or for recovery from wire corruption in such a link. The release
+gate remains blocked until its measured result is recorded on the dedicated
+runner; deterministic and multi-host fault coverage is tracked separately in
+the v0.6 network-resilience work.
+
+On the receive path the temporary destination is preallocated once when the
+manifest is accepted.  On Linux, each independent chunk then uses a completed
+positional `write_at` operation instead of repeatedly opening, inspecting,
+resizing, seeking, writing, and flushing the same temporary file.  Tokio's
+`File` documentation requires `flush` before a dropped async file can be read
+immediately; the Unix positional write returns only after the kernel has
+accepted the bytes, so final verification still occurs after every chunk write
+has completed.  Non-Unix builds retain the async seek/write/flush path after
+the shared preallocation.

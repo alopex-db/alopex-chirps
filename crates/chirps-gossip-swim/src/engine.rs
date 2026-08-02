@@ -185,30 +185,51 @@ impl GossipEngine {
     pub fn apply_membership_update(&mut self, updates: &[MembershipUpdate]) {
         for upd in updates {
             let status: Status = upd.status.clone().into();
-            let entry = self
-                .membership
-                .peers
-                .entry(upd.node_id)
-                .or_insert_with(|| Peer {
-                    node_id: upd.node_id,
-                    addr: upd.addr,
-                    state: PeerState::new(upd.incarnation, status.clone()),
-                });
-            if upd.incarnation >= entry.state.incarnation {
-                let previous = entry.state.status.clone();
-                entry.state.incarnation = upd.incarnation;
-                entry.state.status = status;
-                entry.addr = upd.addr;
-                entry.state.last_seen = Instant::now();
-                if previous != entry.state.status {
-                    self.metrics.status_events.fetch_add(1, Ordering::Relaxed);
-                    info!(
-                        peer = ?upd.node_id,
-                        from = ?previous,
-                        to = ?entry.state.status,
-                        "status updated via gossip"
-                    );
+            let received_at = Instant::now();
+            let Some(entry) = self.membership.peers.get_mut(&upd.node_id) else {
+                let mut state = PeerState::new(upd.incarnation, status.clone());
+                if matches!(status, Status::Suspect) {
+                    state.suspect_since = Some(received_at);
                 }
+                self.membership.peers.insert(
+                    upd.node_id,
+                    Peer {
+                        node_id: upd.node_id,
+                        addr: upd.addr,
+                        state,
+                    },
+                );
+                continue;
+            };
+
+            // SWIM orders *gossiped* membership by incarnation first. At an
+            // equal incarnation, a suspicion must not be overwritten by an
+            // old Alive message. A successful direct probe is liveness
+            // evidence and is handled by `handle_ack` separately; receiving
+            // third-party gossip is not, so it must not refresh `last_seen`.
+            let is_newer_incarnation = upd.incarnation > entry.state.incarnation;
+            let has_stronger_status = upd.incarnation == entry.state.incarnation
+                && status_rank(&status) > status_rank(&entry.state.status);
+            if !is_newer_incarnation && !has_stronger_status {
+                continue;
+            }
+
+            let previous = entry.state.status.clone();
+            if is_newer_incarnation {
+                entry.state.incarnation = upd.incarnation;
+                entry.state.last_seen = received_at;
+            }
+            entry.state.status = status.clone();
+            entry.addr = upd.addr;
+            entry.state.suspect_since = matches!(status, Status::Suspect).then_some(received_at);
+            if previous != entry.state.status {
+                self.metrics.status_events.fetch_add(1, Ordering::Relaxed);
+                info!(
+                    peer = ?upd.node_id,
+                    from = ?previous,
+                    to = ?entry.state.status,
+                    "status updated via gossip"
+                );
             }
         }
     }
@@ -417,6 +438,14 @@ fn member_status(status: &Status) -> MemberStatus {
     }
 }
 
+fn status_rank(status: &Status) -> u8 {
+    match status {
+        Status::Alive => 0,
+        Status::Suspect => 1,
+        Status::Dead => 2,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -618,5 +647,99 @@ mod tests {
                 && matches!(frame, Frame::Ping { seq, from } if *seq == 10 && *from == requester)),
             "expected forwarded ping to target with requester as source"
         );
+    }
+
+    #[tokio::test]
+    async fn equal_incarnation_alive_gossip_does_not_refresh_liveness() {
+        let node = NodeId::new();
+        let peer_id = NodeId::new();
+        let last_seen = Instant::now() - Duration::from_secs(1);
+        let mut membership = MembershipView::new();
+        membership.peers.insert(
+            peer_id,
+            Peer {
+                node_id: peer_id,
+                addr: "127.0.0.1:9400".parse().unwrap(),
+                state: PeerState {
+                    incarnation: 7,
+                    status: Status::Alive,
+                    last_seen,
+                    suspect_since: None,
+                },
+            },
+        );
+        let backend = Arc::new(MockBackend {
+            sent: Arc::new(AtomicUsize::new(0)),
+            frames: Arc::new(Mutex::new(Vec::new())),
+        });
+        let mut engine = GossipEngine::new(node, config(), backend, membership);
+
+        engine.apply_membership_update(&[MembershipUpdate {
+            node_id: peer_id,
+            incarnation: 7,
+            addr: "127.0.0.1:9400".parse().unwrap(),
+            status: MemberStatus::Alive,
+        }]);
+
+        let peer = engine.membership.peers.get(&peer_id).unwrap();
+        assert_eq!(peer.state.status, Status::Alive);
+        assert_eq!(peer.state.last_seen, last_seen);
+
+        let changes = engine.apply_timeouts(Instant::now());
+        assert!(
+            changes
+                .iter()
+                .any(|change| change.node_id == peer_id && change.to == Status::Suspect),
+            "stale Alive gossip must not keep an unreachable peer alive"
+        );
+    }
+
+    #[tokio::test]
+    async fn only_higher_incarnation_alive_gossip_refutes_suspicion() {
+        let node = NodeId::new();
+        let peer_id = NodeId::new();
+        let last_seen = Instant::now() - Duration::from_secs(1);
+        let mut membership = MembershipView::new();
+        membership.peers.insert(
+            peer_id,
+            Peer {
+                node_id: peer_id,
+                addr: "127.0.0.1:9500".parse().unwrap(),
+                state: PeerState {
+                    incarnation: 3,
+                    status: Status::Suspect,
+                    last_seen,
+                    suspect_since: Some(last_seen),
+                },
+            },
+        );
+        let backend = Arc::new(MockBackend {
+            sent: Arc::new(AtomicUsize::new(0)),
+            frames: Arc::new(Mutex::new(Vec::new())),
+        });
+        let mut engine = GossipEngine::new(node, config(), backend, membership);
+
+        engine.apply_membership_update(&[MembershipUpdate {
+            node_id: peer_id,
+            incarnation: 3,
+            addr: "127.0.0.1:9500".parse().unwrap(),
+            status: MemberStatus::Alive,
+        }]);
+        assert_eq!(
+            engine.membership.peers.get(&peer_id).unwrap().state.status,
+            Status::Suspect
+        );
+
+        engine.apply_membership_update(&[MembershipUpdate {
+            node_id: peer_id,
+            incarnation: 4,
+            addr: "127.0.0.1:9500".parse().unwrap(),
+            status: MemberStatus::Alive,
+        }]);
+        let peer = engine.membership.peers.get(&peer_id).unwrap();
+        assert_eq!(peer.state.incarnation, 4);
+        assert_eq!(peer.state.status, Status::Alive);
+        assert!(peer.state.suspect_since.is_none());
+        assert!(peer.state.last_seen > last_seen);
     }
 }

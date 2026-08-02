@@ -67,7 +67,7 @@ jobs:
         env:
           CHIRPS_FILE_TRANSFER_PERF_1GBPS: "1"
         run: >-
-          cargo test -p alopex-chirps-file-transfer --test file_transfer
+          cargo test --release -p alopex-chirps-file-transfer --test file_transfer
           file_transfer_throughput_meets_v0_5_2_target -- --ignored --nocapture
 
   publish-crate:
