@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs the existing in-process QUIC fixture as a diagnostic baseline only.
-# Its MockNetwork control plane means it is explicitly not release evidence.
+# Its MockNetwork control plane means it is neither ft-1g-v1 evidence nor a
+# product-performance threshold test.
 set -euo pipefail
 umask 077
 
@@ -9,8 +10,7 @@ usage() {
 Usage: run-local-v0_5_2-baseline.sh --output DIR
 
 Writes test.log, host-facts.txt, and result.env. The script uses a temporary
-CARGO_TARGET_DIR and deletes it after recording the result. A failing 100 MB/s
-assertion is preserved in the evidence and returned as a non-zero status.
+CARGO_TARGET_DIR and deletes it after recording the diagnostic result.
 USAGE
 }
 
@@ -37,7 +37,7 @@ trap cleanup EXIT INT TERM
 
 {
   printf 'schema_version=1\n'
-  printf 'kind=chirps-file-transfer-local-loopback\n'
+  printf 'kind=chirps-file-transfer-local-loopback-diagnostic\n'
   printf 'scope=single-host-loopback; chunk=data QUIC; control=MockNetwork\n'
   printf 'source_sha=%s\n' "$(git rev-parse HEAD)"
   printf 'started_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -50,9 +50,9 @@ trap cleanup EXIT INT TERM
 } >"$output/host-facts.txt"
 
 set +e
-CARGO_TARGET_DIR="$target_dir" CHIRPS_FILE_TRANSFER_PERF_1GBPS=1 \
+CARGO_TARGET_DIR="$target_dir" CHIRPS_FILE_TRANSFER_LOOPBACK_DIAGNOSTIC=1 \
   cargo test --release -p alopex-chirps-file-transfer --test file_transfer \
-  file_transfer_throughput_meets_v0_5_2_target -- --ignored --nocapture >"$output/test.log" 2>&1
+  file_transfer_loopback_reports_diagnostic -- --ignored --nocapture >"$output/test.log" 2>&1
 test_status=$?
 set -e
 

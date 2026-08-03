@@ -10,11 +10,12 @@ Usage:
   run-two-node-preflight.sh --sender SSH_TARGET --receiver SSH_TARGET
     --receiver-address ADDRESS --remote-workdir DIR --remote-output-root DIR
     --output DIR [--sender-bind ADDRESS] [--receiver-bind ADDRESS]
-    [--port PORT] [--duration SECONDS]
+    [--port PORT] [--duration SECONDS] [--protocol udp|tcp] [--bitrate RATE]
 
 SSH targets must be administrative lab hosts. The controller copies only
 network facts and iperf3 results into --output; no TLS key or test payload is
-copied into the evidence bundle.
+copied into the evidence bundle. The default `udp`/`100M`/`15` profile is the
+PATH-UDP-100 deployment reachability diagnostic, not a Chirps throughput test.
 USAGE
 }
 
@@ -27,7 +28,9 @@ output=""
 sender_bind=""
 receiver_bind=""
 port="5201"
-duration="30"
+duration="15"
+protocol="udp"
+bitrate="100M"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,6 +44,8 @@ while [[ $# -gt 0 ]]; do
     --receiver-bind) receiver_bind="${2:?missing value for --receiver-bind}"; shift 2 ;;
     --port) port="${2:?missing value for --port}"; shift 2 ;;
     --duration) duration="${2:?missing value for --duration}"; shift 2 ;;
+    --protocol) protocol="${2:?missing value for --protocol}"; shift 2 ;;
+    --bitrate) bitrate="${2:?missing value for --bitrate}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -66,7 +71,7 @@ remote_command() {
   local remote_dir="$1"
   local role="$2"
   local remote_bind="$3"
-  local command=(bash scripts/perf/two-node-preflight.sh --role "$role" --output "$remote_dir" --port "$port" --duration "$duration" --expected-sha "$source_sha")
+  local command=(bash scripts/perf/two-node-preflight.sh --role "$role" --output "$remote_dir" --port "$port" --duration "$duration" --protocol "$protocol" --bitrate "$bitrate" --expected-sha "$source_sha")
   if [[ -n "$remote_bind" ]]; then command+=(--bind "$remote_bind"); fi
   if [[ "$role" == sender ]]; then command+=(--receiver "$receiver_address"); fi
   local rendered=""

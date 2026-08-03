@@ -1,4 +1,4 @@
-name: Two-node FileTransfer performance evidence
+name: Two-host FileTransfer deployment diagnostic
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   measure:
-    name: Collect physical two-node FileTransfer evidence
+    name: Collect two-host QUIC deployment diagnostic
     runs-on: [self-hosted, linux, chirps-1gbps-controller]
     timeout-minutes: 30
     env:
@@ -53,12 +53,12 @@ jobs:
             --receiver-data-address "${CHIRPS_PERF_RECEIVER_DATA_ADDRESS}" \
             --receiver-iperf-address "${CHIRPS_PERF_RECEIVER_IPERF_ADDRESS}" \
             --file-bytes "${{ inputs.file_bytes }}"
-          cp -a "${output_dir}" two-node-performance-evidence
+          cp -a "${output_dir}" two-host-deployment-diagnostic
       - name: Publish result summary
         if: always()
         run: |
-          if [[ -f two-node-performance-evidence/evidence/summary.md ]]; then
-            cat two-node-performance-evidence/evidence/summary.md >> "${GITHUB_STEP_SUMMARY}"
+          if [[ -f two-host-deployment-diagnostic/evidence/summary.md ]]; then
+            cat two-host-deployment-diagnostic/evidence/summary.md >> "${GITHUB_STEP_SUMMARY}"
           else
             echo 'No completed evidence summary was produced.' >> "${GITHUB_STEP_SUMMARY}"
           fi
@@ -66,7 +66,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: two-node-performance-evidence
-          path: two-node-performance-evidence
+          name: two-host-deployment-diagnostic
+          path: two-host-deployment-diagnostic
           if-no-files-found: warn
           retention-days: 90

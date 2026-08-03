@@ -11,12 +11,12 @@ Usage:
     [--sender-dir DIR --receiver-dir DIR]
     [--sender-result FILE --receiver-result FILE]
     [--local-baseline-dir DIR]
-    [--minimum-network-bps INTEGER] [--minimum-app-bps INTEGER]
 
 The sender/receiver result files are key=value reports from two_node_transfer.
-Release eligibility needs physical-network preflight, two-node application
-reports, matching SHA-256 values, and both throughput thresholds. Keys and
-test payloads are never copied into this bundle.
+This creates a two-host deployment diagnostic: PATH-UDP-100 preflight, actual
+QUIC FileTransfer reports, and matching SHA-256 values. It never treats host
+network throughput as Chirps product-performance or release-gate evidence.
+Keys and test payloads are never copied into this bundle.
 USAGE
 }
 
@@ -26,8 +26,6 @@ receiver_dir=""
 sender_result=""
 receiver_result=""
 baseline_dir=""
-minimum_network_bps="900000000"
-minimum_app_bps="100000000"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,15 +35,12 @@ while [[ $# -gt 0 ]]; do
     --sender-result) sender_result="${2:?missing value for --sender-result}"; shift 2 ;;
     --receiver-result) receiver_result="${2:?missing value for --receiver-result}"; shift 2 ;;
     --local-baseline-dir) baseline_dir="${2:?missing value for --local-baseline-dir}"; shift 2 ;;
-    --minimum-network-bps) minimum_network_bps="${2:?missing value for --minimum-network-bps}"; shift 2 ;;
-    --minimum-app-bps) minimum_app_bps="${2:?missing value for --minimum-app-bps}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
 [[ -n "$output" ]] || { printf '%s\n' '--output is required' >&2; exit 2; }
-[[ "$minimum_network_bps" =~ ^[0-9]+$ && "$minimum_app_bps" =~ ^[0-9]+$ ]] || { printf '%s\n' 'throughput thresholds must be integers' >&2; exit 2; }
 if [[ -e "$output" ]] && [[ -n "$(find "$output" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
   printf 'refusing to overwrite non-empty evidence directory: %s\n' "$output" >&2
   exit 2
@@ -97,15 +92,13 @@ if [[ -n "$sender_result" ]]; then
   copy_if_present "$receiver_result" "$output/application/receiver-result.env"
 fi
 
-python3 - "$output" "$source_sha" "$minimum_network_bps" "$minimum_app_bps" <<'PY'
+python3 - "$output" "$source_sha" <<'PY'
 import json
 import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
 source_sha = sys.argv[2]
-minimum_network_bps = int(sys.argv[3])
-minimum_app_bps = int(sys.argv[4])
 
 def env(path):
     values = {}
@@ -124,19 +117,41 @@ def as_float(values, key):
         return None
 
 network = env(root / "network/sender/throughput.env")
+sender_network_run = env(root / "network/sender/run.env")
+receiver_network_run = env(root / "network/receiver/run.env")
 sender = env(root / "application/sender-result.env")
 receiver = env(root / "application/receiver-result.env")
 local = env(root / "local-baseline/result.env")
-network_bps = as_float(network, "iperf_bits_per_second")
+network_bps = as_float(network, "iperf_sender_bits_per_second")
 app_bps = as_float(sender, "end_to_end_bytes_per_second")
+
+def receiver_loss_percent(path):
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    candidates = [
+        document.get("end", {}).get("sum", {}).get("lost_percent"),
+        document.get("end", {}).get("sum_received", {}).get("lost_percent"),
+    ]
+    for stream in document.get("end", {}).get("streams", []):
+        candidates.append(stream.get("udp", {}).get("lost_percent"))
+    for value in candidates:
+        if isinstance(value, (int, float)):
+            return float(value)
+    return None
+
+loss_percent = receiver_loss_percent(root / "network/receiver/iperf3-receiver.json")
 sender_hash = sender.get("sha256")
 receiver_hash = receiver.get("sha256")
 same_hash = bool(sender_hash and receiver_hash and sender_hash == receiver_hash)
 run_envs = [
     sender.get("source_sha"),
     receiver.get("source_sha"),
-    env(root / "network/sender/run.env").get("source_sha"),
-    env(root / "network/receiver/run.env").get("source_sha"),
+    sender_network_run.get("source_sha"),
+    receiver_network_run.get("source_sha"),
 ]
 same_sha = all(value == source_sha for value in run_envs)
 application_contract = (
@@ -152,39 +167,51 @@ application_contract = (
     and sender.get("completed") == "true"
     and receiver.get("completed") == "true"
 )
-network_passed = network_bps is not None and network_bps >= minimum_network_bps
-application_passed = app_bps is not None and app_bps >= minimum_app_bps and same_hash and application_contract
-eligible = network_passed and application_passed and same_sha
+path_udp_100 = (
+    sender_network_run.get("protocol") == "udp"
+    and receiver_network_run.get("protocol") == "udp"
+    and sender_network_run.get("offered_bitrate") == "100M"
+    and sender_network_run.get("duration_seconds") == "15"
+    and network_bps is not None
+    and loss_percent == 0.0
+)
+application_completed = app_bps is not None and same_hash and application_contract
+deployment_compatible = path_udp_100 and application_completed and same_sha
 result = {
     "schema_version": 1,
+    "evidence_class": "deployment-two-host",
+    "product_performance_evidence": False,
     "source_sha": source_sha,
-    "network_preflight_bits_per_second": network_bps,
-    "minimum_network_bits_per_second": minimum_network_bps,
+    "path_udp_100_sender_bits_per_second": network_bps,
+    "path_udp_100_receiver_lost_percent": loss_percent,
     "application_end_to_end_bytes_per_second": app_bps,
-    "minimum_application_bytes_per_second": minimum_app_bps,
     "sender_receiver_sha256_match": same_hash,
     "all_evidence_from_checked_out_sha": same_sha,
-    "physical_network_preflight_passed": network_passed,
-    "two_node_application_passed": application_passed,
-    "release_eligible": eligible,
+    "path_udp_100_passed": path_udp_100,
+    "two_host_application_completed": application_completed,
+    "deployment_compatible": deployment_compatible,
+    "release_eligible": False,
     "local_loopback_baseline_present": bool(local),
     "local_loopback_is_release_evidence": False,
 }
 (root / "result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 lines = [
-    "# Chirps two-node performance evidence",
+    "# Chirps two-host deployment diagnostic",
     "",
     f"- Source SHA: `{source_sha}`",
-    f"- Physical-network preflight: `{'PASS' if network_passed else 'NOT PROVEN / FAIL'}`",
-    f"- Two-node FileTransfer: `{'PASS' if application_passed else 'NOT PROVEN / FAIL'}`",
-    f"- Release eligibility: `{'YES' if eligible else 'NO'}`",
+    f"- PATH-UDP-100: `{'PASS' if path_udp_100 else 'NOT PROVEN / FAIL'}`",
+    f"- Two-host FileTransfer integrity: `{'PASS' if application_completed else 'NOT PROVEN / FAIL'}`",
+    f"- Deployment compatibility: `{'YES' if deployment_compatible else 'NO'}`",
+    "- Product-performance evidence: `NO` (requires controlled two-container `ft-1g-v1`)",
     "",
-    "A local-loopback baseline is diagnostic only; it never substitutes for either physical two-node result.",
+    "This artifact records one deployment path. Its host-network throughput is not a Chirps product SLO or release-performance result.",
 ]
 if network_bps is not None:
-    lines.append(f"- iperf3 sender throughput: `{network_bps:.0f} bit/s` (threshold `{minimum_network_bps} bit/s`)")
+    lines.append(f"- UDP offered-load observation: `{network_bps:.0f} bit/s` (offered `100M`)")
+if loss_percent is not None:
+    lines.append(f"- UDP receiver loss: `{loss_percent:.6g}%` (required `0%`)")
 if app_bps is not None:
-    lines.append(f"- FileTransfer end-to-end throughput: `{app_bps:.0f} B/s` (threshold `{minimum_app_bps} B/s`)")
+    lines.append(f"- FileTransfer observed end-to-end goodput: `{app_bps:.0f} B/s` (no product-SLO threshold in this evidence class)")
 if sender and receiver:
     lines.append(f"- Sender/receiver SHA-256 match: `{'yes' if same_hash else 'no'}`")
 (root / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

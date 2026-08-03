@@ -1,104 +1,82 @@
-# v0.5.2 二ノード性能測定・証跡手順
+# v0.5.2 FileTransfer 性能・配備証跡契約
 
-この手順は、実機が今すぐ利用できないことを開発停止の理由にしないための測定契約です。ローカルの in-process fixture は診断値を提供しますが、物理二ノードのリリース根拠にはなりません。
+この契約は、**Chirps 製品の性能**と**実ネットワークへ配備できること**を別の問いとして扱う。`iperf3` の結果、家庭内 LAN の帯域、WSL の仮想ネットワーク、ディスク性能を、Chirps の実装性能へ読み替えてはならない。
 
-## 測定対象と境界
+| evidence class | 問い | 正本になる環境 | release performance の根拠 |
+| --- | --- | --- | --- |
+| `product-controlled-container` | 固定された 1 Gbit/s profile で FileTransfer 実装が 100 MB/s を満たすか | 同一 Linux host の隔離された sender / receiver container | はい |
+| `deployment-two-host` | 実際の二 host、QUIC/UDP、TLS、routing で完全転送できるか | 直接到達可能な二 host | 配備互換性のみ。製品 throughput の根拠ではない |
+| `local-component` | 最小の QUIC/FileTransfer 実装が回帰していないか | 同一 process / local fixture | いいえ |
 
-| 証跡 | 検証するもの | リリース根拠 |
+`two_node_transfer` は公開 `QuicBackend` と `ChunkStreamOpener` を使う。これは `MeshHandle` からの公開構築 API がない v0.5.2 の直接サービス契約を検証するためであり、v0.6 の `MeshHandle` 統合を実装済みと主張しない。
+
+## 1. Product performance: controlled two-container profile `ft-1g-v1`
+
+### 固定する境界
+
+- native Linux x86_64 の calibration host 上で実行する。Docker Desktop、WSL、実 LAN、VPN、host network mode はこの profile の対象外である。
+- 同一の immutable image digest と source Git SHA から起動する sender / receiver の **二 container** を使う。image build、image pull、Cargo build は計測区間に含めない。
+- run ごとに user-defined Docker bridge を作る。Docker default bridge、公開 port、外部 network 接続を使わない。MTU は `1500` として evidence に記録する。
+- sender と receiver に重複しない `cpuset-cpus`、同じ memory limit、128 MiB 以上の独立した tmpfs を与える。payload は sender tmpfs 内で生成し、receiver tmpfs に atomic install する。host filesystem、共有 bind mount、page-cache の差を測定値へ混ぜない。
+- sender/receiver 間の各方向の veth に traffic control を設定し、rate `1gbit`、delay `1ms`、jitter `0ms`、loss `0%` に固定する。qdisc 設定と統計を evidence に保存する。`iperf3` の実測値でこの profile を定義しない。
+- 測定前に一回の warm-up を行う。計測は fresh process pair で 5 回行い、各回で新しい payload と QUIC endpoint を作る。source SHA、image digest、CPU model、kernel、Docker version、cpuset、memory limit、tmpfs、bridge、MTU、qdisc を記録する。
+
+Docker の user-defined bridge は同一 Docker host 上の container を隔離して接続し、MTU も network option として明示できる。[Docker Bridge network driver](https://docs.docker.com/engine/network/drivers/bridge/)  Traffic control の `netem` は delay/loss を、`tbf` は rate を設定するための Linux の qdisc である。[tc-netem(8)](https://man7.org/linux/man-pages/man8/tc-netem.8.html) [tc-tbf(8)](https://man7.org/linux/man-pages/man8/tc-tbf.8.html)
+
+### 測定する Chirps の契約
+
+固定パラメータは compression `none`、file size `134217728` bytes、chunk size `1048576` bytes、concurrency `4`、performance transport profile（stream receive window `16 MiB`、connection/send window `64 MiB`、max uni streams `256`）である。compression の機能充足・復元・破損時 retry は local integration / model evidence で別に判定し、圧縮率で goodput を水増ししない。
+
+計測区間は sender が `send_file` を呼ぶ直前から、receiver が SHA-256 検証・metadata 適用・atomic rename を完了し、sender が対応する `Complete` を検証するまでとする。各 sample で次を出力する。
+
+- `end_to_end_goodput_bytes_per_second = 134217728 / elapsed_seconds`
+- payload progress throughput、wire bytes（利用可能な場合）、retry 数、chunk size、concurrency
+- sender / receiver の CPU time・cgroup throttle/OOM 状態
+- sender/receiver の SHA-256、`completed`、source SHA、image digest、profile ID
+
+`ft-1g-v1` の **製品性能受入条件**は、5 sample 全てで SHA-256 と source SHA/image digest が一致し、`completed=true` であり、各 sample の end-to-end goodput が `100,000,000 B/s` 以上であることとする。profile が変わる場合（rate、delay、MTU、CPU allocation、payload、chunk/concurrency、transport window）は新しい profile ID を作り、既存値との比較を同一系列として扱わない。
+
+この値は 1 Gbit/s に成形した network の理論上限を製品目標そのものと取り違えない。`100 MB/s` はこの明示的 profile における Chirps FileTransfer の end-to-end SLO であり、実 LAN の最大帯域や `iperf3` の合格値ではない。
+
+### 実装前に残す作業項目
+
+現時点の ignored `file_transfer_loopback_reports_diagnostic` は同一 process の `MockNetwork` control plane であり、`ft-1g-v1` の証跡ではない。次を実装してから product performance を `確認済み` に変更する。
+
+1. `two_node_transfer` に `two-container-controlled` scope を追加し、scope と profile ID を report へ固定する。
+2. immutable performance image、二 container orchestration、veth qdisc の適用/削除、tmpfs payload、5 sample/warm-up を扱う local harness を実装する。
+3. machine-readable result に sample 全件、profile 設定、image/source SHA、integrity、CPU/cgroup 統計を保存し、release contract verifier が profile/evidence の欠落を拒否するようにする。
+4. その harness の正常系と、profile・scope・digest が不一致のとき evidence を拒否する局所テストを追加する。
+
+この harness は開発者と calibration runner が **local-first** で実行する。CI は要件を発見する場所ではなく、承認済みの harness と evidence schema を再実行・検証するだけである。
+
+## 2. Deployment compatibility: two-host diagnostic
+
+二 host の試験は、Chirps が物理経路で機能することを確認する。host、NIC、家庭内 LAN、WSL、VPN、firewall、disk の性能を含むため、`ft-1g-v1` の数値と比較・合算してはならない。
+
+### `PATH-UDP-100` preflight
+
+Chirps を起動する前に、各方向で次を一回実行する。
+
+```bash
+iperf3 -c <peer-data-ip> -p 5201 -u -b 100M -t 15 -J --get-server-output
+```
+
+この diagnostic の合格条件は、両方向で意図した direct peer IP に接続し、offered load `100 Mbit/s`、duration `15 s`、datagram loss `0%` を JSON から確認できることとする。これは **100 Mbit/s を送ったときに UDP が届く** という到達性の確認であり、link capacity、Chirps goodput、1 Gbit/s の可否は評価しない。失敗した場合は Chirps の再ビルドを繰り返さず、route、firewall、WSL/host steering、LAN policy を調査対象として記録する。
+
+### 二 host FileTransfer
+
+preflight 後、同一 source SHA の sender/receiver で 128 MiB、compression `none` の実 FileTransfer を行う。受入条件は `completed=true`、sender/receiver/destination の SHA-256 一致、`chirps-quic` control plane、`quic-chunk-stream` data plane、設定・route・host facts を含む秘密情報なしの artifact である。goodput、CPU、NIC、RTT は **観測値**として保存するが、product performance の閾値を適用しない。
+
+現在の WSL-to-NucBox WSL 試行（UDP loss 0%、TCP 約 915 Mbit/s、FileTransfer 46.89 MB/s）はこの evidence class の診断結果であり、Chirps の product performance 合否には使わない。
+
+## 3. 証跡と release 判定
+
+| 判定 | 必須 evidence | release への扱い |
 | --- | --- | --- |
-| `run-local-v0_5_2-baseline.sh` | 同一ホストの QUIC chunk fixture と `MockNetwork` 制御面 | いいえ |
-| `two-node-preflight.sh` | 物理二ホスト間の TCP 帯域、NIC・CPU・OS 情報 | 単独ではいいえ |
-| `two_node_transfer` | 実 Chirps QUIC 制御面、実 QUIC chunk stream、128 MiB 転送、原本/宛先 SHA-256 一致 | はい（他の v0.5.2 gate と併用） |
+| product performance | `ft-1g-v1` の 5 sample、全 integrity、profile/image/source/cgroup/qdisc manifest | `100 MB/s` SLO の正本 |
+| deployment compatibility | `PATH-UDP-100` 双方向 JSON、二 host FileTransfer integrity artifact | 配備経路の正常性確認。SLO の代替不可 |
+| recovery / compression | model と local integration の requirement/property 対応 | performance artifact の代替不可 |
 
-`MeshHandle` から `FileTransferService` を構築する公開 API は v0.5.2 にありません。従ってこのハーネスは `FileTransferServiceImpl::new` に公開 `QuicBackend` と `ChunkStreamOpener` を渡します。これはその API 境界を隠さずに、FileTransfer の直接サービス契約を別プロセス・別物理ホストで検証するためです。`MeshHandle` 統合は v0.6 の作業であり、本測定の成功をその実装済みの証明にはしません。
+TLS private key、payload 本体、Node ID、SSH credential はいずれの artifact にも含めない。physical diagnostic が未実施でも無関係な次の実装を止めないが、該当環境での deployment evidence を「確認済み」とは主張しない。`ft-1g-v1` が未実装・未測定の間は v0.5.2 の product performance は `未証明` のままである。
 
-## 実機の前提
-
-- 同一 L2 の Linux 二ホスト（sender / receiver）。双方の測定 NIC は 1 Gbit/s 以上、同じ MTU、直接到達可能な IP アドレスを使う。NAT は許可しない。
-- sender / receiver とも同じ Git SHA、同じ Rust toolchain、`iperf3`、`openssl`、十分な空き容量を用意する。測定用 payload は各ホストのローカル SSD に置く。
-- UDP で control と data のポートを、TCP で iperf3 のポートを双方向に許可する。例では UDP `6201`, `6202`, `6301`, `6302` と TCP `5201` を使う。
-- controller は SSH で両ホストへ接続でき、両ホストの checkout の作業ツリーが clean であることを確認する。TLS 秘密鍵・payload・Node ID を GitHub artifact に含めない。
-
-測定前に両ホストで SHA を確認します。
-
-```bash
-git -C /srv/chirps rev-parse HEAD
-git -C /srv/chirps status --short
-```
-
-controller の SHA と一致しない、または未コミット変更がある host は測定対象にしません。
-
-## ローカル暫定ベースライン
-
-これは現在の ignored performance fixture を隔離した `CARGO_TARGET_DIR` で実行してログを残します。実行後にその target は削除されます。
-
-```bash
-scripts/perf/run-local-v0_5_2-baseline.sh \
-  --output /var/tmp/chirps-v0_5_2-local-baseline
-```
-
-この結果の `scope` は `single-host-loopback; chunk=data QUIC; control=MockNetwork` です。`100 MB/s` assertion の結果を記録しますが、`release_evidence=false` のままです。
-
-## 二ノード実機測定
-
-controller から次を実行します。アドレスは実際に相手から観測される NIC の IP:port を指定します。`*-bind` は各ホストが bind するアドレス、`*-address` は対向ホストが接続・送信元検証に使うアドレスです。
-
-```bash
-scripts/perf/run-two-node-file-transfer.sh \
-  --sender perf-sender.example.internal \
-  --receiver perf-receiver.example.internal \
-  --remote-workdir /srv/chirps \
-  --remote-output-root /var/tmp/chirps-performance \
-  --output /var/tmp/chirps-v0_5_2-two-node \
-  --sender-control-bind 10.0.10.11:6201 \
-  --sender-control-address 10.0.10.11:6201 \
-  --receiver-control-bind 10.0.10.12:6202 \
-  --receiver-control-address 10.0.10.12:6202 \
-  --sender-data-bind 10.0.10.11:6301 \
-  --sender-data-address 10.0.10.11:6301 \
-  --receiver-data-bind 10.0.10.12:6302 \
-  --receiver-data-address 10.0.10.12:6302 \
-  --receiver-iperf-address 10.0.10.12 \
-  --file-bytes 134217728
-```
-
-スクリプトの順序は次のとおりです。
-
-1. `iperf3` 30 秒測定を実行し、sender/receiver の host facts と JSON を取得する。
-2. `alopex.local` 用の 2 日間だけ有効な test-only DER 証明書を controller 上で生成し、両ホストへコピーする。鍵は実行完了・失敗・中断時に controller と両ホストから削除する。
-3. receiver を先に起動する。receiver は atomically finalized destination のサイズと SHA-256 を報告して終了する。
-4. sender が 128 MiB（既定値）の payload を送る。計測時間は `send_file` 呼出直前から receiver の検証済み `Complete` を受けるまでであり、source manifest hash と receiver final hash を含む。
-5. controller が sender/receiver の result、iperf3 JSON、host facts のみを収集し、`manifest.sha256` 付き bundle を生成する。payload と秘密鍵は取り込まない。
-
-測定対象の FileTransfer は compression `none`、1 MiB chunk、concurrency 4 です。これは v0.5.2 の帯域目標の比較可能な基準です。Zstd の送受信圧縮・復元は既存の機能テストで別途検証し、圧縮率で帯域結果を見かけ上増やしません。
-
-## 判定と証跡
-
-`output/evidence/result.json` と `summary.md` が判定の正本です。`release_eligible=true` になるのは、すべて満たす場合だけです。
-
-- sender 側 iperf3 が `900,000,000 bit/s` 以上。
-- 二ノード FileTransfer の end-to-end throughput が `100,000,000 B/s` 以上。
-- sender / receiver の SHA-256、Git SHA、測定スコープが一致。
-- control plane が `chirps-quic`、data plane が `quic-chunk-stream`、双方の `completed=true`。
-
-`release_eligible=false` は測定資料を無効にせず、「まだリリース性能 gate を通過していない」という正しい記録です。性能以外の workspace test、clippy、QUIC/mesh E2E、公開前確認も別途必要です。
-
-破損 chunk の復旧については、現在の実 QUIC corruption-proxy integration test が wire-level NACK/retry を検証します。物理二ホストハーネスは正常経路の帯域測定専用であり、UDP packet loss とアプリケーション chunk payload 改竄を同一視しません。物理ネットワーク上の payload 改竄を加える三ホスト relay 試験は、v0.5.2 の未証明事項として Issue #1 に残し、正常系の `release_eligible` がそれを完了扱いにすることはありません。
-
-## GitHub Actions へのアップロード
-
-専用 controller runner に次の repository variables を設定します。値は管理ホスト名・パスだけとし、SSH 認証情報は runner の既存 credential または Actions secret で扱います。
-
-- `CHIRPS_PERF_SENDER_HOST`
-- `CHIRPS_PERF_RECEIVER_HOST`
-- `CHIRPS_PERF_REMOTE_WORKDIR`
-- `CHIRPS_PERF_REMOTE_OUTPUT_ROOT`
-- `CHIRPS_PERF_SENDER_CONTROL_BIND`, `CHIRPS_PERF_SENDER_CONTROL_ADDRESS`
-- `CHIRPS_PERF_RECEIVER_CONTROL_BIND`, `CHIRPS_PERF_RECEIVER_CONTROL_ADDRESS`
-- `CHIRPS_PERF_SENDER_DATA_BIND`, `CHIRPS_PERF_SENDER_DATA_ADDRESS`
-- `CHIRPS_PERF_RECEIVER_DATA_BIND`, `CHIRPS_PERF_RECEIVER_DATA_ADDRESS`
-- 任意: `CHIRPS_PERF_RECEIVER_IPERF_ADDRESS`
-
-GitHub の **Actions → Two-node FileTransfer performance evidence → Run workflow** を実行します。workflow は `chirps-1gbps-controller` ラベルの runner 上で controller script を実行し、常に `two-node-performance-evidence` artifact を 90 日間保存します。artifact の `manifest.sha256` を再計算してから、Issue #1 の release checklist へ run URL、commit SHA、`summary.md` の値を記録します。
-
-公開タグ、crates.io publish、GitHub Release 作成はこの手順では行いません。
+公開タグ、crates.io publish、GitHub Release 作成はこの契約の実行では行わない。
