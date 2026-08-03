@@ -103,11 +103,17 @@ jobs:
       CHIRPS_PERF_RECEIVER_DATA_BIND: ${{ vars.CHIRPS_PERF_RECEIVER_DATA_BIND }}
       CHIRPS_PERF_RECEIVER_DATA_ADDRESS: ${{ vars.CHIRPS_PERF_RECEIVER_DATA_ADDRESS }}
       CHIRPS_PERF_RECEIVER_IPERF_ADDRESS: ${{ vars.CHIRPS_PERF_RECEIVER_IPERF_ADDRESS }}
-      CHIRPS_PERF_OUTPUT: ${{ runner.temp }}/chirps-two-node-release-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
+      - name: Prepare physical measurement evidence directory
+        env:
+          CHIRPS_PERF_OUTPUT: ${{ runner.temp }}/chirps-two-node-release-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${CHIRPS_PERF_OUTPUT}"
+          printf 'CHIRPS_PERF_OUTPUT=%s\n' "${CHIRPS_PERF_OUTPUT}" >> "${GITHUB_ENV}"
       - name: Measure physical two-node v0.5.2 transfer
         run: |
           set -euo pipefail

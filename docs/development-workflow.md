@@ -26,7 +26,7 @@ PR template の要件対応表、未証明事項、実行したコマンドと a
 - テストが実際に主張している範囲と、release note / roadmap の主張が一致すること。
 - 未証明事項が `READY` や「完了」に誤って変換されていないこと。
 
-release/* branch は通常 CI に加えて、実 QUIC・mesh の ignored acceptance、FileTransfer acceptance、受入契約の構造検査を実行します。これによりタグ作成後ではなく release candidate の段階で漏れを発見します。
+通常 CI は GitHub Actions workflow の構文・context も静的検査します。release/* branch はこれに加えて、実 QUIC・mesh の ignored acceptance、FileTransfer acceptance、受入契約の構造検査を実行します。これによりタグ作成後ではなく release candidate の段階で漏れを発見します。
 
 ## 4. 公開前: evidence を伴う手動承認
 

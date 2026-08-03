@@ -92,6 +92,25 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  workflow-lint:
+    name: GitHub Actions Workflow Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --retry 3 --output "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          printf '%s  %s\n' "${ACTIONLINT_SHA256}" "${archive}" | sha256sum --check --status
+          tar -xzf "${archive}" actionlint
+      - name: Lint GitHub Actions workflow syntax and expressions
+        run: ./actionlint -no-color -shellcheck= -pyflakes=
+
   release-acceptance:
     name: Release Branch Acceptance
     if: startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/'))
@@ -127,7 +146,7 @@ jobs:
 
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, test, coverage, security-audit, release-acceptance]
+    needs: [fmt, clippy, test, coverage, security-audit, workflow-lint, release-acceptance]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -137,7 +156,8 @@ jobs:
              [[ "${{ needs.clippy.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
              [[ "${{ needs.coverage.result }}" != "success" ]] || \
-             [[ "${{ needs.security-audit.result }}" != "success" ]]; then
+             [[ "${{ needs.security-audit.result }}" != "success" ]] || \
+             [[ "${{ needs.workflow-lint.result }}" != "success" ]]; then
             echo "One or more jobs failed"
             exit 1
           fi

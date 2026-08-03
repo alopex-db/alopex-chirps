@@ -1,0 +1,4 @@
+# The physical release gate is intentionally assigned only to this controller.
+self-hosted-runner:
+  labels:
+    - chirps-1gbps-controller
