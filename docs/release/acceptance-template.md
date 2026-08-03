@@ -6,11 +6,11 @@ Release readiness: BLOCKED
 
 ## 要件・検証対応表
 
-| 要件 / 失敗モード | ロードマップ / Issue | 実装箇所 | 独立した検証 | 実行結果・証跡 | 状態 |
-| --- | --- | --- | --- | --- | --- |
-| 例: chunk 圧縮が送受信経路で復元される | #123 | `crates/...` | unit + real transport integration | CI run URL / artifact | 未証明 |
+| 要件 / 失敗モード | ロードマップ / Issue | モデル property / 対象外根拠 | 実装箇所 | local 検証 | 実機・外部 evidence | 状態 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 例: chunk 圧縮が送受信経路で復元される | #123 | `WireMetadataMatchesPayload`; 物理性能は対象外 | `crates/...` | component test のコマンドと結果 | artifact URL / 手順 | 未証明 |
 
-各行は「機能がある」ではなく、壊れた場合に利用者が観測する失敗モードで書きます。mock-only、loopback-only、手作業確認だけの場合は、その制約を証跡欄に明記します。
+各行は「機能がある」ではなく、壊れた場合に利用者が観測する失敗モードで書きます。並行・分散要件には model property を、対象外には理由を必ず記します。mock-only、loopback-only、手作業確認だけの場合は、その制約を evidence 欄に明記します。
 
 ## 未証明・除外事項
 

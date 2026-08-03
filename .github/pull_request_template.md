@@ -1,27 +1,18 @@
-## 要件と受入契約
+## 要件と検証の対応
 
-- Roadmap / Issue:
-- 対象版:
-- 変更した受入契約行: `docs/release/vX.Y.Z.md`
+| 利用者に見える失敗モード | 分類（pure / local state / distributed / physical） | model property または対象外根拠 | 実装箇所 | 実行した local 検証 |
+| --- | --- | --- | --- | --- |
+| | | | | |
 
-| 要件 / 失敗モード | 実装 | 検証（unit / integration / physical） | 証跡 |
-| --- | --- | --- | --- |
-| | | | |
+- [ ] roadmap / Issue の全作業項目を表に対応付けた。
+- [ ] wire、設定、永続化、互換性、障害復旧、observability、性能への影響を確認した。
+- [ ] distributed の変更は `formal/<capability>/catalog.yaml` と状態モデルを追加・更新した。該当しない場合は表に理由を書いた。
+- [ ] E2E でのみ検出した事象には最小の local regression test を追加した。
 
-## 影響レビュー
+## 未証明事項・外部 evidence
 
-- [ ] 公開 API / 設定 / wire format / 永続化への影響を確認した
-- [ ] 圧縮、障害復旧、性能、observability、互換性を該当性も含めて確認した
-- [ ] mock・loopback・実ネットワークの検証範囲を区別した
-- [ ] 未証明事項は Issue / milestone と公開可否を明記した
+物理 host、NIC、外部サービスなど local で証明できない項目は、手順・evidence の保存先・追跡 Issue を記す。未証明事項を完了として扱わない。
 
-## 検証
+## レビュー依頼
 
-- 実行コマンド:
-- 結果 / artifact:
-- 実装者以外の検証者:
-
-## 公開可否
-
-- [ ] この PR 単独では公開しない
-- [ ] release readiness を `READY` にする場合、evidence artifact と release captain を受入契約に記録した
+- [ ] 実装者以外が、要件→property→実装→local 検証の対応を確認する。
