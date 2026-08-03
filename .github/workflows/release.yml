@@ -1,13 +1,26 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'chirps-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated tag in the form chirps-vX.Y.Z
+        required: true
+        type: string
+      confirm_publish:
+        description: Confirm that the release contract and evidence have been reviewed
+        required: true
+        type: boolean
 
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag }}
+  RELEASE_CONFIRM: ${{ inputs.confirm_publish }}
+
+concurrency:
+  group: chirps-release-${{ inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   # Run CI checks before release
@@ -16,16 +29,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify tag matches Cargo.toml version
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Verify publish confirmation, annotated tag, and version
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          [[ "${RELEASE_CONFIRM}" == "true" ]] || {
+            echo "confirm_publish must be true" >&2
+            exit 1
+          }
+          tag="${RELEASE_TAG}"
           prefix="chirps-v"
           if [[ "${tag}" != "${prefix}"* ]]; then
             echo "Expected tag prefix ${prefix}, got ${tag}"
             exit 1
           fi
+          if [[ "$(git cat-file -t "${tag}")" != "tag" ]]; then
+            echo "${tag} must be an annotated tag" >&2
+            exit 1
+          fi
           tag_version="${tag#${prefix}}"
+          [[ "${tag_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Expected semantic version in ${tag}" >&2
+            exit 1
+          }
           cargo_version="$(python -c $'import sys\nimport tomllib\n\nwith open("Cargo.toml", "rb") as handle:\n    data = tomllib.load(handle)\n\nversion = data.get("workspace", {}).get("package", {}).get("version")\nif not version:\n    sys.exit("Failed to read workspace.package version from Cargo.toml")\n\nprint(version)')"
           if [[ -z "${cargo_version}" ]]; then
             echo "Failed to read workspace.package version from Cargo.toml"
@@ -36,6 +64,7 @@ jobs:
             exit 1
           fi
           echo "Tag version ${tag_version} matches Cargo.toml"
+          scripts/verify-release-contract.sh --version "${tag_version}" --require-ready
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -77,6 +106,8 @@ jobs:
       CHIRPS_PERF_OUTPUT: ${{ runner.temp }}/chirps-two-node-release-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
       - name: Measure physical two-node v0.5.2 transfer
         run: |
           set -euo pipefail
@@ -120,10 +151,13 @@ jobs:
     name: Publish to crates.io
     needs: [ci-gate, file-transfer-performance]
     runs-on: ubuntu-latest
+    environment: release
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -168,14 +202,18 @@ jobs:
     name: Create GitHub Release
     needs: publish-crate
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

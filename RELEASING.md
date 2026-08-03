@@ -54,14 +54,16 @@ chirps-v{major}.{minor}.{patch}
 
 ### 自動化される処理
 
-タグをプッシュすると、GitHub Actions が以下を自動実行します：
+タグの push は配布を開始しません。release captain が既存の**注釈付きタグ**を指定し、`Release` workflow を手動 dispatch した場合だけ、GitHub Actions が以下を実行します。
 
-1. **CI Gate**: fmt, clippy、全 workspace test、doc test、File Transfer 受入テスト、実 QUIC/mesh E2E の実行
+1. **CI Gate**: tag と Cargo.toml の版一致、受入契約が `READY` であること、fmt、clippy、全 workspace test、doc test、File Transfer 受入テスト、実 QUIC/mesh E2E を検証
 2. **性能 Gate**: `self-hosted`, `linux`, `chirps-1gbps-controller` ラベルを持つ controller が、二台の物理 host 上で 128 MiB の File Transfer を実行する。sender 側 `iperf3` が 900 Mbit/s 以上、実 Chirps QUIC control / QUIC chunk stream の end-to-end transfer が 100 MB/s 以上、sender/receiver SHA-256 が一致した hash-manifested evidence を必須とする
-3. **Publish Crate**: crates.io への公開（依存順）
-4. **Create Release**: GitHub Release の作成
+3. **Publish Crate**: 保護された GitHub `release` environment の承認後に crates.io へ依存順で公開
+4. **Create Release**: 同 environment の承認後に GitHub Release を作成
 
 controller runner・二台の測定 host・必要な repository variables が未登録、または evidence が不適格な場合、公開ジョブは開始されない。通常の CI、同一プロセス fixture、ローカル二プロセス実行でこの要件を代替してはならない。構成と artifact の確認方法は [二ノード性能測定・証跡手順](docs/v0_5_2_two_node_performance.md) を参照する。
+
+対象版には `docs/release/vX.Y.Z.md` の受入契約が必須です。要件、実装、独立検証、artifact、未証明事項、実装者以外の検証者、release captain を記録し、未証明・`BLOCKED`・`TODO` が一つでもあれば公開できません。作成方法は [開発・リリース品質 workflow](docs/development-workflow.md) と [受入契約テンプレート](docs/release/acceptance-template.md) を参照してください。
 
 ## リリース手順
 
@@ -111,25 +113,44 @@ git add Cargo.toml CHANGELOG.md
 git commit -m "chore: bump chirps version to 0.6.0"
 ```
 
-### 5. プッシュ & CI 確認
+### 5. release branch と受入契約の確認
 
 ```bash
-git push origin main
+git switch -c release/v0.6.0
+cp docs/release/acceptance-template.md docs/release/v0.6.0.md
+# 要件、テスト、evidence、未証明事項、承認を記入する
+git add docs/release/v0.6.0.md
+git commit -m "docs: add v0.6.0 release acceptance contract"
+git push origin release/v0.6.0
 ```
 
-GitHub Actions の CI が成功することを確認してください。
+`release/v*` への push と pull request では通常 CI に加え、受入契約の構造検査、FileTransfer acceptance、実 QUIC、三ノード mesh acceptance が実行されます。実装者以外の検証者が、受入契約の主張と CI/artifact の範囲を確認してください。
 
-### 6. タグ作成 & プッシュ
+### 6. 公開可否の固定
+
+以下を満たしたら、受入契約を `READY` に変更して commit SHA、CI run URL、artifact URL、検証者、release captain を記入します。
+
+- [ ] 対象版の release branch CI が成功している
+- [ ] 必要な package dry-run と物理環境の evidence が記録されている
+- [ ] `scripts/verify-release-contract.sh --version 0.6.0 --require-ready` が成功する
+- [ ] 保護された `release` environment に release captain とは別の必須 reviewer が設定されている
+
+### 7. タグ作成、push、明示的な publish 承認
 
 ```bash
-# タグ作成
+# READY の commit に注釈付きタグを作成
 git tag -a chirps-v0.6.0 -m "Release chirps v0.6.0"
-
-# タグをプッシュ（リリースワークフロー発火）
 git push origin chirps-v0.6.0
+
+# 公開を明示的に開始する。tag push だけでは publish されない。
+gh workflow run Release --ref main \
+  -f tag=chirps-v0.6.0 \
+  -f confirm_publish=true
 ```
 
-### 7. リリース確認
+workflow の `release` environment 承認では、受入契約の commit SHA、CI、evidence artifact を再確認してください。ユーザーから公開許可を得ていない場合、この手順を実行してはいけません。
+
+### 8. リリース確認
 
 - [ ] GitHub Actions の Release ワークフローが成功
 - [ ] GitHub Releases にリリースノートが作成されている
@@ -142,40 +163,9 @@ git push origin chirps-v0.6.0
   - https://crates.io/crates/alopex-chirps-transport-quic
   - https://crates.io/crates/alopex-chirps
 
-## 手動リリース（緊急時）
+## 緊急時の扱い
 
-自動リリースが失敗した場合の手動手順：
-
-```bash
-cd /path/to/alopex-db/chirps
-
-# 1. alopex-chirps-wire を公開
-cargo publish -p alopex-chirps-wire
-sleep 30
-
-# 2. alopex-chirps-raft-storage を公開（alopex-core 依存のため並行可能）
-cargo publish -p alopex-chirps-raft-storage
-sleep 30
-
-# 3. alopex-chirps-core を公開
-cargo publish -p alopex-chirps-core
-sleep 30
-
-# 4. alopex-chirps-gossip-swim を公開
-cargo publish -p alopex-chirps-gossip-swim
-sleep 30
-
-# 5. alopex-chirps-mock を公開
-cargo publish -p alopex-chirps-mock
-sleep 30
-
-# 6. alopex-chirps-transport-quic を公開
-cargo publish -p alopex-chirps-transport-quic
-sleep 30
-
-# 7. alopex-chirps を公開
-cargo publish -p alopex-chirps
-```
+workflow 障害があっても、`cargo publish` を直接実行して CI、受入契約、environment approval を迂回してはいけません。原因を Issue に記録し、workflow を修復して同じ受入契約・tag を手動 dispatch します。すでに一部のクレートが公開された場合は、公開済みの crate、version、tag SHA、未公開 crate を明記して次の修復版の受入契約を作成します。
 
 ## トラブルシューティング
 
@@ -196,7 +186,7 @@ cargo publish -p alopex-chirps
 
 ### CI Gate 失敗
 
-原因: fmt, clippy, test のいずれかが失敗
+原因: fmt、clippy、test、coverage、security audit、または release branch acceptance のいずれかが失敗
 
 対処:
 ```bash
@@ -208,14 +198,10 @@ cargo test --workspace
 # 修正をコミット & プッシュ
 git add -A
 git commit -m "fix: resolve CI issues"
-git push origin main
-
-# 既存タグを削除して再作成（必要な場合）
-git tag -d chirps-v0.6.0
-git push origin :refs/tags/chirps-v0.6.0
-git tag -a chirps-v0.6.0 -m "Release chirps v0.6.0"
-git push origin chirps-v0.6.0
+git push origin release/v0.6.0
 ```
+
+tag は受入契約を固定する不変の参照です。公開前に修正が必要なら新しい commit と注釈付きタグを作成し、古い tag を削除・付け替えないでください。
 
 ### Windows テストの失敗
 
