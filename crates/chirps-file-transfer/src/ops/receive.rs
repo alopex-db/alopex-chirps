@@ -581,6 +581,12 @@ impl ReceiveHandler {
             );
         }
 
+        // Persist verified progress before acknowledging it to the sender. This
+        // makes the receiver's persisted session the recovery source of truth
+        // after either process is interrupted. Holding the session write lock
+        // through the atomic save also prevents an older concurrent snapshot
+        // from overwriting newer progress.
+        //
         // Only the task that changes InProgress to Verifying owns finalization.
         // This keeps hash verification and rename single-shot even when streams
         // arrive concurrently and out of order.
@@ -598,6 +604,30 @@ impl ReceiveHandler {
             }
             session.chunk_tracker.mark_completed(chunk_index);
             session.updated_at = SystemTime::now();
+            if session.options.resumable
+                && let Some(persistence) = &self.persistence
+                && let Err(error) = persistence.save(session).await
+            {
+                session.chunk_tracker.completed.remove(&chunk_index);
+                session.chunk_tracker.mark_failed(chunk_index);
+                session.updated_at = SystemTime::now();
+                drop(sessions);
+                send_chunk_ack(
+                    control,
+                    sender,
+                    session_id,
+                    chunk_index,
+                    false,
+                    Some(format!("failed to persist resume progress: {error}")),
+                )
+                .await?;
+                return Ok(ReceiveOutcome {
+                    session_id,
+                    chunk_index,
+                    verified: false,
+                    completed: false,
+                });
+            }
             if session.chunk_tracker.is_complete() && session.state == TransferState::InProgress {
                 session.state = TransferState::Verifying;
                 Some((

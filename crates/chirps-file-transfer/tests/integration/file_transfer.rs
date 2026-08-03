@@ -5,8 +5,8 @@ use alopex_chirps_file_transfer::ops::{
 use alopex_chirps_file_transfer::{
     CHUNK_STREAM_MAGIC, CompressionAlgorithm, ConflictResolution, FileTransferConfig,
     FileTransferError, FileTransferService, FileTransferServiceImpl, HashAlgorithm,
-    IntegrityVerifier, ListOptions, RemoveOptions, SyncDirection, SyncOptions, TransferMode,
-    TransferOptions, TransferSessionId,
+    IntegrityVerifier, ListOptions, RemoveOptions, SessionPersistence, SyncDirection, SyncOptions,
+    TransferMode, TransferOptions, TransferSessionId,
 };
 use alopex_chirps_mock::{MockBackend, MockNetwork};
 use alopex_chirps_wire::file_transfer::{FileTransferMessage, ManifestAck, TransferResponse};
@@ -1748,6 +1748,66 @@ async fn resume_transfer_restores_progress() {
     assert_eq!(progress.bytes_transferred, 512 * 1024);
 
     assert_files_match(&source_path, &dest_path).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn verified_chunks_are_persisted_before_interruption() {
+    let sender_dir = TempDir::new().expect("sender dir");
+    let receiver_dir = TempDir::new().expect("receiver dir");
+    let sender_base = sender_dir.path().to_path_buf();
+    let receiver_base = receiver_dir.path().to_path_buf();
+    let sender_id = NodeId::new();
+    let receiver_id = NodeId::new();
+    let source_path = sender_base.join("persist-before-interruption.bin");
+    let dest_path = receiver_base.join("persist-before-interruption.bin");
+    write_pattern_file(&source_path, 512 * 1024)
+        .await
+        .expect("write source");
+
+    let cluster = TestCluster::new();
+    let sender = cluster.add_node(sender_id, sender_base.clone()).await;
+    let receiver = cluster.add_node(receiver_id, receiver_base.clone()).await;
+    let options = TransferOptions::default()
+        .with_chunk_size(8 * 1024)
+        .with_concurrency(1)
+        .with_bandwidth_limit(Some(16 * 1024))
+        .with_resumable(true);
+    let send_task = {
+        let sender = Arc::clone(&sender.service);
+        let source_path = source_path.clone();
+        let dest_path = dest_path.clone();
+        tokio::spawn(async move {
+            sender
+                .send_file(receiver_id, &source_path, &dest_path, options)
+                .await
+        })
+    };
+
+    let session_id = wait_for_session_id(&sender).await;
+    wait_for_partial_completion(receiver.service.receive_handler(), session_id).await;
+    let persistence = SessionPersistence::new(
+        &FileTransferConfig::default()
+            .with_base_path(receiver_base.clone())
+            .with_session_dir(Some(receiver_base.join("sessions"))),
+    );
+    let persisted = persistence
+        .load(session_id)
+        .await
+        .expect("persisted session");
+
+    sender
+        .service
+        .cancel_transfer(session_id)
+        .await
+        .expect("cancel");
+    let _ = send_task.await.expect("send task");
+    sender.shutdown().await;
+    receiver.shutdown().await;
+
+    assert!(
+        !persisted.chunk_tracker.completed.is_empty(),
+        "a resumable receiver must persist verified chunks before an interruption"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

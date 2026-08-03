@@ -5,9 +5,12 @@
 //! compression, or the QUIC frame codec before running ft-1g-v1.
 
 use alopex_chirps_file_transfer::{
-    CHUNK_STREAM_MAGIC, ChunkManager, ChunkStreamCodec, CompressionAlgorithm, HashAlgorithm,
-    IntegrityVerifier, TransferSessionId, compress_bytes,
+    CHUNK_STREAM_MAGIC, ChunkManager, ChunkMeta, ChunkStreamCodec, ChunkTracker,
+    CompressionAlgorithm, FileTransferConfig, HashAlgorithm, IntegrityVerifier, SessionPersistence,
+    TransferKind, TransferManifest, TransferMode, TransferOptions, TransferSession,
+    TransferSessionId, TransferState, compress_bytes,
 };
+use alopex_chirps_wire::node_id::NodeId;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig};
 use rcgen::generate_simple_self_signed;
@@ -54,6 +57,60 @@ struct QuicFixture {
     _server_endpoint: Endpoint,
     client: Connection,
     server: Connection,
+}
+
+fn checkpoint_fixture() -> (TempDir, Arc<SessionPersistence>, TransferSession) {
+    let directory = tempfile::tempdir().expect("checkpoint directory");
+    let persistence = Arc::new(SessionPersistence::new(
+        &FileTransferConfig::default()
+            .with_base_path(directory.path().to_path_buf())
+            .with_session_dir(Some(directory.path().join("sessions"))),
+    ));
+    let session_id = TransferSessionId::new();
+    let chunk_count = (FILE_BYTES / CHUNK_BYTES) as u32;
+    let chunks = (0..chunk_count)
+        .map(|index| ChunkMeta {
+            index,
+            offset: index as u64 * CHUNK_BYTES as u64,
+            size: CHUNK_BYTES as u32,
+            checksum: 0,
+        })
+        .collect();
+    let options = TransferOptions::default()
+        .with_chunk_size(CHUNK_BYTES)
+        .with_concurrency(4)
+        .with_resumable(true);
+    let manifest = TransferManifest {
+        version: TransferManifest::CURRENT_VERSION,
+        session_id,
+        source_path: "source-128mib.bin".into(),
+        dest_path: "destination-128mib.bin".into(),
+        file_size: FILE_BYTES as u64,
+        file_hash: vec![0; 32],
+        hash_algorithm: HashAlgorithm::Sha256,
+        chunk_size: CHUNK_BYTES as u32,
+        chunk_count,
+        chunks,
+        metadata: None,
+        options: options.clone(),
+        created_at: 0,
+    };
+    let source_node = NodeId::new();
+    let target_node = NodeId::new();
+    let mut session = TransferSession::new(
+        session_id,
+        TransferKind::Send,
+        TransferMode::Copy,
+        source_node,
+        vec![target_node],
+        "source-128mib.bin".into(),
+        "destination-128mib.bin".into(),
+        manifest,
+        ChunkTracker::new(chunk_count, options.retry_policy.max_retries),
+        options,
+    );
+    session.state = TransferState::InProgress;
+    (directory, persistence, session)
 }
 
 fn tls_configs() -> (ServerConfig, ClientConfig) {
@@ -151,6 +208,26 @@ fn benchmark_components(criterion: &mut Criterion) {
                         .await
                         .expect("receiver final hash"),
                 )
+            }
+        });
+    });
+
+    let (_checkpoint_directory, persistence, checkpoint_template) = checkpoint_fixture();
+    group.bench_function("receiver_resume_checkpoints_128x1mib", |bench| {
+        let persistence = Arc::clone(&persistence);
+        let checkpoint_template = checkpoint_template.clone();
+        bench.to_async(&runtime).iter(|| {
+            let persistence = Arc::clone(&persistence);
+            let mut session = checkpoint_template.clone();
+            async move {
+                for index in 0..session.manifest.chunk_count {
+                    session.chunk_tracker.mark_completed(index);
+                    persistence
+                        .save(&session)
+                        .await
+                        .expect("persist receiver checkpoint");
+                }
+                black_box(session)
             }
         });
     });
