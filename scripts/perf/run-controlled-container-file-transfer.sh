@@ -277,8 +277,8 @@ run_transfer() {
     --expected-bytes "$FILE_BYTES" >"$sender_log" 2>&1
   wait "$receiver_exec_pid"
   receiver_exec_pid=""
-  docker cp "$sender_name:$sender_dir/sender-result.env" "$sample_dir/sender-result.env"
-  docker cp "$receiver_name:$receiver_dir/receiver-result.env" "$sample_dir/receiver-result.env"
+  docker exec "$sender_name" cat "$sender_dir/sender-result.env" >"$sample_dir/sender-result.env"
+  docker exec "$receiver_name" cat "$receiver_dir/receiver-result.env" >"$sample_dir/receiver-result.env"
   docker exec "$receiver_name" sha256sum "$receiver_dir/throughput-dest.bin" >"$sample_dir/destination.sha256"
 }
 
