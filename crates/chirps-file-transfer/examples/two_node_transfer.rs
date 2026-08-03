@@ -49,6 +49,8 @@ struct Arguments {
     report: PathBuf,
     source_sha: String,
     scope: String,
+    profile_id: Option<String>,
+    image_digest: Option<String>,
     source: Option<PathBuf>,
     destination: PathBuf,
     expected_bytes: u64,
@@ -103,7 +105,9 @@ fn usage() -> ! {
     eprintln!(
         "  --report RESULT.ENV --source-sha GIT_SHA --scope SCOPE --destination RELATIVE_PATH"
     );
-    eprintln!("  [--source RELATIVE_PATH] [--expected-bytes BYTES]");
+    eprintln!(
+        "  [--profile-id ID --image-digest DIGEST] [--source RELATIVE_PATH] [--expected-bytes BYTES]"
+    );
     std::process::exit(2);
 }
 
@@ -183,9 +187,36 @@ fn parse_arguments() -> Result<Arguments, DynError> {
         return Err(input_error("--source is required for sender"));
     }
     let scope = required(&values, "scope")?;
-    if scope != "two-host-physical-network" && scope != "local-two-process" {
+    if scope != "two-host-physical-network"
+        && scope != "local-two-process"
+        && scope != "two-container-controlled"
+    {
         return Err(input_error(
-            "--scope must be two-host-physical-network or local-two-process",
+            "--scope must be two-host-physical-network, local-two-process, or two-container-controlled",
+        ));
+    }
+    let profile_id = values.get("profile-id").cloned();
+    let image_digest = values.get("image-digest").cloned();
+    if scope == "two-container-controlled" {
+        let valid_profile = profile_id.as_deref().is_some_and(|value| {
+            !value.is_empty()
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        });
+        if !valid_profile {
+            return Err(input_error(
+                "two-container-controlled requires a non-empty --profile-id containing only alphanumeric characters, '-', '_', or '.'",
+            ));
+        }
+        if image_digest.as_deref().is_none_or(str::is_empty) {
+            return Err(input_error(
+                "two-container-controlled requires a non-empty --image-digest",
+            ));
+        }
+    } else if profile_id.is_some() || image_digest.is_some() {
+        return Err(input_error(
+            "--profile-id and --image-digest are only valid with --scope two-container-controlled",
         ));
     }
     Ok(Arguments {
@@ -202,6 +233,8 @@ fn parse_arguments() -> Result<Arguments, DynError> {
         report: PathBuf::from(required(&values, "report")?),
         source_sha: required(&values, "source-sha")?,
         scope,
+        profile_id,
+        image_digest,
         source,
         destination: parse_relative_path(&required(&values, "destination")?, "destination")?,
         expected_bytes,
@@ -374,6 +407,18 @@ async fn run_sender(
             ("schema_version", "1".to_string()),
             ("kind", "chirps-file-transfer-two-node".to_string()),
             ("scope", args.scope.clone()),
+            (
+                "profile_id",
+                args.profile_id
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string()),
+            ),
+            (
+                "image_digest",
+                args.image_digest
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string()),
+            ),
             ("role", "sender".to_string()),
             ("source_sha", args.source_sha.clone()),
             ("control_plane", "chirps-quic".to_string()),
@@ -413,6 +458,18 @@ async fn run_receiver(args: &Arguments) -> Result<(), DynError> {
                         ("schema_version", "1".to_string()),
                         ("kind", "chirps-file-transfer-two-node".to_string()),
                         ("scope", args.scope.clone()),
+                        (
+                            "profile_id",
+                            args.profile_id
+                                .clone()
+                                .unwrap_or_else(|| "none".to_string()),
+                        ),
+                        (
+                            "image_digest",
+                            args.image_digest
+                                .clone()
+                                .unwrap_or_else(|| "none".to_string()),
+                        ),
                         ("role", "receiver".to_string()),
                         ("source_sha", args.source_sha.clone()),
                         ("control_plane", "chirps-quic".to_string()),

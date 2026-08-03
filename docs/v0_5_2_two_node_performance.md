@@ -38,14 +38,18 @@ Docker の user-defined bridge は同一 Docker host 上の container を隔離�
 
 この値は 1 Gbit/s に成形した network の理論上限を製品目標そのものと取り違えない。`100 MB/s` はこの明示的 profile における Chirps FileTransfer の end-to-end SLO であり、実 LAN の最大帯域や `iperf3` の合格値ではない。
 
-### 実装前に残す作業項目
+### 実装状態と実行方法
 
-現時点の ignored `file_transfer_loopback_reports_diagnostic` は同一 process の `MockNetwork` control plane であり、`ft-1g-v1` の証跡ではない。次を実装してから product performance を `確認済み` に変更する。
+現時点の ignored `file_transfer_loopback_reports_diagnostic` は同一 process の `MockNetwork` control plane であり、`ft-1g-v1` の証跡ではない。`two_node_transfer` は `two-container-controlled` scope に profile ID と image digest を必須とし、異なる scope ではそれらを拒否する。
 
-1. `two_node_transfer` に `two-container-controlled` scope を追加し、scope と profile ID を report へ固定する。
-2. immutable performance image、二 container orchestration、veth qdisc の適用/削除、tmpfs payload、5 sample/warm-up を扱う local harness を実装する。
-3. machine-readable result に sample 全件、profile 設定、image/source SHA、integrity、CPU/cgroup 統計を保存し、release contract verifier が profile/evidence の欠落を拒否するようにする。
-4. その harness の正常系と、profile・scope・digest が不一致のとき evidence を拒否する局所テストを追加する。
+`scripts/perf/run-controlled-container-file-transfer.sh` は、clean な Git SHA を `git archive` して image を作り、internal user-defined bridge、sender/receiver の別 cpuset と tmpfs、双方の `tbf` + `netem` を作成・削除する。warm-up 後、fresh process pair 5 回の report、宛先 hash、container inspect、qdisc、cgroup CPU/memory 統計、manifest を `--output` に保存する。鍵と payload は temporary container/tmpfs にだけ置き、artifact へコピーしない。
+
+```bash
+scripts/perf/run-controlled-container-file-transfer.sh \
+  --output /var/tmp/chirps-ft-1g-v1
+```
+
+`evidence/result.json` の `product_performance_passed=true` はこの profile の SLO と integrity が通ったことだけを表す。これは v0.5.2 全体の `release_eligible` ではない。retry/wire-byte の sample 指標と、release contract verifier が profile/evidence の欠落を拒否する実装は、引き続き未完了要件として追跡する。
 
 この harness は開発者と calibration runner が **local-first** で実行する。CI は要件を発見する場所ではなく、承認済みの harness と evidence schema を再実行・検証するだけである。
 
