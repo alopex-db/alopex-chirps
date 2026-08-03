@@ -32,7 +32,7 @@ contract="docs/release/v${version}.md"
 [[ -f "$contract" ]] || { printf 'missing release contract: %s\n' "$contract" >&2; exit 1; }
 
 for heading in '## 要件・検証対応表' '## 未証明・除外事項' '## 変更影響レビュー' '## 承認'; do
-  rg -Fqx "$heading" "$contract" || { printf 'missing heading %s in %s\n' "$heading" "$contract" >&2; exit 1; }
+  grep -Fqx "$heading" "$contract" || { printf 'missing heading %s in %s\n' "$heading" "$contract" >&2; exit 1; }
 done
 awk '
   /^## 要件・検証対応表$/ { in_matrix = 1; next }
@@ -47,7 +47,7 @@ awk '
 }
 
 if [[ "$require_ready" == true ]]; then
-  rg -Fqx 'Release readiness: READY' "$contract" || {
+  grep -Fqx 'Release readiness: READY' "$contract" || {
     printf 'release contract is not READY: %s\n' "$contract" >&2
     exit 1
   }
