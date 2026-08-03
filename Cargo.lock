@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-file-transfer",
@@ -65,7 +65,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-core"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "alopex-chirps-wire",
  "async-trait",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-file-transfer"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-mock",
@@ -102,7 +102,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-gossip-swim"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "alopex-chirps-wire",
  "async-trait",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-mock"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-wire",
@@ -126,7 +126,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-raft-storage"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "alopex-core",
  "anyhow",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-transport-quic"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-wire",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-wire"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "bincode",
  "serde",
@@ -513,7 +513,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chirps-e2e"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "alopex-chirps",
  "alopex-chirps-gossip-swim",
