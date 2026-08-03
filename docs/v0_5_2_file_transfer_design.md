@@ -48,6 +48,10 @@ not success.
    parallel. Session metadata is locked only to snapshot/commit a chunk; the
    task that changes the session to `Verifying` is the only task allowed to
    hash, apply metadata, rename, and emit `Complete`.
+9. A fresh receiver incrementally hashes only chunks whose checksum and
+   resumable checkpoint have succeeded, buffering out-of-order chunks until
+   their predecessors arrive. Resume or incomplete incremental state falls
+   back to hashing the completed temporary file before atomic placement.
 
 ## Verification
 

@@ -63,7 +63,7 @@ scripts/perf/run-controlled-container-file-transfer.sh \
 | --- | --- | --- | --- |
 | function | manifest/hash、chunk read、compression、`ChunkStreamCodec`、receiver write/finalize | 正しい byte 数・checksum、境界、無効 frame 拒否 | operation ごとの bytes/s・allocation/operation count |
 | module | sender scheduler、connection reuse、ACK/NACK/retry、receiver session | `concurrency` 上限、全 chunk の一回限り completion、retry と in-flight accounting | chunk read / encode / stream / verify / write の bytes/s と duration |
-| service | `FileTransferService` と実 QUIC data plane の local diagnostic | phase observation の全項目、retry/byte/integrity の集計一致 | source prepare、control、chunk pipeline、receiver finalize の各 duration |
+| service | `FileTransferService` と実 QUIC data plane の local diagnostic | phase observation の全項目、retry/byte/integrity の集計一致 | source prepare、control、chunk pipeline、incremental receiver file hash、receiver finalize の各 duration |
 | binary | `two_node_transfer` / controlled two-container | source/image/profile/scope と SHA-256 の一致 | 上記 phase 集計と end-to-end goodput |
 
 通常の `cargo test` に host 固有の B/s 閾値を置かない。代わりに byte accounting、phase event count、connection/retry/concurrency の構造的不変条件を検証する。function/module の速度比較は `cargo bench` の Criterion evidence として local calibration host に保存し、前回の同一 profile と比較する。最終 `ft-1g-v1` の `100,000,000 B/s` だけが release SLO であり、下位 benchmark は原因帰属と回帰検知のための入力である。
@@ -74,6 +74,8 @@ CARGO_TARGET_DIR=/var/tmp/chirps-ft-component-bench \
 ```
 
 この bench は source manifest/hash（128 MiB）、実際の source open + 1 MiB chunk read、`compression=none`、接続再利用済み QUIC codec round trip を測定する。結果は同一 host / kernel / Rust / profile の前回値とだけ比較し、`ft-1g-v1` の release 判定値に代用しない。
+
+fresh transfer の receiver は checksum 合格かつ resume checkpoint 永続化済みの chunk を index 順に `receiver_file_hash` へ投入し、全 chunk が揃った場合はその SHA-256 を最終照合へ使う。順不同 chunk は並列数の範囲で一時保持し、resume/欠番/状態不整合では従来の完成ファイル全走査へ fallback する。従って `receiver_finalize` が短縮されても、最終 SHA-256 照合を省略したことを意味しない。
 
 ## 2. Deployment compatibility: two-host diagnostic
 

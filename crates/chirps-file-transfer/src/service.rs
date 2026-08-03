@@ -405,6 +405,7 @@ impl FileTransferServiceImpl {
         let cancel_sessions = Arc::clone(&sessions);
         let cancel_persistence = Arc::clone(&persistence);
         let cancel_metrics = metrics.clone();
+        let cancel_receive_handler = Arc::clone(&receive_handler);
         let cancel_wait = config.idle_timeout;
         tokio::spawn(async move {
             loop {
@@ -445,6 +446,10 @@ impl FileTransferServiceImpl {
                         }
                     }
                 }
+                drop(sessions);
+                cancel_receive_handler
+                    .discard_incremental_hash(session_id)
+                    .await;
             }
         });
 

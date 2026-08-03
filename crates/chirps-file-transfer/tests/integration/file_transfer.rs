@@ -1700,6 +1700,13 @@ async fn successful_transfer_records_complete_phase_accounting() {
             "{phase}"
         );
     }
+    let receiver_hash_observations = phase_histogram_count(&receiver.service, "receiver_file_hash");
+    assert!(receiver_hash_observations > 0);
+    assert!(receiver_hash_observations <= CHUNKS);
+    assert_eq!(
+        phase_bytes(&receiver.service, "receiver_file_hash"),
+        FILE_BYTES as u64
+    );
     assert_eq!(
         phase_histogram_count(&receiver.service, "receiver_finalize"),
         1

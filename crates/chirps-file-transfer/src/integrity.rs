@@ -121,6 +121,24 @@ enum FileHasher {
     XxHash64(Xxh64),
 }
 
+/// Incremental file hasher used when verified chunks can be reconstructed in
+/// file order while a transfer is still in progress.
+pub(crate) struct IncrementalFileHasher(FileHasher);
+
+impl IncrementalFileHasher {
+    pub(crate) fn new(algorithm: HashAlgorithm) -> Self {
+        Self(FileHasher::new(algorithm))
+    }
+
+    pub(crate) fn update(&mut self, data: &[u8]) {
+        self.0.update(data);
+    }
+
+    pub(crate) fn finalize(self) -> Vec<u8> {
+        self.0.finalize()
+    }
+}
+
 impl FileHasher {
     fn new(algorithm: HashAlgorithm) -> Self {
         match algorithm {

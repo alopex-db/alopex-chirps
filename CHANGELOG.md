@@ -15,6 +15,8 @@
 - `send_queue_capacity` を実際の送信受付上限へ接続し、優先スケジューラを送信経路へ組み込んだ。
 - SWIM の同一 incarnation における古い `Alive` gossip が `Suspect` の liveness を更新する不具合を修正した。
 - Quinn 0.11 / Rustls 0.23 / Prometheus 0.14 へ更新し、旧 QUIC/TLS・protobuf・Windows CMake 経路に含まれていた既知脆弱性と Windows ビルド障害を解消した。`alopex` ALPN と証明書検証は新しい Quinn crypto adapter 上でも維持した。
+- Quinn 0.11 の同期 `finish` 移行後も制御streamの受信確認を待ちつつ、送信を最大64件まで並行化した。独立streamの順不同到着をdedup windowで一度だけ配送し、累積ACKは欠番を越えないようにした。
+- fresh File Transfer は検証・永続化済みchunkを受信中にindex順でSHA-256へ投入し、最終配置前の全ファイル再走査を省いた。resumeや不完全状態は従来の全走査へfallbackする。
 
 ### 検証
 
