@@ -1,7 +1,8 @@
 use alopex_chirps_file_transfer::{CHUNK_STREAM_MAGIC, ChunkStreamCodec, TransferSessionId};
 use quinn::{ClientConfig, Endpoint, ServerConfig};
 use rcgen::generate_simple_self_signed;
-use rustls::{Certificate, PrivateKey, RootCertStore};
+use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
@@ -9,18 +10,15 @@ fn build_configs() -> (ServerConfig, ClientConfig) {
     let cert = generate_simple_self_signed(["localhost".to_string()]).expect("cert");
     let cert_der = cert.serialize_der().expect("cert der");
     let key_der = cert.serialize_private_key_der();
-    let cert_chain = vec![Certificate(cert_der.clone())];
-    let key = PrivateKey(key_der);
+    let cert_chain = vec![CertificateDer::from(cert_der.clone())];
+    let key = PrivatePkcs8KeyDer::from(key_der).into();
 
     let server_config = ServerConfig::with_single_cert(cert_chain, key).expect("server config");
 
     let mut roots = RootCertStore::empty();
-    roots.add(&Certificate(cert_der)).expect("add cert");
-    let crypto = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    let client_config = ClientConfig::new(Arc::new(crypto));
+    roots.add(CertificateDer::from(cert_der)).expect("add cert");
+    let client_config =
+        ClientConfig::with_root_certificates(Arc::new(roots)).expect("client config");
 
     (server_config, client_config)
 }
@@ -67,7 +65,7 @@ async fn chunk_stream_codec_round_trip() {
     ChunkStreamCodec::encode(&mut send, &session_id, chunk_index, &payload)
         .await
         .expect("encode");
-    send.finish().await.expect("finish");
+    send.finish().expect("finish");
 
     let mut recv = server_conn.accept_uni().await.expect("accept stream");
 

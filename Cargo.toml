@@ -34,7 +34,7 @@ alopex-chirps-file-transfer = { version = "0.5.2", path = "crates/chirps-file-tr
 tokio = { version = "1.35", features = ["full"] }
 
 # QUIC protocol
-quinn = "0.10"
+quinn = "0.11.11"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -50,7 +50,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Networking
 socket2 = "0.5"
-bytes = "1.5"
+bytes = "1.11.1"
 
 # Testing
 criterion = "0.5"

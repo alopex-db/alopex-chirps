@@ -24,13 +24,13 @@ blake3 = "1.5"
 zstd = "0.13"
 filetime = "0.2"
 thiserror.workspace = true
-prometheus = "0.13"
+prometheus = "0.14"
 tracing.workspace = true
 
 [dev-dependencies]
 tempfile = "3.8"
 rcgen = "0.12"
-rustls = "0.21"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
 alopex-chirps-mock.workspace = true
 alopex-chirps-transport-quic.workspace = true

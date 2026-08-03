@@ -14,7 +14,8 @@ use alopex_chirps_wire::node_id::NodeId;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig};
 use rcgen::generate_simple_self_signed;
-use rustls::{Certificate, PrivateKey, RootCertStore};
+use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -118,21 +119,16 @@ fn tls_configs() -> (ServerConfig, ClientConfig) {
     let certificate_der = certificate.serialize_der().expect("certificate DER");
     let key_der = certificate.serialize_private_key_der();
     let server = ServerConfig::with_single_cert(
-        vec![Certificate(certificate_der.clone())],
-        PrivateKey(key_der),
+        vec![CertificateDer::from(certificate_der.clone())],
+        PrivatePkcs8KeyDer::from(key_der).into(),
     )
     .expect("server config");
 
     let mut roots = RootCertStore::empty();
     roots
-        .add(&Certificate(certificate_der))
+        .add(CertificateDer::from(certificate_der))
         .expect("trusted certificate");
-    let client = ClientConfig::new(Arc::new(
-        rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(roots)
-            .with_no_client_auth(),
-    ));
+    let client = ClientConfig::with_root_certificates(Arc::new(roots)).expect("client config");
     (server, client)
 }
 
@@ -272,7 +268,7 @@ fn benchmark_components(criterion: &mut Criterion) {
                     ChunkStreamCodec::encode(&mut send, &TransferSessionId::new(), 0, &chunk)
                         .await
                         .expect("encode");
-                    send.finish().await.expect("finish stream");
+                    send.finish().expect("finish stream");
 
                     let mut receive = server.accept_uni().await.expect("accept stream");
                     let mut magic = [0u8; 1];

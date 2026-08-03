@@ -876,7 +876,6 @@ async fn send_chunk(
     crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, &payload).await?;
     stream
         .finish()
-        .await
         .map_err(|e| FileTransferError::Transport(e.to_string()))?;
     if let Some(metrics) = &metrics {
         metrics.observe_phase(
@@ -1062,9 +1061,11 @@ mod tests {
     use async_trait::async_trait;
     use quinn::{ClientConfig, Endpoint, ServerConfig};
     use rcgen::generate_simple_self_signed;
-    use rustls::{Certificate, PrivateKey, RootCertStore};
+    use rustls::RootCertStore;
+    use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
     use std::net::{Ipv4Addr, SocketAddr};
     use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     const SERVER_NAME: &str = "localhost";
 
@@ -1097,6 +1098,7 @@ mod tests {
     struct FixedChunkOpener {
         endpoint: Endpoint,
         target_addr: SocketAddr,
+        connection: Arc<Mutex<Option<quinn::Connection>>>,
     }
 
     #[async_trait]
@@ -1105,12 +1107,21 @@ mod tests {
             &self,
             _target: NodeId,
         ) -> Result<quinn::SendStream, FileTransferError> {
-            let connection = self
-                .endpoint
-                .connect(self.target_addr, SERVER_NAME)
-                .map_err(|error| FileTransferError::Transport(error.to_string()))?
-                .await
-                .map_err(|error| FileTransferError::Transport(error.to_string()))?;
+            let connection = {
+                let mut connection = self.connection.lock().await;
+                if let Some(existing) = connection.as_ref() {
+                    existing.clone()
+                } else {
+                    let established = self
+                        .endpoint
+                        .connect(self.target_addr, SERVER_NAME)
+                        .map_err(|error| FileTransferError::Transport(error.to_string()))?
+                        .await
+                        .map_err(|error| FileTransferError::Transport(error.to_string()))?;
+                    connection.replace(established.clone());
+                    established
+                }
+            };
             connection
                 .open_uni()
                 .await
@@ -1122,19 +1133,17 @@ mod tests {
         let cert = generate_simple_self_signed([SERVER_NAME.to_owned()]).expect("certificate");
         let cert_der = cert.serialize_der().expect("certificate DER");
         let key_der = cert.serialize_private_key_der();
-        let cert_chain = vec![Certificate(cert_der.clone())];
-        let key = PrivateKey(key_der);
+        let cert_chain = vec![CertificateDer::from(cert_der.clone())];
+        let key = PrivatePkcs8KeyDer::from(key_der).into();
         let server_config = ServerConfig::with_single_cert(cert_chain, key).expect("server TLS");
 
         let mut roots = RootCertStore::empty();
         roots
-            .add(&Certificate(cert_der))
+            .add(CertificateDer::from(cert_der))
             .expect("trusted certificate");
-        let crypto = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        (server_config, ClientConfig::new(Arc::new(crypto)))
+        let client_config =
+            ClientConfig::with_root_certificates(Arc::new(roots)).expect("client config");
+        (server_config, client_config)
     }
 
     #[tokio::test]
@@ -1173,11 +1182,13 @@ mod tests {
             payload
         });
 
+        let opener = Arc::new(FixedChunkOpener {
+            endpoint: sender,
+            target_addr: receiver_addr,
+            connection: Arc::new(Mutex::new(None)),
+        });
         send_chunk(
-            Arc::new(FixedChunkOpener {
-                endpoint: sender,
-                target_addr: receiver_addr,
-            }),
+            opener.clone(),
             NodeId::new(),
             source_path,
             TransferSessionId::new(),
@@ -1191,6 +1202,7 @@ mod tests {
         .expect("send compressed chunk");
 
         let payload = received_payload.await.expect("receiver task");
+        drop(opener);
         assert!(
             payload.len() < source_data.len(),
             "Zstd payload should be smaller than the original chunk"

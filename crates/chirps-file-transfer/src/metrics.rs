@@ -339,7 +339,9 @@ impl PrometheusMetrics {
     /// # Panics
     /// This method does not panic.
     pub fn observe_chunk_latency(&self, seconds: f64) {
-        self.chunk_latency.with_label_values(&[]).observe(seconds);
+        self.chunk_latency
+            .with_label_values::<&str>(&[])
+            .observe(seconds);
     }
 
     /// Observes throughput in bytes/sec for the given kind.

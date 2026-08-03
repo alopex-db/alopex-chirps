@@ -16,7 +16,8 @@ use alopex_chirps_transport_quic::{LogFormat, QuicBackend, TelemetryConfig, init
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
-use rustls::{Certificate, PrivateKey, RootCertStore};
+use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fs;
@@ -260,17 +261,13 @@ fn data_tls_config(
     let private_key_der = fs::read(private_key)?;
     let transport = performance_transport();
     let mut server = ServerConfig::with_single_cert(
-        vec![Certificate(certificate_der.clone())],
-        PrivateKey(private_key_der),
+        vec![CertificateDer::from(certificate_der.clone())],
+        PrivatePkcs8KeyDer::from(private_key_der).into(),
     )?;
     server.transport_config(Arc::clone(&transport));
     let mut roots = RootCertStore::empty();
-    roots.add(&Certificate(certificate_der))?;
-    let crypto = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    let mut client = ClientConfig::new(Arc::new(crypto));
+    roots.add(CertificateDer::from(certificate_der))?;
+    let mut client = ClientConfig::with_root_certificates(Arc::new(roots))?;
     client.transport_config(transport);
     Ok((server, client))
 }
@@ -355,13 +352,13 @@ fn phase_label(metric: &prometheus::proto::Metric) -> Option<&str> {
     metric
         .get_label()
         .iter()
-        .find(|label| label.get_name() == "phase")
-        .map(|label| label.get_value())
+        .find(|label| label.name() == "phase")
+        .map(|label| label.value())
 }
 
 fn has_phase_observation(service: &FileTransferServiceImpl, phase: &str) -> bool {
     service.metrics_registry().gather().iter().any(|family| {
-        family.get_name() == "chirps_ft_phase_duration_seconds"
+        family.name() == "chirps_ft_phase_duration_seconds"
             && family.get_metric().iter().any(|metric| {
                 phase_label(metric) == Some(phase) && metric.get_histogram().get_sample_count() > 0
             })
@@ -381,7 +378,7 @@ fn append_phase_metrics(path: &Path, service: &FileTransferServiceImpl) -> Resul
             {
                 return Err(input_error(format!("unexpected phase label {phase:?}")));
             }
-            match family.get_name() {
+            match family.name() {
                 "chirps_ft_phase_duration_seconds" => {
                     let histogram = metric.get_histogram();
                     values.insert(
@@ -396,18 +393,30 @@ fn append_phase_metrics(path: &Path, service: &FileTransferServiceImpl) -> Resul
                 "chirps_ft_phase_bytes_total" => {
                     values.insert(
                         format!("phase_{phase}_bytes"),
-                        format!("{:.0}", metric.get_counter().get_value()),
+                        format!(
+                            "{:.0}",
+                            metric
+                                .get_counter()
+                                .as_ref()
+                                .map_or(0.0, |counter| counter.value())
+                        ),
                     );
                 }
                 _ => {}
             }
         }
-        if family.get_name() == "chirps_ft_retries_total"
+        if family.name() == "chirps_ft_retries_total"
             && let Some(metric) = family.get_metric().first()
         {
             values.insert(
                 "retry_count".to_string(),
-                format!("{:.0}", metric.get_counter().get_value()),
+                format!(
+                    "{:.0}",
+                    metric
+                        .get_counter()
+                        .as_ref()
+                        .map_or(0.0, |counter| counter.value())
+                ),
             );
         }
     }

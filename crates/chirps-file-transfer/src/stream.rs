@@ -86,9 +86,10 @@ impl ChunkStreamCodec {
 
 fn map_read_exact(err: ReadExactError) -> io::Error {
     match err {
-        ReadExactError::FinishedEarly => {
-            io::Error::new(ErrorKind::UnexpectedEof, "stream finished early")
-        }
+        ReadExactError::FinishedEarly(bytes_read) => io::Error::new(
+            ErrorKind::UnexpectedEof,
+            format!("stream finished early after {bytes_read} bytes"),
+        ),
         ReadExactError::ReadError(read_err) => read_err.into(),
     }
 }

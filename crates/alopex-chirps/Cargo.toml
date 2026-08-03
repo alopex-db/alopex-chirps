@@ -25,7 +25,7 @@ tokio = { version = "1.35", features = ["time", "sync", "macros", "rt", "rt-mult
 async-trait = "0.1"
 tracing = "0.1"
 openraft = { version = "=0.9.17", features = ["serde"] }
-prometheus = "0.13"
+prometheus = "0.14"
 http = "0.2"
 
 [dev-dependencies]

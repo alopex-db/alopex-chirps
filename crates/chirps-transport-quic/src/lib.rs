@@ -17,12 +17,13 @@ use alopex_chirps_wire::node_id::NodeId;
 use alopex_chirps_wire::{envelope::FrameEnvelopeV2, frame::Frame};
 use async_trait::async_trait;
 use bincode::{deserialize, serialize, serialized_size};
-use quinn::{ClientConfig, Connection, Endpoint, RecvStream, ServerConfig};
-use rcgen::generate_simple_self_signed;
-use rustls::{
-    Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore,
-    ServerConfig as RustlsServerConfig,
+use quinn::{
+    ClientConfig, Connection, Endpoint, RecvStream, ServerConfig,
+    crypto::rustls::{QuicClientConfig, QuicServerConfig},
 };
+use rcgen::generate_simple_self_signed;
+use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -220,7 +221,7 @@ impl QuicBackend {
         }
         let (server_config, client_config) = build_tls_configs(&config)?;
         let mut endpoint = Endpoint::server(server_config, config.bind_addr)?;
-        endpoint.set_default_client_config(ClientConfig::new(client_config.clone()));
+        endpoint.set_default_client_config(client_config.clone());
 
         let (incoming_tx, incoming_rx) = mpsc::channel(1024);
         let (send_tx, send_rx) = mpsc::channel(transport_config.send_queue_capacity);
@@ -653,7 +654,6 @@ async fn send_wire_message(
         .map_err(|e| TransportError::Send(e.to_string()))?;
     stream
         .finish()
-        .await
         .map_err(|e| TransportError::Send(e.to_string()))
 }
 
@@ -672,7 +672,6 @@ async fn send_envelope(
         .map_err(|e| TransportError::Send(e.to_string()))?;
     stream
         .finish()
-        .await
         .map_err(|e| TransportError::Send(e.to_string()))
 }
 
@@ -1061,9 +1060,7 @@ async fn broadcast_to_peers(
     Ok(sent)
 }
 
-fn build_tls_configs(
-    config: &NodeConfig,
-) -> anyhow::Result<(ServerConfig, Arc<RustlsClientConfig>)> {
+fn build_tls_configs(config: &NodeConfig) -> anyhow::Result<(ServerConfig, ClientConfig)> {
     let (cert_der, key_der) = if let (Some(cert_path), Some(key_path)) =
         (config.cert_path.as_ref(), config.key_path.as_ref())
     {
@@ -1073,31 +1070,31 @@ fn build_tls_configs(
         (cert.serialize_der()?, cert.serialize_private_key_der())
     };
 
-    let cert_chain = vec![Certificate(cert_der.clone())];
-    let priv_key = PrivateKey(key_der);
-    let mut server_crypto = RustlsServerConfig::builder()
-        .with_safe_defaults()
+    let cert_chain = vec![CertificateDer::from(cert_der.clone())];
+    let priv_key = PrivatePkcs8KeyDer::from(key_der).into();
+    let mut server_crypto = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert_chain, priv_key)?;
     server_crypto.alpn_protocols = vec![b"alopex".to_vec()];
-    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+    let server_config =
+        ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
 
     let mut roots = RootCertStore::empty();
     roots
-        .add(&Certificate(cert_der))
+        .add(CertificateDer::from(cert_der))
         .map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
     for cert_path in &config.trusted_cert_paths {
         let trusted_cert = fs::read(cert_path)?;
         roots
-            .add(&Certificate(trusted_cert))
+            .add(CertificateDer::from(trusted_cert))
             .map_err(|_| anyhow::anyhow!("failed to add trusted root cert"))?;
     }
 
-    let mut client_crypto = RustlsClientConfig::builder()
-        .with_safe_defaults()
+    let mut client_crypto = rustls::ClientConfig::builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
     client_crypto.alpn_protocols = vec![b"alopex".to_vec()];
 
-    Ok((server_config, Arc::new(client_crypto)))
+    let client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
+    Ok((server_config, client_config))
 }

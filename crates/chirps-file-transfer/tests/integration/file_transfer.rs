@@ -14,7 +14,8 @@ use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
 use rcgen::generate_simple_self_signed;
-use rustls::{Certificate, PrivateKey, RootCertStore};
+use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -38,18 +39,15 @@ fn build_tls_configs(transport: Option<Arc<TransportConfig>>) -> (ServerConfig, 
     let cert = generate_simple_self_signed([SERVER_NAME.to_string()]).expect("cert");
     let cert_der = cert.serialize_der().expect("cert der");
     let key_der = cert.serialize_private_key_der();
-    let cert_chain = vec![Certificate(cert_der.clone())];
-    let key = PrivateKey(key_der);
+    let cert_chain = vec![CertificateDer::from(cert_der.clone())];
+    let key = PrivatePkcs8KeyDer::from(key_der).into();
 
     let mut server_config = ServerConfig::with_single_cert(cert_chain, key).expect("server config");
 
     let mut roots = RootCertStore::empty();
-    roots.add(&Certificate(cert_der)).expect("add cert");
-    let crypto = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    let mut client_config = ClientConfig::new(Arc::new(crypto));
+    roots.add(CertificateDer::from(cert_der)).expect("add cert");
+    let mut client_config =
+        ClientConfig::with_root_certificates(Arc::new(roots)).expect("client config");
     if let Some(transport) = transport {
         server_config.transport_config(Arc::clone(&transport));
         client_config.transport_config(transport);
@@ -395,9 +393,7 @@ impl CorruptingChunkProxy {
                             Ok(stream) => stream,
                             Err(_) => break,
                         };
-                        if forward.write_all(&frame).await.is_err()
-                            || forward.finish().await.is_err()
-                        {
+                        if forward.write_all(&frame).await.is_err() || forward.finish().is_err() {
                             break;
                         }
                         forwarded_streams.fetch_add(1, Ordering::SeqCst);
@@ -1511,7 +1507,7 @@ async fn each_service_exposes_its_own_metrics_registry() {
                 .metrics_registry()
                 .gather()
                 .iter()
-                .any(|family| family.get_name() == "chirps_ft_active_transfers")
+                .any(|family| family.name() == "chirps_ft_active_transfers")
         );
     }
 }
@@ -1521,7 +1517,7 @@ fn phase_histogram_count(service: &FileTransferServiceImpl, phase: &str) -> u64 
         .metrics_registry()
         .gather()
         .into_iter()
-        .find(|family| family.get_name() == "chirps_ft_phase_duration_seconds")
+        .find(|family| family.name() == "chirps_ft_phase_duration_seconds")
         .and_then(|family| {
             family
                 .get_metric()
@@ -1530,7 +1526,7 @@ fn phase_histogram_count(service: &FileTransferServiceImpl, phase: &str) -> u64 
                     metric
                         .get_label()
                         .iter()
-                        .any(|label| label.get_name() == "phase" && label.get_value() == phase)
+                        .any(|label| label.name() == "phase" && label.value() == phase)
                 })
                 .map(|metric| metric.get_histogram().get_sample_count())
         })
@@ -1542,7 +1538,7 @@ fn phase_bytes(service: &FileTransferServiceImpl, phase: &str) -> u64 {
         .metrics_registry()
         .gather()
         .into_iter()
-        .find(|family| family.get_name() == "chirps_ft_phase_bytes_total")
+        .find(|family| family.name() == "chirps_ft_phase_bytes_total")
         .and_then(|family| {
             family
                 .get_metric()
@@ -1551,9 +1547,14 @@ fn phase_bytes(service: &FileTransferServiceImpl, phase: &str) -> u64 {
                     metric
                         .get_label()
                         .iter()
-                        .any(|label| label.get_name() == "phase" && label.get_value() == phase)
+                        .any(|label| label.name() == "phase" && label.value() == phase)
                 })
-                .map(|metric| metric.get_counter().get_value() as u64)
+                .map(|metric| {
+                    metric
+                        .get_counter()
+                        .as_ref()
+                        .map_or(0, |counter| counter.value() as u64)
+                })
         })
         .unwrap_or_else(|| panic!("missing phase byte metric for {phase}"))
 }
