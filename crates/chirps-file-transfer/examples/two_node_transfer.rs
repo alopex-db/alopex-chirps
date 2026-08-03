@@ -17,9 +17,10 @@ use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
 use rustls::{Certificate, PrivateKey, RootCertStore};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fs;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -350,6 +351,74 @@ fn write_report(path: &Path, values: &[(&str, String)]) -> Result<(), DynError> 
     Ok(())
 }
 
+fn phase_label(metric: &prometheus::proto::Metric) -> Option<&str> {
+    metric
+        .get_label()
+        .iter()
+        .find(|label| label.get_name() == "phase")
+        .map(|label| label.get_value())
+}
+
+fn has_phase_observation(service: &FileTransferServiceImpl, phase: &str) -> bool {
+    service.metrics_registry().gather().iter().any(|family| {
+        family.get_name() == "chirps_ft_phase_duration_seconds"
+            && family.get_metric().iter().any(|metric| {
+                phase_label(metric) == Some(phase) && metric.get_histogram().get_sample_count() > 0
+            })
+    })
+}
+
+fn append_phase_metrics(path: &Path, service: &FileTransferServiceImpl) -> Result<(), DynError> {
+    let mut values = BTreeMap::new();
+    for family in service.metrics_registry().gather() {
+        for metric in family.get_metric() {
+            let Some(phase) = phase_label(metric) else {
+                continue;
+            };
+            if !phase
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+            {
+                return Err(input_error(format!("unexpected phase label {phase:?}")));
+            }
+            match family.get_name() {
+                "chirps_ft_phase_duration_seconds" => {
+                    let histogram = metric.get_histogram();
+                    values.insert(
+                        format!("phase_{phase}_duration_seconds_count"),
+                        histogram.get_sample_count().to_string(),
+                    );
+                    values.insert(
+                        format!("phase_{phase}_duration_seconds_sum"),
+                        format!("{:.9}", histogram.get_sample_sum()),
+                    );
+                }
+                "chirps_ft_phase_bytes_total" => {
+                    values.insert(
+                        format!("phase_{phase}_bytes"),
+                        format!("{:.0}", metric.get_counter().get_value()),
+                    );
+                }
+                _ => {}
+            }
+        }
+        if family.get_name() == "chirps_ft_retries_total"
+            && let Some(metric) = family.get_metric().first()
+        {
+            values.insert(
+                "retry_count".to_string(),
+                format!("{:.0}", metric.get_counter().get_value()),
+            );
+        }
+    }
+
+    let mut report = fs::OpenOptions::new().append(true).open(path)?;
+    for (key, value) in values {
+        writeln!(report, "{key}={value}")?;
+    }
+    Ok(())
+}
+
 async fn wait_for_peer(backend: &QuicBackend, peer_id: NodeId) -> Result<(), DynError> {
     timeout(Duration::from_secs(30), async {
         loop {
@@ -437,15 +506,17 @@ async fn run_sender(
             ("sha256", sha256),
             ("completed", "true".to_string()),
         ],
-    )
+    )?;
+    append_phase_metrics(&args.report, service)
 }
 
-async fn run_receiver(args: &Arguments) -> Result<(), DynError> {
+async fn run_receiver(args: &Arguments, service: &FileTransferServiceImpl) -> Result<(), DynError> {
     let destination = args.base_path.join(&args.destination);
     timeout(Duration::from_secs(180), async {
         loop {
             if let Ok(metadata) = tokio::fs::metadata(&destination).await
                 && metadata.len() == args.expected_bytes
+                && has_phase_observation(service, "receiver_finalize")
             {
                 let sha256 = hex(&IntegrityVerifier::compute_file_hash(
                     &destination,
@@ -479,6 +550,7 @@ async fn run_receiver(args: &Arguments) -> Result<(), DynError> {
                         ("completed", "true".to_string()),
                     ],
                 )?;
+                append_phase_metrics(&args.report, service)?;
                 return Ok::<(), DynError>(());
             }
             sleep(Duration::from_millis(50)).await;
@@ -543,7 +615,7 @@ async fn main() -> Result<(), DynError> {
     let result = if args.role == "sender" {
         run_sender(&args, &service, &backend).await
     } else {
-        run_receiver(&args).await
+        run_receiver(&args, &service).await
     };
     listener.abort();
     let _ = listener.await;

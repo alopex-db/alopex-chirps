@@ -340,6 +340,9 @@ def env(path):
             values[key] = value
     return values
 
+def phase_metrics(report):
+    return {key: value for key, value in report.items() if key.startswith("phase_")}
+
 samples = []
 for number in range(1, 6):
     directory = root / "samples" / f"sample-{number}"
@@ -350,6 +353,10 @@ for number in range(1, 6):
         goodput = float(sender["end_to_end_bytes_per_second"])
     except (KeyError, ValueError):
         goodput = None
+    try:
+        retry_count = int(sender["retry_count"])
+    except (KeyError, ValueError):
+        retry_count = None
     integrity = (
         sender.get("sha256")
         and sender.get("sha256") == receiver.get("sha256") == destination_hash
@@ -367,8 +374,10 @@ for number in range(1, 6):
             "sample": number,
             "end_to_end_goodput_bytes_per_second": goodput,
             "payload_progress_bytes_per_second": sender.get("payload_bytes_per_second"),
-            "retry_count": None,
-            "retry_count_observed": False,
+            "retry_count": retry_count,
+            "retry_count_observed": retry_count is not None,
+            "sender_phase_metrics": phase_metrics(sender),
+            "receiver_phase_metrics": phase_metrics(receiver),
             "sender_receiver_destination_sha256_match": bool(integrity),
             "identity_match": identity,
         }

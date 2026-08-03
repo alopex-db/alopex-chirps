@@ -1516,6 +1516,135 @@ async fn each_service_exposes_its_own_metrics_registry() {
     }
 }
 
+fn phase_histogram_count(service: &FileTransferServiceImpl, phase: &str) -> u64 {
+    service
+        .metrics_registry()
+        .gather()
+        .into_iter()
+        .find(|family| family.get_name() == "chirps_ft_phase_duration_seconds")
+        .and_then(|family| {
+            family
+                .get_metric()
+                .iter()
+                .find(|metric| {
+                    metric
+                        .get_label()
+                        .iter()
+                        .any(|label| label.get_name() == "phase" && label.get_value() == phase)
+                })
+                .map(|metric| metric.get_histogram().get_sample_count())
+        })
+        .unwrap_or_else(|| panic!("missing phase duration metric for {phase}"))
+}
+
+fn phase_bytes(service: &FileTransferServiceImpl, phase: &str) -> u64 {
+    service
+        .metrics_registry()
+        .gather()
+        .into_iter()
+        .find(|family| family.get_name() == "chirps_ft_phase_bytes_total")
+        .and_then(|family| {
+            family
+                .get_metric()
+                .iter()
+                .find(|metric| {
+                    metric
+                        .get_label()
+                        .iter()
+                        .any(|label| label.get_name() == "phase" && label.get_value() == phase)
+                })
+                .map(|metric| metric.get_counter().get_value() as u64)
+        })
+        .unwrap_or_else(|| panic!("missing phase byte metric for {phase}"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn successful_transfer_records_complete_phase_accounting() {
+    const FILE_BYTES: usize = 256 * 1024;
+    const CHUNK_BYTES: usize = 64 * 1024;
+    const CHUNKS: u64 = (FILE_BYTES / CHUNK_BYTES) as u64;
+
+    let cluster = TestCluster::new();
+    let sender_dir = TempDir::new().expect("sender dir");
+    let receiver_dir = TempDir::new().expect("receiver dir");
+    let sender_id = NodeId::new();
+    let receiver_id = NodeId::new();
+    let sender = cluster
+        .add_node(sender_id, sender_dir.path().to_path_buf())
+        .await;
+    let receiver = cluster
+        .add_node(receiver_id, receiver_dir.path().to_path_buf())
+        .await;
+
+    let source_path = sender_dir.path().join("phase-source.bin");
+    let destination_path = receiver_dir.path().join("phase-destination.bin");
+    write_pattern_file(&source_path, FILE_BYTES)
+        .await
+        .expect("write source");
+
+    sender
+        .service
+        .send_file(
+            receiver_id,
+            &source_path,
+            &destination_path,
+            TransferOptions::default()
+                .with_chunk_size(CHUNK_BYTES)
+                .with_concurrency(2),
+        )
+        .await
+        .expect("send file");
+    assert_files_match(&source_path, &destination_path).await;
+
+    assert_eq!(
+        phase_histogram_count(&sender.service, "sender_source_prepare"),
+        1
+    );
+    assert_eq!(
+        phase_bytes(&sender.service, "sender_source_prepare"),
+        FILE_BYTES as u64
+    );
+    for phase in [
+        "sender_chunk_read",
+        "sender_chunk_compress",
+        "sender_chunk_stream",
+    ] {
+        assert_eq!(
+            phase_histogram_count(&sender.service, phase),
+            CHUNKS,
+            "{phase}"
+        );
+        assert_eq!(
+            phase_bytes(&sender.service, phase),
+            FILE_BYTES as u64,
+            "{phase}"
+        );
+    }
+    for phase in ["receiver_chunk_verify", "receiver_chunk_write"] {
+        assert_eq!(
+            phase_histogram_count(&receiver.service, phase),
+            CHUNKS,
+            "{phase}"
+        );
+        assert_eq!(
+            phase_bytes(&receiver.service, phase),
+            FILE_BYTES as u64,
+            "{phase}"
+        );
+    }
+    assert_eq!(
+        phase_histogram_count(&receiver.service, "receiver_finalize"),
+        1
+    );
+    assert_eq!(
+        phase_bytes(&receiver.service, "receiver_finalize"),
+        FILE_BYTES as u64
+    );
+
+    receiver.shutdown().await;
+    sender.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sync_bidirectional_conflict_manual() {
     let cluster = TestCluster::new();

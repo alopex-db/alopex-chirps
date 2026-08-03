@@ -84,6 +84,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "blake3",
+ "criterion",
  "filetime",
  "prometheus",
  "quinn",

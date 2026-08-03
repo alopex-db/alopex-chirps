@@ -4,6 +4,7 @@ use prometheus::{
     Registry,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 /// In-memory counters for file transfer activity.
 #[derive(Debug)]
@@ -147,6 +148,8 @@ pub struct PrometheusMetrics {
     pub transfer_duration: HistogramVec,
     pub chunk_latency: HistogramVec,
     pub throughput: HistogramVec,
+    pub phase_duration: HistogramVec,
+    pub phase_bytes: CounterVec,
 }
 
 impl PrometheusMetrics {
@@ -219,6 +222,23 @@ impl PrometheusMetrics {
             .buckets(vec![1e6, 1e7, 5e7, 1e8, 5e8, 1e9]),
             &["kind"],
         )?;
+        let phase_duration = HistogramVec::new(
+            HistogramOpts::new(
+                "chirps_ft_phase_duration_seconds",
+                "Duration of a FileTransfer implementation phase",
+            )
+            .buckets(vec![
+                0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 30.0,
+            ]),
+            &["phase"],
+        )?;
+        let phase_bytes = CounterVec::new(
+            Opts::new(
+                "chirps_ft_phase_bytes_total",
+                "Bytes processed by a FileTransfer implementation phase",
+            ),
+            &["phase"],
+        )?;
 
         registry.register(Box::new(transfers_total.clone()))?;
         registry.register(Box::new(chunks_total.clone()))?;
@@ -230,6 +250,8 @@ impl PrometheusMetrics {
         registry.register(Box::new(transfer_duration.clone()))?;
         registry.register(Box::new(chunk_latency.clone()))?;
         registry.register(Box::new(throughput.clone()))?;
+        registry.register(Box::new(phase_duration.clone()))?;
+        registry.register(Box::new(phase_bytes.clone()))?;
 
         Ok(PrometheusMetrics {
             transfers_total,
@@ -242,6 +264,8 @@ impl PrometheusMetrics {
             transfer_duration,
             chunk_latency,
             throughput,
+            phase_duration,
+            phase_bytes,
         })
     }
 
@@ -326,6 +350,23 @@ impl PrometheusMetrics {
         self.throughput
             .with_label_values(&[kind_label(kind)])
             .observe(bytes_per_sec);
+    }
+
+    /// Records the byte count and elapsed time of an implementation phase.
+    ///
+    /// Phase metrics are intentionally separate from end-to-end throughput:
+    /// they make a local component regression observable before a controlled
+    /// two-container release measurement is run.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn observe_phase(&self, phase: &str, duration: Duration, bytes: u64) {
+        self.phase_duration
+            .with_label_values(&[phase])
+            .observe(duration.as_secs_f64());
+        self.phase_bytes
+            .with_label_values(&[phase])
+            .inc_by(bytes as f64);
     }
 }
 

@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions as StdOpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs::{self, OpenOptions};
 #[cfg(not(unix))]
 use tokio::io::AsyncSeekExt;
@@ -536,7 +536,15 @@ impl ReceiveHandler {
             return Err(FileTransferError::ChunkChecksumMismatch { index: chunk_index });
         }
 
+        let verify_started = Instant::now();
         let checksum = IntegrityVerifier::compute_chunk_checksum(&data);
+        if let Some(metrics) = &self.metrics {
+            metrics.observe_phase(
+                "receiver_chunk_verify",
+                verify_started.elapsed(),
+                data.len() as u64,
+            );
+        }
         if checksum != meta.checksum {
             let mut sessions = self.sessions.write().await;
             if let Some(session) = sessions.get_mut(&session_id) {
@@ -563,7 +571,15 @@ impl ReceiveHandler {
             });
         }
 
+        let write_started = Instant::now();
         write_chunk_to_temp(&self.config, &dest_path, session_id, meta.offset, &data).await?;
+        if let Some(metrics) = &self.metrics {
+            metrics.observe_phase(
+                "receiver_chunk_write",
+                write_started.elapsed(),
+                data.len() as u64,
+            );
+        }
 
         // Only the task that changes InProgress to Verifying owns finalization.
         // This keeps hash verification and rename single-shot even when streams
@@ -609,6 +625,7 @@ impl ReceiveHandler {
         };
 
         let temp_path = temp_path_for(&self.config, &final_path, session_id);
+        let finalize_started = Instant::now();
         if let Err(err) = verify_and_finalize(&temp_path, &final_path, &manifest, mode).await {
             let persisted = {
                 let mut sessions = self.sessions.write().await;
@@ -632,6 +649,13 @@ impl ReceiveHandler {
             }
             let _ = send_terminal_error(control, sender, session_id, &err).await;
             return Err(err);
+        }
+        if let Some(metrics) = &self.metrics {
+            metrics.observe_phase(
+                "receiver_finalize",
+                finalize_started.elapsed(),
+                manifest.file_size,
+            );
         }
 
         let (persisted, duration_ms) = {

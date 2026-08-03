@@ -31,6 +31,7 @@ tracing.workspace = true
 tempfile = "3.8"
 rcgen = "0.12"
 rustls = "0.21"
+criterion = { version = "0.5", features = ["async_tokio"] }
 alopex-chirps-mock.workspace = true
 alopex-chirps-transport-quic.workspace = true
 
@@ -65,3 +66,7 @@ path = "tests/unit/persistence.rs"
 [[test]]
 name = "stream_codec"
 path = "tests/unit/stream_codec.rs"
+
+[[bench]]
+name = "file_transfer_components"
+harness = false

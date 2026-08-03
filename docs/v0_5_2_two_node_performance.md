@@ -55,6 +55,26 @@ scripts/perf/run-controlled-container-file-transfer.sh \
 
 この harness は開発者と calibration runner が **local-first** で実行する。CI は要件を発見する場所ではなく、承認済みの harness と evidence schema を再実行・検証するだけである。
 
+### 性能原因を最終試験へ持ち越さないための層別 harness
+
+`ft-1g-v1` の不合格だけから特定の関数・QUIC・disk が遅いと結論してはならない。一方、最終 binary/container 試験で初めて速度低下を知る構成も不十分である。v0.5.2 では #25 により、同じ 128 MiB / compression `none` / 1 MiB chunk / concurrency 4 の workload を次の層へ分解する。
+
+| 層 | local-first harness | 通常 test で決定的に確認すること | calibration で記録する値 |
+| --- | --- | --- | --- |
+| function | manifest/hash、chunk read、compression、`ChunkStreamCodec`、receiver write/finalize | 正しい byte 数・checksum、境界、無効 frame 拒否 | operation ごとの bytes/s・allocation/operation count |
+| module | sender scheduler、connection reuse、ACK/NACK/retry、receiver session | `concurrency` 上限、全 chunk の一回限り completion、retry と in-flight accounting | chunk read / encode / stream / verify / write の bytes/s と duration |
+| service | `FileTransferService` と実 QUIC data plane の local diagnostic | phase observation の全項目、retry/byte/integrity の集計一致 | source prepare、control、chunk pipeline、receiver finalize の各 duration |
+| binary | `two_node_transfer` / controlled two-container | source/image/profile/scope と SHA-256 の一致 | 上記 phase 集計と end-to-end goodput |
+
+通常の `cargo test` に host 固有の B/s 閾値を置かない。代わりに byte accounting、phase event count、connection/retry/concurrency の構造的不変条件を検証する。function/module の速度比較は `cargo bench` の Criterion evidence として local calibration host に保存し、前回の同一 profile と比較する。最終 `ft-1g-v1` の `100,000,000 B/s` だけが release SLO であり、下位 benchmark は原因帰属と回帰検知のための入力である。
+
+```bash
+CARGO_TARGET_DIR=/var/tmp/chirps-ft-component-bench \
+  cargo bench -p alopex-chirps-file-transfer --bench file_transfer_components
+```
+
+この bench は source manifest/hash（128 MiB）、実際の source open + 1 MiB chunk read、`compression=none`、接続再利用済み QUIC codec round trip を測定する。結果は同一 host / kernel / Rust / profile の前回値とだけ比較し、`ft-1g-v1` の release 判定値に代用しない。
+
 ## 2. Deployment compatibility: two-host diagnostic
 
 二 host の試験は、Chirps が物理経路で機能することを確認する。host、NIC、家庭内 LAN、WSL、VPN、firewall、disk の性能を含むため、`ft-1g-v1` の数値と比較・合算してはならない。

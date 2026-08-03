@@ -92,6 +92,7 @@ pub(crate) async fn send_file_with_context(
     delete_source: bool,
 ) -> Result<SendFileResult, FileTransferError> {
     options = resolve_transfer_options(&config, options)?;
+    let source_prepare_started = Instant::now();
     let metadata = fs::metadata(source_path).await?;
     if !metadata.is_file() {
         return Err(FileTransferError::FileNotFound(
@@ -174,6 +175,13 @@ pub(crate) async fn send_file_with_context(
         session_id,
     )
     .await?;
+    if let Some(metrics) = &metrics {
+        metrics.observe_phase(
+            "sender_source_prepare",
+            source_prepare_started.elapsed(),
+            file_size,
+        );
+    }
 
     let mut session = TransferSession::new(
         session_id,
@@ -365,6 +373,7 @@ pub(crate) async fn send_file_with_context(
             let session_id = session.id;
             let chunk_size = chunk_manager.chunk_size();
             let compression = options.compression;
+            let metrics = metrics.clone();
             tokio::spawn(async move {
                 let result = send_chunk(
                     opener,
@@ -375,6 +384,7 @@ pub(crate) async fn send_file_with_context(
                     chunk_size,
                     compression,
                     throttle,
+                    metrics,
                 )
                 .await;
                 let _ = send_tx.send((index, result)).await;
@@ -830,25 +840,51 @@ async fn send_chunk(
     chunk_size: usize,
     compression: CompressionAlgorithm,
     throttle: Option<Arc<BandwidthThrottle>>,
+    metrics: Option<Arc<PrometheusMetrics>>,
 ) -> Result<(), FileTransferError> {
+    let read_started = Instant::now();
     let mut file = fs::File::open(&source_path).await?;
     let chunk_manager = ChunkManager::new(chunk_size);
     let chunk = chunk_manager
         .read_chunk(&mut file, index)
         .await
         .map_err(FileTransferError::Io)?;
+    if let Some(metrics) = &metrics {
+        metrics.observe_phase(
+            "sender_chunk_read",
+            read_started.elapsed(),
+            chunk.data.len() as u64,
+        );
+    }
+
+    let compression_started = Instant::now();
     let payload = compress_bytes(&chunk.data, compression)?;
+    if let Some(metrics) = &metrics {
+        metrics.observe_phase(
+            "sender_chunk_compress",
+            compression_started.elapsed(),
+            payload.len() as u64,
+        );
+    }
 
     if let Some(throttle) = throttle {
         throttle.acquire(payload.len() as u64).await;
     }
 
+    let stream_started = Instant::now();
     let mut stream = opener.open_chunk_stream(target).await?;
     crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, &payload).await?;
     stream
         .finish()
         .await
         .map_err(|e| FileTransferError::Transport(e.to_string()))?;
+    if let Some(metrics) = &metrics {
+        metrics.observe_phase(
+            "sender_chunk_stream",
+            stream_started.elapsed(),
+            payload.len() as u64,
+        );
+    }
     Ok(())
 }
 
@@ -1148,6 +1184,7 @@ mod tests {
             0,
             64 * 1024,
             CompressionAlgorithm::Zstd,
+            None,
             None,
         )
         .await
