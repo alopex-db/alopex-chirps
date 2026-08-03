@@ -141,6 +141,20 @@ fn benchmark_components(criterion: &mut Criterion) {
         });
     });
 
+    group.bench_function("receiver_finalize_hash_128mib", |bench| {
+        let path = path.clone();
+        bench.to_async(&runtime).iter(|| {
+            let path = path.clone();
+            async move {
+                black_box(
+                    IntegrityVerifier::compute_file_hash(&path, HashAlgorithm::Sha256)
+                        .await
+                        .expect("receiver final hash"),
+                )
+            }
+        });
+    });
+
     group.throughput(Throughput::Bytes(CHUNK_BYTES as u64));
     group.bench_function("source_open_and_read_1mib_chunk", |bench| {
         let path = path.clone();

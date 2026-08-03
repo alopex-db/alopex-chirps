@@ -5,6 +5,8 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use xxhash_rust::xxh64::Xxh64;
 
+const FILE_HASH_BUFFER_BYTES: usize = 1024 * 1024;
+
 /// Utilities for computing and verifying checksums and hashes.
 pub struct IntegrityVerifier;
 
@@ -37,7 +39,7 @@ impl IntegrityVerifier {
         algorithm: HashAlgorithm,
     ) -> std::io::Result<Vec<u8>> {
         let mut file = File::open(path).await?;
-        let mut buffer = vec![0u8; 64 * 1024];
+        let mut buffer = vec![0u8; FILE_HASH_BUFFER_BYTES];
 
         let mut hasher = FileHasher::new(algorithm);
         loop {
