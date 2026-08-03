@@ -187,8 +187,8 @@ receiver_started=true
 
 bash scripts/perf/create-lab-tls.sh --output "$tls_dir"
 for name in "$sender_name" "$receiver_name"; do
-  docker cp "$tls_dir/cert.der" "$name:/run/chirps/tls/cert.der"
-  docker cp "$tls_dir/key.der" "$name:/run/chirps/tls/key.der"
+  docker exec -i "$name" sh -ceu 'cat > /run/chirps/tls/cert.der' <"$tls_dir/cert.der"
+  docker exec -i "$name" sh -ceu 'cat > /run/chirps/tls/key.der' <"$tls_dir/key.der"
   docker exec --user root "$name" sh -ceu '
     chown chirps:chirps /run/chirps/tls/cert.der /run/chirps/tls/key.der
     chmod 600 /run/chirps/tls/cert.der /run/chirps/tls/key.der
