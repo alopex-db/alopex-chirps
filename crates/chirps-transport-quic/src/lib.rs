@@ -69,6 +69,7 @@ pub use telemetry::{LogFormat, TelemetryConfig, init_metrics, init_test_tracing,
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
+const MAX_CONCURRENT_SENDS: usize = 64;
 const SEND_RETRY_ATTEMPTS: usize = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -654,7 +655,17 @@ async fn send_wire_message(
         .map_err(|e| TransportError::Send(e.to_string()))?;
     stream
         .finish()
-        .map_err(|e| TransportError::Send(e.to_string()))
+        .map_err(|e| TransportError::Send(e.to_string()))?;
+    match stream
+        .stopped()
+        .await
+        .map_err(|e| TransportError::Send(e.to_string()))?
+    {
+        Some(error_code) => Err(TransportError::Send(format!(
+            "wire stream stopped by peer with code {error_code}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 async fn send_envelope(
@@ -672,7 +683,17 @@ async fn send_envelope(
         .map_err(|e| TransportError::Send(e.to_string()))?;
     stream
         .finish()
-        .map_err(|e| TransportError::Send(e.to_string()))
+        .map_err(|e| TransportError::Send(e.to_string()))?;
+    match stream
+        .stopped()
+        .await
+        .map_err(|e| TransportError::Send(e.to_string()))?
+    {
+        Some(error_code) => Err(TransportError::Send(format!(
+            "frame stream stopped by peer with code {error_code}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 async fn read_wire_message(
@@ -762,56 +783,80 @@ fn spawn_send_loop(
             weights: priority_config.weights,
             quantum_bytes: MAX_FRAME_SIZE,
         });
+        let mut in_flight = tokio::task::JoinSet::new();
         loop {
-            if let Some(command) = scheduler.dequeue() {
-                match command.payload {
-                    SendCommand::Unicast {
-                        target,
-                        frame,
-                        respond_to,
-                        ..
-                    } => {
-                        let send_res = send_with_retry(
-                            &connections,
-                            &peer_capabilities,
-                            &metrics,
-                            &retransmit_buffer,
-                            &metrics_ext,
-                            &receive_handler,
-                            node_id,
+            while in_flight.len() < MAX_CONCURRENT_SENDS
+                && let Some(command) = scheduler.dequeue()
+            {
+                let connections = Arc::clone(&connections);
+                let peer_capabilities = Arc::clone(&peer_capabilities);
+                let metrics = Arc::clone(&metrics);
+                let retransmit_buffer = Arc::clone(&retransmit_buffer);
+                let metrics_ext = Arc::clone(&metrics_ext);
+                let receive_handler = Arc::clone(&receive_handler);
+                in_flight.spawn(async move {
+                    match command.payload {
+                        SendCommand::Unicast {
                             target,
                             frame,
-                            timeout,
-                        )
-                        .await;
-                        let _ = respond_to.send(send_res);
+                            respond_to,
+                            ..
+                        } => {
+                            let send_res = send_with_retry(
+                                &connections,
+                                &peer_capabilities,
+                                &metrics,
+                                &retransmit_buffer,
+                                &metrics_ext,
+                                &receive_handler,
+                                node_id,
+                                target,
+                                frame,
+                                timeout,
+                            )
+                            .await;
+                            let _ = respond_to.send(send_res);
+                        }
+                        SendCommand::Broadcast {
+                            frame, respond_to, ..
+                        } => {
+                            let send_res = broadcast_with_retry(
+                                &connections,
+                                &peer_capabilities,
+                                &metrics,
+                                &retransmit_buffer,
+                                &metrics_ext,
+                                &receive_handler,
+                                node_id,
+                                frame,
+                                timeout,
+                            )
+                            .await;
+                            let _ = respond_to.send(send_res);
+                        }
                     }
-                    SendCommand::Broadcast {
-                        frame, respond_to, ..
-                    } => {
-                        let send_res = broadcast_with_retry(
-                            &connections,
-                            &peer_capabilities,
-                            &metrics,
-                            &retransmit_buffer,
-                            &metrics_ext,
-                            &receive_handler,
-                            node_id,
-                            frame,
-                            timeout,
-                        )
-                        .await;
-                        let _ = respond_to.send(send_res);
-                    }
-                }
-                continue;
+                });
             }
 
             let command = select! {
-                _ = shutdown_rx.recv() => break,
+                _ = shutdown_rx.recv() => {
+                    in_flight.shutdown().await;
+                    break;
+                },
+                result = in_flight.join_next(), if !in_flight.is_empty() => {
+                    if let Some(Err(err)) = result {
+                        warn!("send task failed: {err}");
+                    }
+                    continue;
+                },
                 command = rx.recv() => command,
             };
             let Some(command) = command else {
+                while let Some(result) = in_flight.join_next().await {
+                    if let Err(err) = result {
+                        warn!("send task failed while draining: {err}");
+                    }
+                }
                 break;
             };
             enqueue_send_command(&mut scheduler, command, priority_config.enabled);

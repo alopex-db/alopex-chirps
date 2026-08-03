@@ -3,6 +3,9 @@ use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
 use alopex_chirps_core::error::TransportError;
 use alopex_chirps_transport_quic::{QuicBackend, init_test_tracing};
+use alopex_chirps_wire::file_transfer::{
+    CancelRequest, FileTransferFrame, FileTransferMessage, TransferSessionId,
+};
 use alopex_chirps_wire::frame::{Frame, UserMessage};
 use alopex_chirps_wire::node_id::NodeId;
 use rcgen::generate_simple_self_signed;
@@ -179,6 +182,57 @@ async fn ping_ack_roundtrip() -> anyhow::Result<()> {
 
     backend_a.close().await?;
     backend_b.close().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
+async fn close_after_send_preserves_file_transfer_control_frames() -> anyhow::Result<()> {
+    const FRAME_COUNT: usize = 64;
+
+    let node_a = NodeId::new();
+    let node_b = NodeId::new();
+    let tls = TestTls::two_nodes();
+    let addr_a = free_addr()?;
+    let addr_b = free_addr()?;
+    let backend_a = QuicBackend::new(node_a, tls.config(0, addr_a, vec![])).await?;
+    let backend_b = QuicBackend::new(node_b, tls.config(1, addr_b, vec![addr_a])).await?;
+    let mut rx_a = backend_a.subscribe().await?;
+    let _rx_b = backend_b.subscribe().await?;
+
+    wait_for_connected(&backend_a, 1).await;
+    wait_for_connected(&backend_b, 1).await;
+
+    for index in 0..FRAME_COUNT {
+        backend_b
+            .send(
+                node_a,
+                Frame::FileTransfer(FileTransferFrame {
+                    session_id: TransferSessionId::new(),
+                    message: FileTransferMessage::Cancel(CancelRequest {
+                        reason: format!("close-after-send-{index}"),
+                    }),
+                }),
+            )
+            .await?;
+    }
+    backend_b.close().await?;
+
+    for index in 0..FRAME_COUNT {
+        let (from, frame) = tokio::time::timeout(Duration::from_secs(2), rx_a.recv())
+            .await?
+            .expect("all acknowledged control frames must survive immediate close");
+        assert_eq!(from, node_b);
+        match frame {
+            Frame::FileTransfer(FileTransferFrame {
+                message: FileTransferMessage::Cancel(cancel),
+                ..
+            }) => assert_eq!(cancel.reason, format!("close-after-send-{index}")),
+            other => panic!("expected FileTransfer Cancel, got {other:?}"),
+        }
+    }
+
+    backend_a.close().await?;
     Ok(())
 }
 

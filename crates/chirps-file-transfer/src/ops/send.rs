@@ -877,6 +877,10 @@ async fn send_chunk(
     stream
         .finish()
         .map_err(|e| FileTransferError::Transport(e.to_string()))?;
+    // Do not wait for QUIC-level acknowledgement here. The transfer loop already
+    // keeps this chunk in flight until the receiver verifies it and returns a
+    // ChunkAck, so awaiting SendStream::stopped would duplicate that acknowledgement
+    // and serialize every chunk on a transport round trip.
     if let Some(metrics) = &metrics {
         metrics.observe_phase(
             "sender_chunk_stream",
