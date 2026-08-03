@@ -280,6 +280,8 @@ run_transfer() {
   docker exec "$sender_name" cat "$sender_dir/sender-result.env" >"$sample_dir/sender-result.env"
   docker exec "$receiver_name" cat "$receiver_dir/receiver-result.env" >"$sample_dir/receiver-result.env"
   docker exec "$receiver_name" sha256sum "$receiver_dir/throughput-dest.bin" >"$sample_dir/destination.sha256"
+  docker exec "$sender_name" rm -rf -- "$sender_dir"
+  docker exec "$receiver_name" rm -rf -- "$receiver_dir"
 }
 
 run_transfer warmup
