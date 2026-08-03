@@ -74,6 +74,23 @@ done
 }
 
 source_sha="$(git rev-parse HEAD)"
+host_platform="native-linux"
+if grep -qiE 'microsoft|wsl' /proc/version; then
+  host_platform="wsl"
+fi
+host_platform_eligible=false
+if [[ "$host_platform" == "native-linux" ]]; then
+  host_platform_eligible=true
+fi
+docker_warnings="$(docker info --format '{{range .Warnings}}{{println .}}{{end}}' 2>&1 || true)"
+swap_limit_enforced=true
+if grep -qi 'swap limit' <<<"$docker_warnings"; then
+  swap_limit_enforced=false
+fi
+profile_environment_eligible=false
+if [[ "$host_platform_eligible" == true && "$swap_limit_enforced" == true ]]; then
+  profile_environment_eligible=true
+fi
 run_id="${source_sha:0:12}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 network_name="chirps-ft-${run_id}"
 sender_name="chirps-ft-sender-${run_id}"
@@ -131,6 +148,10 @@ image_source_sha="$(docker image inspect --format '{{ index .Config.Labels "org.
   printf 'source_sha=%s\n' "$source_sha"
   printf 'image=%s\n' "$image"
   printf 'image_digest=%s\n' "$image_digest"
+  printf 'host_platform=%s\n' "$host_platform"
+  printf 'host_platform_eligible=%s\n' "$host_platform_eligible"
+  printf 'swap_limit_enforced=%s\n' "$swap_limit_enforced"
+  printf 'profile_environment_eligible=%s\n' "$profile_environment_eligible"
   printf 'file_bytes=%s\n' "$FILE_BYTES"
   printf 'sample_count=%s\n' "$SAMPLE_COUNT"
   printf 'chunk_size=%s\n' "$CHUNK_SIZE"
@@ -147,6 +168,7 @@ image_source_sha="$(docker image inspect --format '{{ index .Config.Labels "org.
 
 {
   printf '%s\n' '# uname'; uname -a
+  printf '%s\n' '# proc-version'; cat /proc/version
   printf '%s\n' '# cpu'; lscpu
   printf '%s\n' '# memory'; free -h
   printf '%s\n' '# docker version'; docker version
@@ -296,7 +318,7 @@ for name in "$sender_name" "$receiver_name"; do
   docker stats --no-stream --format '{{json .}}' "$name" >"$output/containers/$name.stats.json"
 done
 
-python3 - "$output" "$source_sha" "$image_digest" <<'PY'
+python3 - "$output" "$source_sha" "$image_digest" "$host_platform" "$host_platform_eligible" "$swap_limit_enforced" "$profile_environment_eligible" <<'PY'
 import json
 import pathlib
 import statistics
@@ -305,6 +327,10 @@ import sys
 root = pathlib.Path(sys.argv[1])
 source_sha = sys.argv[2]
 image_digest = sys.argv[3]
+host_platform = sys.argv[4]
+host_platform_eligible = sys.argv[5] == "true"
+swap_limit_enforced = sys.argv[6] == "true"
+profile_environment_eligible = sys.argv[7] == "true"
 
 def env(path):
     values = {}
@@ -360,6 +386,10 @@ result = {
     "profile_id": "ft-1g-v1",
     "source_sha": source_sha,
     "image_digest": image_digest,
+    "host_platform": host_platform,
+    "host_platform_eligible": host_platform_eligible,
+    "swap_limit_enforced": swap_limit_enforced,
+    "profile_environment_eligible": profile_environment_eligible,
     "file_bytes": 134217728,
     "sample_count": len(samples),
     "minimum_end_to_end_goodput_bytes_per_second": threshold,
@@ -368,7 +398,7 @@ result = {
     "median_end_to_end_goodput_bytes_per_second": statistics.median(goodputs) if complete else None,
     "integrity_passed": integrity,
     "identity_passed": identity,
-    "product_performance_passed": threshold_passed and integrity and identity,
+    "product_performance_passed": profile_environment_eligible and threshold_passed and integrity and identity,
     "release_eligible": False,
     "release_eligibility_reason": "product-performance evidence is one v0.5.2 release input; it is not the complete release contract",
 }
@@ -379,6 +409,9 @@ summary = [
     "",
     f"- Source SHA: `{source_sha}`",
     f"- Image digest: `{image_digest}`",
+    f"- Host platform: `{host_platform}`",
+    f"- Profile environment: `{'ELIGIBLE' if profile_environment_eligible else 'INELIGIBLE'}`",
+    f"- Swap limit enforced: `{'YES' if swap_limit_enforced else 'NO'}`",
     f"- Samples: `{len(samples)}`",
     f"- Minimum required goodput: `{threshold} B/s`",
     f"- Product performance: `{'PASS' if result['product_performance_passed'] else 'FAIL'}`",

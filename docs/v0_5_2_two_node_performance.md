@@ -51,6 +51,8 @@ scripts/perf/run-controlled-container-file-transfer.sh \
 
 `evidence/result.json` の `product_performance_passed=true` はこの profile の SLO と integrity が通ったことだけを表す。これは v0.5.2 全体の `release_eligible` ではない。retry/wire-byte の sample 指標と、release contract verifier が profile/evidence の欠落を拒否する実装は、引き続き未完了要件として追跡する。
 
+実行器は `host_platform`、`host_platform_eligible`、`swap_limit_enforced`、`profile_environment_eligible` を evidence に記録する。`product_performance_passed=true` には、数値・integrity・identity に加え `profile_environment_eligible=true` が必須である。従って WSL/Docker Desktop や、Docker が memory/no-swap を実効的に強制できない host での結果は、実装診断には利用できても `ft-1g-v1` の正本にはならない。
+
 この harness は開発者と calibration runner が **local-first** で実行する。CI は要件を発見する場所ではなく、承認済みの harness と evidence schema を再実行・検証するだけである。
 
 ## 2. Deployment compatibility: two-host diagnostic
