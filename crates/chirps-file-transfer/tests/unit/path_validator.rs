@@ -52,6 +52,30 @@ fn path_validator_rejects_symlink_components() {
 
 #[cfg(unix)]
 #[test]
+fn path_validator_accepts_configured_base_path_alias_but_rejects_child_escape() {
+    use std::os::unix::fs as unix_fs;
+
+    let root = tempdir().expect("tempdir");
+    let physical_base = root.path().join("physical-base");
+    std::fs::create_dir_all(&physical_base).expect("create base");
+    let base_alias = root.path().join("base-alias");
+    unix_fs::symlink(&physical_base, &base_alias).expect("create base alias");
+
+    let validator = PathValidator::new(base_alias.clone(), false);
+    let accepted = validator
+        .validate(&base_alias.join("nested/destination.bin"))
+        .expect("configured base alias is trusted");
+    assert_eq!(accepted, physical_base.join("nested/destination.bin"));
+
+    let outside = tempdir().expect("outside tempdir");
+    unix_fs::symlink(outside.path(), physical_base.join("escape"))
+        .expect("create child escape symlink");
+    let rejected = validator.validate(&base_alias.join("escape/destination.bin"));
+    assert!(matches!(rejected, Err(FileTransferError::PathTraversal(_))));
+}
+
+#[cfg(unix)]
+#[test]
 fn path_validator_follow_symlink_rejects_escape() {
     use std::os::unix::fs as unix_fs;
 
