@@ -1,3 +1,4 @@
+use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_file_transfer::ops::{
     ChunkStreamOpener, ControlDispatcher, ReceiveHandler, handle_exists_request,
     handle_list_request, handle_metadata_request, handle_remove_request,
@@ -9,7 +10,10 @@ use alopex_chirps_file_transfer::{
     TransferMode, TransferOptions, TransferSessionId,
 };
 use alopex_chirps_mock::{MockBackend, MockNetwork};
-use alopex_chirps_wire::file_transfer::{FileTransferMessage, ManifestAck, TransferResponse};
+use alopex_chirps_wire::file_transfer::{
+    CancelRequest, FileTransferFrame, FileTransferMessage, ManifestAck, TransferResponse,
+};
+use alopex_chirps_wire::frame::Frame;
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
@@ -25,6 +29,7 @@ use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, Notify, RwLock, broadcast};
 use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use tokio::time::{Duration, Instant};
 
 const SERVER_NAME: &str = "localhost";
@@ -158,6 +163,68 @@ impl ChunkStreamOpener for TestChunkEndpoint {
             .open_uni()
             .await
             .map_err(|err| FileTransferError::Transport(err.to_string()))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn control_dispatcher_does_not_lose_concurrent_session_notifications() {
+    const SESSION_COUNT: usize = 256;
+
+    let network = MockNetwork::new();
+    let sender_id = NodeId::new();
+    let receiver_id = NodeId::new();
+    let sender = Arc::new(
+        network
+            .add_node(sender_id, alopex_chirps_mock::MockBackend::ephemeral_addr())
+            .await,
+    );
+    let receiver = Arc::new(
+        network
+            .add_node(
+                receiver_id,
+                alopex_chirps_mock::MockBackend::ephemeral_addr(),
+            )
+            .await,
+    );
+    let incoming = receiver.subscribe().await.expect("receiver subscription");
+    let receiver_backend: Arc<dyn MessageBackend> = receiver;
+    let dispatcher = ControlDispatcher::new(receiver_backend, incoming);
+    let sessions = (0..SESSION_COUNT)
+        .map(|_| TransferSessionId::new())
+        .collect::<Vec<_>>();
+
+    let mut waiters = JoinSet::new();
+    for session_id in sessions.iter().copied() {
+        let dispatcher = Arc::clone(&dispatcher);
+        waiters.spawn(async move {
+            let (from, message) = dispatcher
+                .recv_filtered(session_id, Duration::from_secs(2), |message| {
+                    matches!(message, FileTransferMessage::Cancel(_))
+                })
+                .await
+                .expect("control notification must not be lost");
+            assert_eq!(from, sender_id);
+            assert!(matches!(message, FileTransferMessage::Cancel(_)));
+        });
+    }
+
+    for session_id in sessions {
+        sender
+            .send(
+                receiver_id,
+                Frame::FileTransfer(FileTransferFrame {
+                    session_id,
+                    message: FileTransferMessage::Cancel(CancelRequest {
+                        reason: "dispatcher stress".to_string(),
+                    }),
+                }),
+            )
+            .await
+            .expect("send control frame");
+    }
+
+    while let Some(result) = waiters.join_next().await {
+        result.expect("dispatcher waiter");
     }
 }
 
