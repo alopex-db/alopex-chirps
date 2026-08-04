@@ -335,6 +335,9 @@ run_transfer() {
   done
   docker exec "$sender_name" rm -rf -- "$sender_dir"
   docker exec "$receiver_name" rm -rf -- "$receiver_dir"
+  for name in "$sender_name" "$receiver_name"; do
+    docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.current' >"$sample_dir/$name.memory.post_cleanup" 2>&1 || true
+  done
 }
 
 run_transfer warmup
@@ -426,6 +429,8 @@ for number in range(1, 6):
             "sender_memory_peak_bytes": cgroup_value(directory, "peak", "sender"),
             "receiver_memory_current_bytes": cgroup_value(directory, "current", "receiver"),
             "receiver_memory_peak_bytes": cgroup_value(directory, "peak", "receiver"),
+            "sender_memory_post_cleanup_bytes": cgroup_value(directory, "post_cleanup", "sender"),
+            "receiver_memory_post_cleanup_bytes": cgroup_value(directory, "post_cleanup", "receiver"),
         }
     )
 
@@ -435,6 +440,22 @@ integrity = all(sample["sender_receiver_destination_sha256_match"] for sample in
 identity = all(sample["identity_match"] for sample in samples)
 threshold = 100_000_000
 threshold_passed = complete and all(value >= threshold for value in goodputs)
+post_cleanup = [
+    value
+    for sample in samples
+    for value in (
+        sample["sender_memory_post_cleanup_bytes"],
+        sample["receiver_memory_post_cleanup_bytes"],
+    )
+    if value is not None
+]
+post_cleanup_growth = None
+post_cleanup_stable = None
+if len(post_cleanup) >= 4:
+    first = max(post_cleanup[:2])
+    last = max(post_cleanup[-2:])
+    post_cleanup_growth = last - first
+    post_cleanup_stable = post_cleanup_growth <= 16 * 1024 * 1024
 result = {
     "schema_version": 1,
     "evidence_class": "product-controlled-container",
@@ -455,6 +476,8 @@ result = {
     "median_end_to_end_goodput_bytes_per_second": statistics.median(goodputs) if complete else None,
     "integrity_passed": integrity,
     "identity_passed": identity,
+    "post_cleanup_memory_growth_bytes": post_cleanup_growth,
+    "post_cleanup_memory_stable_within_16MiB": post_cleanup_stable,
     "product_performance_passed": profile_environment_eligible and threshold_passed and integrity and identity,
     "release_eligible": False,
     "release_eligibility_reason": "product-performance evidence is one v0.5.2 release input; it is not the complete release contract",
@@ -477,7 +500,7 @@ summary = [
 for sample in samples:
     value = sample["end_to_end_goodput_bytes_per_second"]
     summary.append(f"- Sample {sample['sample']} goodput: `{value:.0f} B/s`" if value is not None else f"- Sample {sample['sample']} goodput: `missing`")
-    summary.append(f"  - sender memory peak: `{sample['sender_memory_peak_bytes']} B`, receiver memory peak: `{sample['receiver_memory_peak_bytes']} B`")
+    summary.append(f"  - peak sender/receiver: `{sample['sender_memory_peak_bytes']} / {sample['receiver_memory_peak_bytes']} B`; post-cleanup: `{sample['sender_memory_post_cleanup_bytes']} / {sample['receiver_memory_post_cleanup_bytes']} B`")
 (root / "evidence" / "summary.md").write_text("\n".join(summary) + "\n", encoding="utf-8")
 PY
 

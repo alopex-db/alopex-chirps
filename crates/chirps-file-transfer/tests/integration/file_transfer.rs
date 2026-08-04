@@ -1976,3 +1976,67 @@ async fn file_transfer_loopback_reports_diagnostic() {
         payload_throughput = progress.throughput,
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repeated_multi_channel_transfers_release_session_state() {
+    const ITERATIONS: usize = 32;
+    const FILE_SIZE: usize = 256 * 1024;
+
+    let cluster = TestCluster::new();
+    let sender_dir = TempDir::new().expect("sender dir");
+    let receiver_dir = TempDir::new().expect("receiver dir");
+    let sender_id = NodeId::new();
+    let receiver_id = NodeId::new();
+    let sender = cluster
+        .add_node(sender_id, sender_dir.path().to_path_buf())
+        .await;
+    let receiver = cluster
+        .add_node(receiver_id, receiver_dir.path().to_path_buf())
+        .await;
+
+    for iteration in 0..ITERATIONS {
+        let source_path = sender_dir.path().join(format!("source-{iteration}.bin"));
+        let dest_path = receiver_dir.path().join(format!("dest-{iteration}.bin"));
+        write_pattern_file(&source_path, FILE_SIZE)
+            .await
+            .expect("write source");
+        sender
+            .service
+            .send_file(
+                receiver_id,
+                &source_path,
+                &dest_path,
+                TransferOptions::default()
+                    .with_chunk_size(16 * 1024)
+                    .with_concurrency(4),
+            )
+            .await
+            .expect("send file");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while (!sender.service.active_transfers().is_empty()
+            || !receiver.service.active_transfers().is_empty())
+            && Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            sender.service.active_transfers().is_empty(),
+            "sender retained active session state after iteration {iteration}"
+        );
+        assert!(
+            receiver.service.active_transfers().is_empty(),
+            "receiver retained active session state after iteration {iteration}"
+        );
+        assert_files_match(&source_path, &dest_path).await;
+        tokio::fs::remove_file(source_path)
+            .await
+            .expect("remove source");
+        tokio::fs::remove_file(dest_path)
+            .await
+            .expect("remove destination");
+    }
+
+    receiver.shutdown().await;
+    sender.shutdown().await;
+}
