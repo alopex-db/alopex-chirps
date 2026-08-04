@@ -3,9 +3,24 @@
 ARG RUST_IMAGE=rust:1.96-bookworm
 FROM ${RUST_IMAGE} AS build
 
+ARG SOURCE_SHA=unknown
+
 WORKDIR /src
 COPY . .
 RUN cargo build --locked --release -p alopex-chirps-file-transfer --example two_node_transfer
+
+LABEL org.opencontainers.image.revision="${SOURCE_SHA}"
+
+# This named stage deliberately retains Cargo, the exact source tree, and the
+# compiled workspace.  The container-validation harness executes unit,
+# integration, and Criterion workloads here before the stripped product image
+# is allowed into the ft-1g-v1 binary measurement.
+FROM build AS validation
+RUN cargo test --locked \
+        -p alopex-chirps-file-transfer \
+        -p alopex-chirps-transport-quic \
+        --tests --no-run \
+    && cargo bench --locked -p alopex-chirps-file-transfer --bench file_transfer_components --no-run
 
 FROM debian:bookworm-slim
 ARG SOURCE_SHA=unknown

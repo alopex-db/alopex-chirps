@@ -34,6 +34,34 @@ fn layered_performance_contract_is_complete_and_wired() {
     assert_eq!(workload["compression"], "none");
     assert_eq!(workload["resumable"], true);
 
+    let container_validation = required(&contract, &["container_validation"]);
+    assert!(
+        root.join(container_validation["harness"].as_str().unwrap())
+            .is_file()
+    );
+    assert_eq!(container_validation["required_before_binary"], true);
+    assert_eq!(container_validation["requires_same_source_sha"], true);
+    assert_eq!(container_validation["network_mode"], "none");
+    assert_eq!(
+        container_validation["stages"]
+            .as_array()
+            .expect("container validation stages")
+            .len(),
+        3
+    );
+    let binary_harness = std::fs::read_to_string(
+        root.join(
+            contract["layers"]["binary"]["harness"]
+                .as_str()
+                .expect("binary harness"),
+        ),
+    )
+    .expect("binary harness source");
+    assert!(
+        binary_harness.contains(container_validation["harness"].as_str().unwrap()),
+        "binary harness must execute mandatory container validation"
+    );
+
     let layers = required(&contract, &["layers"]);
     assert_eq!(
         layers

@@ -28,9 +28,11 @@ Usage:
   run-controlled-container-file-transfer.sh --output DIR
     [--image IMAGE] [--sender-cpus CPUSET] [--receiver-cpus CPUSET]
 
-Builds (unless --image is supplied) a source-SHA-labelled performance image,
-creates an internal user-defined Docker bridge, and runs one warm-up plus five
-fresh sender/receiver process pairs. The profile is fixed as ft-1g-v1:
+First runs containerized FileTransfer/QUIC tests and component Criterion for the
+same source SHA. It then builds (unless --image is supplied) a source-SHA-labelled
+performance image, creates an internal user-defined Docker bridge, and runs one
+warm-up plus five fresh sender/receiver process pairs. The profile is fixed as
+ft-1g-v1:
 
   128 MiB, compression=none, chunk=1 MiB, concurrency=4,
   sender/receiver tmpfs, 1gbit TBF + 1ms netem + 0% loss in both directions,
@@ -124,6 +126,25 @@ trap cleanup EXIT INT TERM
 
 mkdir -p "$output/samples" "$output/host" "$output/containers"
 
+# Lower-layer validation is deliberately mandatory and precedes creation of
+# the product measurement containers. A host-only test pass is not sufficient
+# evidence for the containerized binary path.
+bash scripts/perf/run-container-file-transfer-validation.sh \
+  --output "$output/container-validation"
+container_validation_result="$output/container-validation/evidence/result.json"
+python3 - "$container_validation_result" "$source_sha" <<'PY'
+import json
+import pathlib
+import sys
+
+result = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if result.get("source_sha") != sys.argv[2]:
+    raise SystemExit("container validation source SHA does not match product source SHA")
+if result.get("passed") is not True:
+    raise SystemExit("container lower-layer validation did not pass")
+PY
+container_validation_image_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image_digest"])' "$container_validation_result")"
+
 if [[ -z "$image" ]]; then
   image="chirps-ft-1g:${source_sha}"
   git archive --format=tar "$source_sha" | tar -x -C "$build_context"
@@ -152,6 +173,8 @@ image_source_sha="$(docker image inspect --format '{{ index .Config.Labels "org.
   printf 'host_platform_eligible=%s\n' "$host_platform_eligible"
   printf 'swap_limit_enforced=%s\n' "$swap_limit_enforced"
   printf 'profile_environment_eligible=%s\n' "$profile_environment_eligible"
+  printf 'container_validation_passed=true\n'
+  printf 'container_validation_image_digest=%s\n' "$container_validation_image_digest"
   printf 'file_bytes=%s\n' "$FILE_BYTES"
   printf 'sample_count=%s\n' "$SAMPLE_COUNT"
   printf 'chunk_size=%s\n' "$CHUNK_SIZE"
@@ -319,7 +342,7 @@ for name in "$sender_name" "$receiver_name"; do
   docker stats --no-stream --format '{{json .}}' "$name" >"$output/containers/$name.stats.json"
 done
 
-python3 - "$output" "$source_sha" "$image_digest" "$host_platform" "$host_platform_eligible" "$swap_limit_enforced" "$profile_environment_eligible" <<'PY'
+python3 - "$output" "$source_sha" "$image_digest" "$host_platform" "$host_platform_eligible" "$swap_limit_enforced" "$profile_environment_eligible" "$container_validation_image_digest" <<'PY'
 import json
 import pathlib
 import statistics
@@ -332,6 +355,7 @@ host_platform = sys.argv[4]
 host_platform_eligible = sys.argv[5] == "true"
 swap_limit_enforced = sys.argv[6] == "true"
 profile_environment_eligible = sys.argv[7] == "true"
+container_validation_image_digest = sys.argv[8]
 
 def env(path):
     values = {}
@@ -401,6 +425,8 @@ result = {
     "host_platform_eligible": host_platform_eligible,
     "swap_limit_enforced": swap_limit_enforced,
     "profile_environment_eligible": profile_environment_eligible,
+    "container_validation_passed": True,
+    "container_validation_image_digest": container_validation_image_digest,
     "file_bytes": 134217728,
     "sample_count": len(samples),
     "minimum_end_to_end_goodput_bytes_per_second": threshold,

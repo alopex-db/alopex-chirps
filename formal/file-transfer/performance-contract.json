@@ -10,6 +10,17 @@
     "compression": "none",
     "resumable": true
   },
+  "container_validation": {
+    "harness": "scripts/perf/run-container-file-transfer-validation.sh",
+    "required_before_binary": true,
+    "requires_same_source_sha": true,
+    "network_mode": "none",
+    "stages": [
+      "file_transfer_unit_and_integration_tests",
+      "transport_quic_integration_tests",
+      "file_transfer_component_criterion"
+    ]
+  },
   "layers": {
     "function": {
       "harness": "crates/chirps-file-transfer/benches/file_transfer_components.rs",
