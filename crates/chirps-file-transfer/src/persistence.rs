@@ -9,6 +9,8 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
+const PROGRESS_RECORD_BYTES: usize = 8;
+
 /// Persists transfer sessions on disk for resume support.
 #[derive(Debug)]
 pub struct SessionPersistence {
@@ -56,6 +58,40 @@ impl SessionPersistence {
         file.write_all(&bytes).await?;
         file.flush().await?;
         fs::rename(&tmp_path, &path).await?;
+        match fs::remove_file(self.progress_path(&session.id)).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(FileTransferError::Io(error)),
+        }
+        Ok(())
+    }
+
+    /// Appends one verified chunk to the durable resume journal.
+    ///
+    /// The fixed-size record stores the index and its bitwise complement so a
+    /// partial or corrupt trailing record is ignored during recovery. Calling
+    /// this method repeatedly for the same index is idempotent when replayed.
+    ///
+    /// # Errors
+    /// Returns `FileTransferError::Io` if the journal cannot be created,
+    /// written, or flushed.
+    pub async fn checkpoint_chunk(
+        &self,
+        session_id: TransferSessionId,
+        index: u32,
+    ) -> Result<(), FileTransferError> {
+        let _guard = self.guard.lock().await;
+        fs::create_dir_all(&self.dir).await?;
+        let mut record = [0u8; PROGRESS_RECORD_BYTES];
+        record[..4].copy_from_slice(&index.to_le_bytes());
+        record[4..].copy_from_slice(&(!index).to_le_bytes());
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.progress_path(&session_id))
+            .await?;
+        file.write_all(&record).await?;
+        file.flush().await?;
         Ok(())
     }
 
@@ -78,8 +114,26 @@ impl SessionPersistence {
             }
             Err(err) => return Err(FileTransferError::Io(err)),
         };
-        let session = bincode::deserialize(&bytes)
+        let mut session: TransferSession = bincode::deserialize(&bytes)
             .map_err(|e| FileTransferError::Serialization(e.to_string()))?;
+        match fs::read(self.progress_path(&id)).await {
+            Ok(progress) => {
+                for record in progress.chunks_exact(PROGRESS_RECORD_BYTES) {
+                    let index =
+                        u32::from_le_bytes(record[..4].try_into().expect("four index bytes"));
+                    let complement =
+                        u32::from_le_bytes(record[4..].try_into().expect("four complement bytes"));
+                    if complement != !index {
+                        break;
+                    }
+                    if index < session.chunk_tracker.total_chunks {
+                        session.chunk_tracker.mark_completed(index);
+                    }
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(FileTransferError::Io(error)),
+        }
         Ok(session)
     }
 
@@ -93,11 +147,19 @@ impl SessionPersistence {
     pub async fn remove(&self, id: TransferSessionId) -> Result<(), FileTransferError> {
         let _guard = self.guard.lock().await;
         let path = self.session_path(&id);
-        match fs::remove_file(&path).await {
+        let result = match fs::remove_file(&path).await {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(err) => Err(FileTransferError::Io(err)),
+        };
+        if result.is_ok() {
+            match fs::remove_file(self.progress_path(&id)).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(FileTransferError::Io(error)),
+            }
         }
+        result
     }
 
     /// Runs garbage collection for expired sessions and enforces `max_sessions`.
@@ -115,7 +177,7 @@ impl SessionPersistence {
 
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if !path.is_file() {
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("bin") {
                 continue;
             }
             let bytes = match fs::read(&path).await {
@@ -133,6 +195,7 @@ impl SessionPersistence {
         for (path, session) in &sessions {
             if is_expired(now, session.updated_at, self.retention) {
                 let _ = fs::remove_file(path).await;
+                let _ = fs::remove_file(path.with_extension("progress")).await;
             }
         }
 
@@ -144,7 +207,8 @@ impl SessionPersistence {
 
         if remaining.len() > self.max_sessions {
             for (path, _) in remaining.drain(self.max_sessions..) {
-                let _ = fs::remove_file(path).await;
+                let _ = fs::remove_file(&path).await;
+                let _ = fs::remove_file(path.with_extension("progress")).await;
             }
         }
 
@@ -159,6 +223,10 @@ impl SessionPersistence {
     /// Returns the temporary path used for atomic session writes.
     fn temp_path(&self, id: &TransferSessionId) -> PathBuf {
         self.dir.join(format!("session_{}.tmp", id))
+    }
+
+    fn progress_path(&self, id: &TransferSessionId) -> PathBuf {
+        self.dir.join(format!("session_{}.progress", id))
     }
 }
 

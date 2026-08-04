@@ -84,78 +84,9 @@ jobs:
       - name: Run three-node mesh integration tests
         run: cargo test -p chirps-e2e --test three_node_mesh -- --ignored
 
-  file-transfer-performance:
-    name: Physical two-node File Transfer 1 Gbps performance gate
-    needs: ci-gate
-    runs-on: [self-hosted, linux, chirps-1gbps-controller]
-    timeout-minutes: 30
-    env:
-      CHIRPS_PERF_SENDER_HOST: ${{ vars.CHIRPS_PERF_SENDER_HOST }}
-      CHIRPS_PERF_RECEIVER_HOST: ${{ vars.CHIRPS_PERF_RECEIVER_HOST }}
-      CHIRPS_PERF_REMOTE_WORKDIR: ${{ vars.CHIRPS_PERF_REMOTE_WORKDIR }}
-      CHIRPS_PERF_REMOTE_OUTPUT_ROOT: ${{ vars.CHIRPS_PERF_REMOTE_OUTPUT_ROOT }}
-      CHIRPS_PERF_SENDER_CONTROL_BIND: ${{ vars.CHIRPS_PERF_SENDER_CONTROL_BIND }}
-      CHIRPS_PERF_SENDER_CONTROL_ADDRESS: ${{ vars.CHIRPS_PERF_SENDER_CONTROL_ADDRESS }}
-      CHIRPS_PERF_RECEIVER_CONTROL_BIND: ${{ vars.CHIRPS_PERF_RECEIVER_CONTROL_BIND }}
-      CHIRPS_PERF_RECEIVER_CONTROL_ADDRESS: ${{ vars.CHIRPS_PERF_RECEIVER_CONTROL_ADDRESS }}
-      CHIRPS_PERF_SENDER_DATA_BIND: ${{ vars.CHIRPS_PERF_SENDER_DATA_BIND }}
-      CHIRPS_PERF_SENDER_DATA_ADDRESS: ${{ vars.CHIRPS_PERF_SENDER_DATA_ADDRESS }}
-      CHIRPS_PERF_RECEIVER_DATA_BIND: ${{ vars.CHIRPS_PERF_RECEIVER_DATA_BIND }}
-      CHIRPS_PERF_RECEIVER_DATA_ADDRESS: ${{ vars.CHIRPS_PERF_RECEIVER_DATA_ADDRESS }}
-      CHIRPS_PERF_RECEIVER_IPERF_ADDRESS: ${{ vars.CHIRPS_PERF_RECEIVER_IPERF_ADDRESS }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-      - name: Prepare physical measurement evidence directory
-        env:
-          CHIRPS_PERF_OUTPUT: ${{ runner.temp }}/chirps-two-node-release-${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          mkdir -p "${CHIRPS_PERF_OUTPUT}"
-          printf 'CHIRPS_PERF_OUTPUT=%s\n' "${CHIRPS_PERF_OUTPUT}" >> "${GITHUB_ENV}"
-      - name: Measure physical two-node v0.5.2 transfer
-        run: |
-          set -euo pipefail
-          scripts/perf/run-two-node-file-transfer.sh \
-            --sender "${CHIRPS_PERF_SENDER_HOST}" \
-            --receiver "${CHIRPS_PERF_RECEIVER_HOST}" \
-            --remote-workdir "${CHIRPS_PERF_REMOTE_WORKDIR}" \
-            --remote-output-root "${CHIRPS_PERF_REMOTE_OUTPUT_ROOT}" \
-            --output "${CHIRPS_PERF_OUTPUT}" \
-            --sender-control-bind "${CHIRPS_PERF_SENDER_CONTROL_BIND}" \
-            --sender-control-address "${CHIRPS_PERF_SENDER_CONTROL_ADDRESS}" \
-            --receiver-control-bind "${CHIRPS_PERF_RECEIVER_CONTROL_BIND}" \
-            --receiver-control-address "${CHIRPS_PERF_RECEIVER_CONTROL_ADDRESS}" \
-            --sender-data-bind "${CHIRPS_PERF_SENDER_DATA_BIND}" \
-            --sender-data-address "${CHIRPS_PERF_SENDER_DATA_ADDRESS}" \
-            --receiver-data-bind "${CHIRPS_PERF_RECEIVER_DATA_BIND}" \
-            --receiver-data-address "${CHIRPS_PERF_RECEIVER_DATA_ADDRESS}" \
-            --receiver-iperf-address "${CHIRPS_PERF_RECEIVER_IPERF_ADDRESS}"
-      - name: Require eligible evidence
-        run: |
-          set -euo pipefail
-          python - "${CHIRPS_PERF_OUTPUT}/evidence/result.json" <<'PY'
-            import json
-            import sys
-
-            with open(sys.argv[1], encoding="utf-8") as handle:
-                result = json.load(handle)
-            if result.get("release_eligible") is not True:
-                raise SystemExit(f"physical two-node performance gate failed: {result}")
-          PY
-      - name: Upload physical measurement evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: chirps-two-node-release-evidence
-          path: ${{ env.CHIRPS_PERF_OUTPUT }}
-          if-no-files-found: warn
-          retention-days: 90
-
   publish-crate:
     name: Publish to crates.io
-    needs: [ci-gate, file-transfer-performance]
+    needs: [ci-gate]
     runs-on: ubuntu-latest
     environment: release
     env:

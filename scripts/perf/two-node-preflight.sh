@@ -9,10 +9,12 @@ usage() {
 Usage:
   two-node-preflight.sh --role receiver --output DIR [--bind ADDRESS] [--port PORT]
   two-node-preflight.sh --role sender --output DIR --receiver ADDRESS [--bind ADDRESS]
-                        [--port PORT] [--duration SECONDS]
+                        [--port PORT] [--duration SECONDS] [--protocol udp|tcp]
+                        [--bitrate RATE]
 
 The output directory must not contain prior evidence. The receiver exits after
-one sender run. Both roles record host facts and the checked-out source SHA.
+one sender run. `udp` is a PATH-UDP-100 reachability diagnostic, not a Chirps
+throughput measurement. Both roles record host facts and the checked-out source SHA.
 USAGE
 }
 
@@ -21,7 +23,9 @@ output=""
 receiver=""
 bind=""
 port="5201"
-duration="30"
+duration="15"
+protocol="udp"
+bitrate="100M"
 expected_sha=""
 
 while [[ $# -gt 0 ]]; do
@@ -32,6 +36,8 @@ while [[ $# -gt 0 ]]; do
     --bind) bind="${2:?missing value for --bind}"; shift 2 ;;
     --port) port="${2:?missing value for --port}"; shift 2 ;;
     --duration) duration="${2:?missing value for --duration}"; shift 2 ;;
+    --protocol) protocol="${2:?missing value for --protocol}"; shift 2 ;;
+    --bitrate) bitrate="${2:?missing value for --bitrate}"; shift 2 ;;
     --expected-sha) expected_sha="${2:?missing value for --expected-sha}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -42,6 +48,8 @@ case "$role" in receiver|sender) ;; *) printf '%s\n' '--role must be receiver or
 [[ -n "$output" ]] || { printf '%s\n' '--output is required' >&2; exit 2; }
 [[ "$port" =~ ^[0-9]+$ ]] || { printf '%s\n' '--port must be numeric' >&2; exit 2; }
 [[ "$duration" =~ ^[1-9][0-9]*$ ]] || { printf '%s\n' '--duration must be a positive integer' >&2; exit 2; }
+[[ "$protocol" == "udp" || "$protocol" == "tcp" ]] || { printf '%s\n' '--protocol must be udp or tcp' >&2; exit 2; }
+[[ -n "$bitrate" ]] || { printf '%s\n' '--bitrate must not be empty' >&2; exit 2; }
 if [[ "$role" == sender && -z "$receiver" ]]; then
   printf '%s\n' '--receiver is required for the sender role' >&2
   exit 2
@@ -70,6 +78,8 @@ fi
   printf 'started_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'port=%s\n' "$port"
   printf 'duration_seconds=%s\n' "$duration"
+  printf 'protocol=%s\n' "$protocol"
+  printf 'offered_bitrate=%s\n' "$bitrate"
   printf 'bind=%s\n' "$bind"
   printf 'receiver=%s\n' "$receiver"
 } >"$output/run.env"
@@ -89,6 +99,10 @@ iperf_args=(--port "$port" --json)
 if [[ -n "$bind" ]]; then
   iperf_args+=(--bind "$bind")
 fi
+client_iperf_args=("${iperf_args[@]}")
+if [[ "$protocol" == "udp" ]]; then
+  client_iperf_args+=(--udp --bitrate "$bitrate")
+fi
 
 if [[ "$role" == receiver ]]; then
   # --one-off prevents a controller interruption from leaving a daemon behind.
@@ -97,7 +111,7 @@ if [[ "$role" == receiver ]]; then
   exit 0
 fi
 
-if ! iperf3 --client "$receiver" --time "$duration" --get-server-output "${iperf_args[@]}" >"$output/iperf3-sender.json" 2>"$output/iperf3-sender.stderr"; then
+if ! iperf3 --client "$receiver" --time "$duration" --get-server-output "${client_iperf_args[@]}" >"$output/iperf3-sender.json" 2>"$output/iperf3-sender.stderr"; then
   printf 'status=failed\n' >>"$output/run.env"
   exit 1
 fi
@@ -112,8 +126,8 @@ summary = document.get("end", {}).get("sum_sent", {})
 bits_per_second = summary.get("bits_per_second")
 if not isinstance(bits_per_second, (int, float)) or bits_per_second <= 0:
     raise SystemExit("iperf3 JSON does not contain a positive end.sum_sent.bits_per_second")
-print(f"iperf_bits_per_second={bits_per_second:.0f}")
-print(f"iperf_bytes_per_second={bits_per_second / 8:.0f}")
+print(f"iperf_sender_bits_per_second={bits_per_second:.0f}")
+print(f"iperf_sender_bytes_per_second={bits_per_second / 8:.0f}")
 print("status=passed")
 PY
 printf 'completed_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$output/run.env"

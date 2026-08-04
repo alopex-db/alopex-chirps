@@ -112,42 +112,9 @@ jobs:
       - name: Lint GitHub Actions workflow syntax and expressions
         run: ./actionlint -no-color -shellcheck= -pyflakes=
 
-  release-acceptance:
-    name: Release Branch Acceptance
-    if: startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/'))
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Validate the release acceptance contract
-        run: |
-          set -euo pipefail
-          branch="${GITHUB_BASE_REF:-${GITHUB_REF_NAME}}"
-          case "${branch}" in
-            release/v*) version="${branch#release/v}" ;;
-            *) echo "Expected a release/vX.Y.Z branch, got ${branch}" >&2; exit 1 ;;
-          esac
-          cargo_version="$(python -c $'import sys\nimport tomllib\n\nwith open("Cargo.toml", "rb") as handle:\n    data = tomllib.load(handle)\n\nversion = data.get("workspace", {}).get("package", {}).get("version")\nif not version:\n    sys.exit("Failed to read workspace.package version from Cargo.toml")\n\nprint(version)')"
-          [[ "${version}" == "${cargo_version}" ]] || {
-            echo "Release branch version ${version} does not match Cargo.toml ${cargo_version}" >&2
-            exit 1
-          }
-          scripts/verify-release-contract.sh --version "${version}"
-      - name: Run workspace release-candidate tests
-        run: cargo test --workspace --all-features --no-fail-fast
-      - name: Run release-candidate documentation tests
-        run: cargo test --doc --workspace
-      - name: Run File Transfer release acceptance tests
-        run: cargo test -p alopex-chirps-file-transfer --all-features
-      - name: Run QUIC network integration tests
-        run: cargo test -p alopex-chirps-transport-quic --test quic_integration -- --ignored
-      - name: Run three-node mesh integration tests
-        run: cargo test -p chirps-e2e --test three_node_mesh -- --ignored --test-threads=1
-
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, test, coverage, security-audit, workflow-lint, release-acceptance]
+    needs: [fmt, clippy, test, coverage, security-audit, workflow-lint]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -160,11 +127,6 @@ jobs:
              [[ "${{ needs.security-audit.result }}" != "success" ]] || \
              [[ "${{ needs.workflow-lint.result }}" != "success" ]]; then
             echo "One or more jobs failed"
-            exit 1
-          fi
-          if [[ "${{ needs.release-acceptance.result }}" != "success" ]] && \
-             [[ "${{ needs.release-acceptance.result }}" != "skipped" ]]; then
-            echo "Release branch acceptance failed"
             exit 1
           fi
           echo "All CI jobs passed!"

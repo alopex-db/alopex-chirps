@@ -22,6 +22,25 @@ pub fn compress_bytes(
     }
 }
 
+/// Compresses an owned payload while reusing its allocation for `None`.
+///
+/// # Errors
+/// Returns `FileTransferError::Compression` when the compression backend fails.
+///
+/// # Panics
+/// This function does not panic.
+pub fn compress_owned_bytes(
+    data: Vec<u8>,
+    algorithm: CompressionAlgorithm,
+) -> Result<Vec<u8>, FileTransferError> {
+    match algorithm {
+        CompressionAlgorithm::None => Ok(data),
+        CompressionAlgorithm::Zstd | CompressionAlgorithm::ZstdLevel(_) => {
+            compress_bytes(&data, algorithm)
+        }
+    }
+}
+
 /// Decompresses a byte slice using the requested algorithm.
 ///
 /// # Errors
@@ -44,6 +63,26 @@ pub fn decompress_bytes(
                 .read_to_end(&mut output)
                 .map_err(|e| FileTransferError::Compression(e.to_string()))?;
             Ok(output)
+        }
+    }
+}
+
+/// Decompresses an owned payload while reusing its allocation for `None`.
+///
+/// # Errors
+/// Returns `FileTransferError::Compression` when the decompression backend fails.
+///
+/// # Panics
+/// This function does not panic.
+pub fn decompress_owned_bytes(
+    data: Vec<u8>,
+    algorithm: CompressionAlgorithm,
+    uncompressed_size: Option<usize>,
+) -> Result<Vec<u8>, FileTransferError> {
+    match algorithm {
+        CompressionAlgorithm::None => Ok(data),
+        CompressionAlgorithm::Zstd | CompressionAlgorithm::ZstdLevel(_) => {
+            decompress_bytes(&data, algorithm, uncompressed_size)
         }
     }
 }
@@ -121,4 +160,24 @@ fn compress_stream_with_level<R: Read, W: Write>(
         .finish()
         .map_err(|e| FileTransferError::Compression(e.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compress_owned_bytes, decompress_owned_bytes};
+    use crate::CompressionAlgorithm;
+
+    #[test]
+    fn none_reuses_owned_payload_allocation() {
+        let payload = vec![7_u8; 1024 * 1024];
+        let allocation = payload.as_ptr();
+        let encoded = compress_owned_bytes(payload, CompressionAlgorithm::None).expect("encode");
+        assert_eq!(encoded.as_ptr(), allocation);
+
+        let allocation = encoded.as_ptr();
+        let decoded =
+            decompress_owned_bytes(encoded, CompressionAlgorithm::None, Some(1024 * 1024))
+                .expect("decode");
+        assert_eq!(decoded.as_ptr(), allocation);
+    }
 }

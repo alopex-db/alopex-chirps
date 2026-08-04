@@ -1,7 +1,6 @@
 use alopex_chirps_wire::node_id::NodeId;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rand::{Rng, thread_rng};
-use rustls::ClientConfig as RustlsClientConfig;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -24,7 +23,7 @@ pub enum ReconnectCommand {
 pub fn start_seed_reconnector(
     seeds: Vec<SocketAddr>,
     endpoint: Endpoint,
-    client_config: Arc<RustlsClientConfig>,
+    client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     receive_handler: Arc<ReceiveHandler>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
@@ -44,7 +43,7 @@ pub fn start_seed_reconnector(
         let seeds = Arc::clone(&seeds);
         let inflight = Arc::clone(&inflight);
         let endpoint = endpoint.clone();
-        let client_config = Arc::clone(&client_config);
+        let client_config = client_config.clone();
         let connections = Arc::clone(&connections);
         let handler = Arc::clone(&receive_handler);
         let peer_capabilities = Arc::clone(&peer_capabilities);
@@ -61,7 +60,7 @@ pub fn start_seed_reconnector(
                         launch_attempts(
                             Arc::clone(&seeds),
                             endpoint.clone(),
-                            Arc::clone(&client_config),
+                            client_config.clone(),
                             Arc::clone(&connections),
                             Arc::clone(&handler),
                             Arc::clone(&peer_capabilities),
@@ -78,7 +77,7 @@ pub fn start_seed_reconnector(
                         launch_attempts(
                             Arc::clone(&seeds),
                             endpoint.clone(),
-                            Arc::clone(&client_config),
+                            client_config.clone(),
                             Arc::clone(&connections),
                             Arc::clone(&handler),
                             Arc::clone(&peer_capabilities),
@@ -103,7 +102,7 @@ pub fn start_seed_reconnector(
 async fn launch_attempts(
     seeds: Arc<Vec<SocketAddr>>,
     endpoint: Endpoint,
-    client_config: Arc<RustlsClientConfig>,
+    client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     receive_handler: Arc<ReceiveHandler>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
@@ -129,7 +128,7 @@ async fn launch_attempts(
         tokio::spawn(reconnect_seed(
             seed,
             endpoint.clone(),
-            Arc::clone(&client_config),
+            client_config.clone(),
             Arc::clone(&connections),
             Arc::clone(&receive_handler),
             Arc::clone(&peer_capabilities),
@@ -147,7 +146,7 @@ async fn launch_attempts(
 async fn reconnect_seed(
     seed: SocketAddr,
     endpoint: Endpoint,
-    client_config: Arc<RustlsClientConfig>,
+    client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     receive_handler: Arc<ReceiveHandler>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
@@ -173,11 +172,7 @@ async fn reconnect_seed(
             continue;
         }
 
-        match endpoint.connect_with(
-            ClientConfig::new(client_config.clone()),
-            seed,
-            DEFAULT_SERVER_NAME,
-        ) {
+        match endpoint.connect_with(client_config.clone(), seed, DEFAULT_SERVER_NAME) {
             Ok(connecting) => match connecting.await {
                 Ok(connection) => {
                     info!("connected to seed {seed}");

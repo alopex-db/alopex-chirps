@@ -1,0 +1,52 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-file-transfer-v0-5
+  language: TLA+
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 12
+    constants:
+      RetryLimit: 2
+    scope: "One sender, one receiver, metadata-level payload encoding, at most two retries."
+    exclusions:
+      - "Physical two-host throughput and NIC behavior"
+      - "Real-network payload modification beyond the model's corrupt/drop actions"
+      - "Unbounded liveness and fairness"
+requirements:
+  - id: FT-THROUGHPUT-100MBPS
+    failure_mode: "A function, module, or service regression is detected only by the final ft-1g-v1 binary gate."
+    performance_contract: formal/file-transfer/performance-contract.json
+    refinement:
+      - crates/chirps-transport-quic/src/lib.rs
+      - crates/chirps-file-transfer/src/ops/send.rs
+      - crates/chirps-file-transfer/src/ops/receive.rs
+    local_component_test: crates/chirps-file-transfer/tests/integration/file_transfer.rs::successful_transfer_records_complete_phase_accounting
+  - id: FT-COMPRESSION-ROUND-TRIP
+    failure_mode: "Compression metadata diverges from the sender payload or receiver decode path."
+    properties:
+      - WireMetadataMatchesPayload
+      - ReceiverDecodesTheAdvertisedEncoding
+    refinement:
+      - crates/chirps-file-transfer/src/ops/send.rs
+      - crates/chirps-file-transfer/src/ops/receive.rs
+    local_component_test: crates/chirps-file-transfer/tests/integration/file_transfer.rs::send_file_transfers_zstd_compressed_file
+  - id: FT-CORRUPTION-RETRY
+    failure_mode: "A corrupted chunk reaches successful completion without retry or terminal failure."
+    properties:
+      - CorruptionRequiresRetryBeforeSuccess
+      - CompleteImpliesVerifiedInstall
+    refinement:
+      - crates/chirps-file-transfer/src/ops/receive.rs
+      - crates/chirps-file-transfer/src/ops/send.rs
+    local_component_test: crates/chirps-file-transfer/tests/integration/file_transfer.rs::send_file_retries_after_corrupted_chunk
+  - id: FT-FINALIZE-BEFORE-COMPLETE
+    failure_mode: "Complete is emitted before verified data is atomically installed."
+    properties:
+      - InstalledOnlyAfterVerifiedHash
+      - CompleteImpliesVerifiedInstall
+      - TerminalStateIsConsistent
+    refinement:
+      - crates/chirps-file-transfer/src/ops/receive.rs
+    local_component_test: crates/chirps-file-transfer/tests/integration/file_transfer.rs::send_file_transfers_small_file

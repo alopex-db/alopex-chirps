@@ -1,48 +1,54 @@
 # 開発・リリース品質 workflow
 
-目的は「テストがあること」ではなく、公開後に発見される実装漏れを公開前の明示的な未証明事項として捕捉することです。機能実装、検証、公開可否を同じ人の暗黙の判断に混ぜません。
+目的は、要件の漏れを **実装着手前** に発見し、実装の回帰を **ローカル** で短く検出することです。CI は既に選んだ検証を再実行する防波堤であり、roadmap の要件を発見する場ではありません。この運用に spec-workflow は用いません。
 
-## 1. 実装開始前: 要件を検証可能な失敗モードへ分解する
+## 1. 実装開始前: 要件をモデルと検証に割り当てる
 
-1. Issue と roadmap の各作業項目を、利用者が観測する失敗モードに書き換える。
-2. `docs/release/acceptance-template.md` から対象版の受入契約を作成する。
-3. 各行に「実装箇所」「unit / integration / multi-process / physical host のどれで証明するか」「証跡」を割り当てる。
-4. API、wire format、設定、永続化、圧縮、障害復旧、性能、observability、互換性を影響レビューに必ず含める。
+1. Issue と roadmap の各作業項目を、利用者が観測する失敗モードへ分解する。
+2. 各失敗モードを「純粋関数」「局所状態」「並行・分散状態」「物理・性能」に分類する。
+3. API、wire format、設定、永続化、圧縮、障害復旧、性能、observability、互換性を横断して影響を確認する。
+4. 並行・再試行・復旧・wire 順序を含む項目には、`formal/<capability>/` に状態モデル、checker 設定、requirement/property/test 対応表を置く。FileTransfer の最初の例は [`formal/file-transfer`](../formal/file-transfer/) である。
+5. 各項目に、production の refinement 箇所と最小の local unit/component test を先に割り当てる。物理・性能は別の手順と evidence 形式もこの時点で決める。
 
-要件に対してテスト方法が決まらない場合は、実装済み扱いにせず `未証明・除外事項` に Issue / milestone とともに残します。後で検証するという予定だけでは release readiness を上げられません。
+モデルにできない単純な局所ロジックを形式化で遅らせません。一方、状態遷移を含む要件を自然言語と E2E だけで済ませることもしません。検証方法が決まらない要求は実装完了にせず、Issue / milestone とともに `未証明・除外事項` として残します。
 
-## 2. 実装中: 先に RED と契約テストを置く
+## 2. 実装中: local-first で RED から証明する
 
-- バグは再現テストを先に追加し、production code を変える前に RED を確認する。
-- E2E で初めて見つかった不具合は、対応する unit または component viewpoint も追加する。
-- mock、loopback、二プロセス、物理 host の検証範囲を報告と受入契約で区別する。弱い環境の成功を強い環境の成功として扱わない。
-- 機能追加・設定追加・wire 変換追加は、設定値が実際の送受信経路に影響する test を必須にする。
+- バグは production code を変える前に、最も狭い再現 test を RED にする。
+- E2E で初めて検出した不具合には、対応する unit/component test と、該当すればモデル上の失敗遷移を追加する。
+- 設定・wire 変換は、設定値が実際の送受信経路まで伝播し復元される local test を必須にする。
+- mock、loopback、二プロセス、物理 host の結果を区別する。弱い環境の成功を実機の成功として扱わない。
+- 性能 requirement は、先に profile ID・container/process 境界・CPU/memory/disk・network shaping・payload・sample 集計・測定区間・artifact schema を固定する。`iperf3` は経路の到達性/上限を観測する preflight であり、アプリケーション throughput の代理値にしない。
+- 製品 throughput は固定した隔離 container profile で local-first に測る。二物理 host は QUIC 配備互換性を確認する別 evidence とし、家庭内 LAN、VPN、WSL、NIC の値を製品 SLO の合否へ混ぜない。
 
-## 3. PR / release branch: 実装者と検証者を分離する
+実行順は model check（該当時）→ unit → crate component → integration → CI/OS → 物理 evidence である。前の段階で失敗したとき、後段だけを再試行して原因を曖昧にしない。
 
-PR template の要件対応表、未証明事項、実行したコマンドと artifact を埋めます。実装者以外の検証者は、少なくとも次を独立に確認します。
+## 3. PR: 要件と実装を独立に照合する
 
-- 受入契約の全要件に対応するテストまたは証跡があること。
-- テストが実際に主張している範囲と、release note / roadmap の主張が一致すること。
+PR 本文には、要件・モデル property・実装箇所・ローカル検証・未証明事項を記録します。実装者以外の検証者は、少なくとも次を確認します。
+
+- roadmap / Issue の全項目が対応表に一行ずつあり、例外も明示されていること。
+- property と local test が、実装の同じ失敗モードを実際に観測していること。
+- テストの到達範囲と release note / roadmap の主張が一致すること。
 - 未証明事項が `READY` や「完了」に誤って変換されていないこと。
 
-通常 CI は GitHub Actions workflow の構文・context も静的検査します。release/* branch はこれに加えて、実 QUIC・mesh の ignored acceptance、FileTransfer acceptance、受入契約の構造検査を実行します。これによりタグ作成後ではなく release candidate の段階で漏れを発見します。
+通常 CI は format、lint、既存の unit/integration を再実行します。release branch 専用に重い acceptance を追加して要件漏れを探す運用は採りません。
 
-## 4. 公開前: evidence を伴う手動承認
+## 4. 公開前: 既存 evidence を固定して確認する
 
 1. release captain は対象 tag と commit SHA を受入契約へ固定する。
-2. `scripts/verify-release-contract.sh --version X.Y.Z --require-ready` を通す。`BLOCKED`、`未証明`、`TODO` は公開停止条件である。
+2. `scripts/verify-release-contract.sh --version X.Y.Z --require-ready` で、`BLOCKED`、`未証明`、`TODO` がないことを確認する。
 3. 対象版の CI、package/dry-run、必要な実機・性能・障害復旧 evidence を確認する。
 4. 実装者以外の検証者と release captain が evidence artifact / CI run URL を契約に記録する。
 5. `Release` workflow を明示的に dispatch し、production environment protection の承認後に publish する。
 
-tag push は公開開始のトリガーにしません。タグを作る行為と crates.io / GitHub Release への配布は別の承認境界です。
+対象版のゲートは公開前に再実行するが、それは commit / package の同一性を確認するためであり、要件設計の代替ではありません。tag push は公開開始のトリガーにせず、タグと crates.io / GitHub Release への配布を別の承認境界にします。
 
 ## 5. 公開後に漏れが見つかった場合
 
 - まず影響、再現、利用者への回避策を Issue に記録する。
-- 欠けていた受入契約の行と最小の regression test を追加する。
+- 欠けていた対応表の行、状態モデルの遷移（該当時）、最小の local regression test を追加する。
 - 同じ種類の機能（設定、wire、復旧、性能など）を横断検索し、代表例だけで完了にしない。
-- release readiness を再評価し、必要なら次 patch release の契約と evidence を新たに作る。
+- 次版の受入契約と evidence を更新して release readiness を再評価する。
 
-この振り返りは個人の注意力に依存させず、template、CI、release workflow の変更まで完了して初めて閉じます。
+この振り返りは個人の注意力に依存させず、対応表・モデル・local test・レビュー導線のいずれが欠けたかを直して初めて閉じます。

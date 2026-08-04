@@ -1,9 +1,9 @@
 use crate::TransferSessionId;
-use crate::chunk::ChunkTracker;
-use crate::compression::decompress_bytes;
+use crate::chunk::{ChunkTracker, write_owned_chunk_at};
+use crate::compression::decompress_owned_bytes;
 use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
-use crate::integrity::IntegrityVerifier;
+use crate::integrity::{IncrementalFileHasher, IntegrityVerifier};
 use crate::manifest::TransferManifest;
 use crate::metrics::PrometheusMetrics;
 use crate::ops::ControlDispatcher;
@@ -19,17 +19,13 @@ use alopex_chirps_wire::file_transfer::{
 };
 use alopex_chirps_wire::node_id::NodeId;
 use quinn::RecvStream;
-use std::collections::{HashMap, HashSet};
-#[cfg(unix)]
-use std::fs::OpenOptions as StdOpenOptions;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs::{self, OpenOptions};
-#[cfg(not(unix))]
-use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::stream::ChunkStreamCodec;
 
@@ -41,6 +37,37 @@ pub struct ReceiveHandler {
     persistence: Option<Arc<SessionPersistence>>,
     metrics: Option<Arc<PrometheusMetrics>>,
     sync_sessions: Arc<RwLock<HashSet<TransferSessionId>>>,
+    incremental_hashes: Mutex<HashMap<TransferSessionId, IncrementalReceiveHash>>,
+}
+
+struct IncrementalReceiveHash {
+    next_index: u32,
+    pending: BTreeMap<u32, Vec<u8>>,
+    hasher: IncrementalFileHasher,
+}
+
+impl IncrementalReceiveHash {
+    fn new(algorithm: crate::options::HashAlgorithm) -> Self {
+        Self {
+            next_index: 0,
+            pending: BTreeMap::new(),
+            hasher: IncrementalFileHasher::new(algorithm),
+        }
+    }
+
+    fn record(&mut self, index: u32, data: Vec<u8>) -> u64 {
+        if index < self.next_index || self.pending.contains_key(&index) {
+            return 0;
+        }
+        self.pending.insert(index, data);
+        let mut bytes_hashed = 0u64;
+        while let Some(data) = self.pending.remove(&self.next_index) {
+            bytes_hashed = bytes_hashed.saturating_add(data.len() as u64);
+            self.hasher.update(&data);
+            self.next_index = self.next_index.saturating_add(1);
+        }
+        bytes_hashed
+    }
 }
 
 /// Outcome of processing an incoming chunk stream.
@@ -72,6 +99,7 @@ impl ReceiveHandler {
             persistence,
             metrics,
             sync_sessions,
+            incremental_hashes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -91,6 +119,11 @@ impl ReceiveHandler {
     pub async fn mark_sync_session(&self, session_id: TransferSessionId) {
         let mut sync_sessions = self.sync_sessions.write().await;
         sync_sessions.insert(session_id);
+    }
+
+    /// Discards non-persistent incremental state for a terminal session.
+    pub(crate) async fn discard_incremental_hash(&self, session_id: TransferSessionId) {
+        self.incremental_hashes.lock().await.remove(&session_id);
     }
 
     /// Validates an incoming transfer request and builds a response.
@@ -294,6 +327,16 @@ impl ReceiveHandler {
         sessions.insert(session.id, session);
         drop(sessions);
 
+        let mut incremental_hashes = self.incremental_hashes.lock().await;
+        incremental_hashes.remove(&session_id);
+        if skip_chunks.is_empty() && !is_empty && options.verify_on_complete {
+            incremental_hashes.insert(
+                session_id,
+                IncrementalReceiveHash::new(options.hash_algorithm),
+            );
+        }
+        drop(incremental_hashes);
+
         if let Some(metrics) = &self.metrics {
             metrics.record_transfer(kind, "started");
             metrics.active_transfers.inc();
@@ -311,12 +354,19 @@ impl ReceiveHandler {
         } else {
             false
         };
-        if is_empty || is_complete {
+        if (is_empty || is_complete) && manifest.uses_trailing_integrity() {
+            let mut sessions = self.sessions.write().await;
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.state = TransferState::Verifying;
+                session.updated_at = SystemTime::now();
+            }
+        } else if is_empty || is_complete {
             if let Err(err) = verify_and_finalize(
                 &temp_path_for(&self.config, &final_path, session_id),
                 &final_path,
                 &manifest,
                 transfer_mode,
+                None,
             )
             .await
             {
@@ -380,12 +430,16 @@ impl ReceiveHandler {
         control: &ControlDispatcher,
         recv: &mut RecvStream,
     ) -> Result<ReceiveOutcome, FileTransferError> {
-        let (session_id, chunk_index, payload) = ChunkStreamCodec::decode(recv).await?;
+        let header = ChunkStreamCodec::decode_header(recv).await?;
+        let session_id = header.session_id;
+        let chunk_index = header.chunk_index;
+        let payload = ChunkStreamCodec::decode_payload(recv, header.data_len).await?;
         let compression = {
             let sessions = self.sessions.read().await;
             sessions.get(&session_id).map(|session| {
                 (
                     session.options.compression,
+                    session.manifest.uses_trailing_integrity(),
                     session
                         .manifest
                         .chunks
@@ -395,12 +449,19 @@ impl ReceiveHandler {
             })
         };
 
-        let Some((compression, expected_size)) = compression else {
+        let Some((compression, trailing_integrity, expected_size)) = compression else {
             return self
-                .handle_chunk_data(sender, control, session_id, chunk_index, payload)
+                .handle_chunk_data(sender, control, session_id, chunk_index, payload, None)
                 .await;
         };
-        let data = match decompress_bytes(&payload, compression, expected_size) {
+        let stream_checksum = if trailing_integrity {
+            Some(ChunkStreamCodec::decode_checksum(recv).await?)
+        } else {
+            None
+        };
+        // The QUIC codec already owns the decoded payload. Preserve that
+        // allocation when no decompression is requested.
+        let data = match decompress_owned_bytes(payload, compression, expected_size) {
             Ok(data) => data,
             Err(error) => {
                 let _ = send_chunk_ack(
@@ -421,8 +482,15 @@ impl ReceiveHandler {
             }
         };
 
-        self.handle_chunk_data(sender, control, session_id, chunk_index, data)
-            .await
+        self.handle_chunk_data(
+            sender,
+            control,
+            session_id,
+            chunk_index,
+            data,
+            stream_checksum,
+        )
+        .await
     }
 
     async fn handle_chunk_data(
@@ -432,6 +500,7 @@ impl ReceiveHandler {
         session_id: TransferSessionId,
         chunk_index: u32,
         data: Vec<u8>,
+        stream_checksum: Option<u64>,
     ) -> Result<ReceiveOutcome, FileTransferError> {
         let (mut control_rx, kind) = {
             let sessions = self.sessions.read().await;
@@ -483,6 +552,7 @@ impl ReceiveHandler {
                         metrics.record_transfer(kind, "cancelled");
                         metrics.active_transfers.dec();
                     }
+                    self.discard_incremental_hash(session_id).await;
                     return Err(FileTransferError::Cancelled);
                 }
             }
@@ -536,8 +606,17 @@ impl ReceiveHandler {
             return Err(FileTransferError::ChunkChecksumMismatch { index: chunk_index });
         }
 
+        let verify_started = Instant::now();
         let checksum = IntegrityVerifier::compute_chunk_checksum(&data);
-        if checksum != meta.checksum {
+        if let Some(metrics) = &self.metrics {
+            metrics.observe_phase(
+                "receiver_chunk_verify",
+                verify_started.elapsed(),
+                data.len() as u64,
+            );
+        }
+        let expected_checksum = stream_checksum.unwrap_or(meta.checksum);
+        if checksum != expected_checksum {
             let mut sessions = self.sessions.write().await;
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.chunk_tracker.mark_failed(chunk_index);
@@ -563,11 +642,40 @@ impl ReceiveHandler {
             });
         }
 
-        write_chunk_to_temp(&self.config, &dest_path, session_id, meta.offset, &data).await?;
+        let write_started = Instant::now();
+        let data = match write_chunk_to_temp(
+            &self.config,
+            &dest_path,
+            session_id,
+            meta.offset,
+            data,
+        )
+        .await
+        {
+            Ok(data) => data,
+            Err(error) => {
+                self.discard_incremental_hash(session_id).await;
+                return Err(error);
+            }
+        };
+        if let Some(metrics) = &self.metrics {
+            metrics.observe_phase(
+                "receiver_chunk_write",
+                write_started.elapsed(),
+                data.len() as u64,
+            );
+        }
 
+        // Persist verified progress before acknowledging it to the sender. This
+        // makes the receiver's persisted session the recovery source of truth
+        // after either process is interrupted. Holding the session write lock
+        // through the atomic save also prevents an older concurrent snapshot
+        // from overwriting newer progress.
+        //
         // Only the task that changes InProgress to Verifying owns finalization.
         // This keeps hash verification and rename single-shot even when streams
         // arrive concurrently and out of order.
+        let data_len = data.len() as u64;
         let finalization = {
             let mut sessions = self.sessions.write().await;
             let session = match sessions.get_mut(&session_id) {
@@ -582,6 +690,53 @@ impl ReceiveHandler {
             }
             session.chunk_tracker.mark_completed(chunk_index);
             session.updated_at = SystemTime::now();
+            let checkpoint_started = Instant::now();
+            if session.options.resumable
+                && let Some(persistence) = &self.persistence
+                && let Err(error) = persistence.checkpoint_chunk(session_id, chunk_index).await
+            {
+                session.chunk_tracker.completed.remove(&chunk_index);
+                session.chunk_tracker.mark_failed(chunk_index);
+                session.updated_at = SystemTime::now();
+                drop(sessions);
+                send_chunk_ack(
+                    control,
+                    sender,
+                    session_id,
+                    chunk_index,
+                    false,
+                    Some(format!("failed to persist resume progress: {error}")),
+                )
+                .await?;
+                return Ok(ReceiveOutcome {
+                    session_id,
+                    chunk_index,
+                    verified: false,
+                    completed: false,
+                });
+            }
+            if session.options.resumable
+                && let Some(metrics) = &self.metrics
+            {
+                metrics.observe_phase(
+                    "receiver_checkpoint",
+                    checkpoint_started.elapsed(),
+                    data_len,
+                );
+            }
+            let hash_started = Instant::now();
+            let bytes_hashed = self
+                .incremental_hashes
+                .lock()
+                .await
+                .get_mut(&session_id)
+                .map(|state| state.record(chunk_index, data))
+                .unwrap_or(0);
+            if bytes_hashed > 0
+                && let Some(metrics) = &self.metrics
+            {
+                metrics.observe_phase("receiver_file_hash", hash_started.elapsed(), bytes_hashed);
+            }
             if session.chunk_tracker.is_complete() && session.state == TransferState::InProgress {
                 session.state = TransferState::Verifying;
                 Some((
@@ -595,7 +750,7 @@ impl ReceiveHandler {
         };
 
         if let Some(metrics) = &self.metrics {
-            metrics.record_chunk("received", data.len() as u64);
+            metrics.record_chunk("received", data_len);
         }
         send_chunk_ack(control, sender, session_id, chunk_index, true, None).await?;
 
@@ -608,8 +763,36 @@ impl ReceiveHandler {
             });
         };
 
+        // Manifest v2 defers the whole-file hash until the sender has hashed
+        // the same bytes while payload transmission is in progress. Keep the
+        // file temporary and the session Verifying until FinalizeRequest.
+        if manifest.uses_trailing_integrity() {
+            return Ok(ReceiveOutcome {
+                session_id,
+                chunk_index,
+                verified: true,
+                completed: false,
+            });
+        }
+
         let temp_path = temp_path_for(&self.config, &final_path, session_id);
-        if let Err(err) = verify_and_finalize(&temp_path, &final_path, &manifest, mode).await {
+        let incremental_hash = {
+            let mut hashes = self.incremental_hashes.lock().await;
+            hashes.remove(&session_id).and_then(|state| {
+                (state.next_index == manifest.chunk_count && state.pending.is_empty())
+                    .then(|| state.hasher.finalize())
+            })
+        };
+        let finalize_started = Instant::now();
+        if let Err(err) = verify_and_finalize(
+            &temp_path,
+            &final_path,
+            &manifest,
+            mode,
+            incremental_hash.as_deref(),
+        )
+        .await
+        {
             let persisted = {
                 let mut sessions = self.sessions.write().await;
                 let Some(session) = sessions.get_mut(&session_id) else {
@@ -632,6 +815,13 @@ impl ReceiveHandler {
             }
             let _ = send_terminal_error(control, sender, session_id, &err).await;
             return Err(err);
+        }
+        if let Some(metrics) = &self.metrics {
+            metrics.observe_phase(
+                "receiver_finalize",
+                finalize_started.elapsed(),
+                manifest.file_size,
+            );
         }
 
         let (persisted, duration_ms) = {
@@ -685,6 +875,129 @@ impl ReceiveHandler {
             completed: true,
         })
     }
+
+    /// Validates a manifest-v2 trailing whole-file hash and atomically installs
+    /// the received file. No destination path is exposed before this succeeds.
+    pub async fn handle_finalize_request(
+        &self,
+        sender: NodeId,
+        control: &ControlDispatcher,
+        session_id: TransferSessionId,
+        completion: TransferComplete,
+    ) -> Result<(), FileTransferError> {
+        let (final_path, mut manifest, mode, kind) = {
+            let sessions = self.sessions.read().await;
+            let session = sessions
+                .get(&session_id)
+                .ok_or(FileTransferError::SessionNotFound(session_id))?;
+            if !session.manifest.uses_trailing_integrity()
+                || session.state != TransferState::Verifying
+                || !session.chunk_tracker.is_complete()
+                || completion.bytes_transferred != session.manifest.file_size
+                || completion.hash_algorithm
+                    != to_wire_hash_algorithm(session.manifest.hash_algorithm)
+                || completion.file_hash.is_empty()
+            {
+                return Err(FileTransferError::FileHashMismatch);
+            }
+            (
+                session.dest_path.clone(),
+                session.manifest.clone(),
+                session.options.mode,
+                session.kind,
+            )
+        };
+        manifest.file_hash = completion.file_hash;
+
+        let incremental_hash = {
+            let mut hashes = self.incremental_hashes.lock().await;
+            hashes.remove(&session_id).and_then(|state| {
+                (state.next_index == manifest.chunk_count && state.pending.is_empty())
+                    .then(|| state.hasher.finalize())
+            })
+        };
+        let temp_path = temp_path_for(&self.config, &final_path, session_id);
+        let finalize_started = Instant::now();
+        if let Err(error) = verify_and_finalize(
+            &temp_path,
+            &final_path,
+            &manifest,
+            mode,
+            incremental_hash.as_deref(),
+        )
+        .await
+        {
+            let persisted = {
+                let mut sessions = self.sessions.write().await;
+                let session = sessions
+                    .get_mut(&session_id)
+                    .ok_or(FileTransferError::SessionNotFound(session_id))?;
+                session.fail(error.to_string());
+                session.options.resumable.then(|| session.clone())
+            };
+            if let Some(persistence) = &self.persistence
+                && let Some(session) = persisted.as_ref()
+            {
+                let _ = persistence.save(session).await;
+            }
+            if let Some(metrics) = &self.metrics {
+                if matches!(error, FileTransferError::FileHashMismatch) {
+                    metrics.record_checksum_failure("file");
+                }
+                metrics.record_transfer(kind, "failed");
+                metrics.active_transfers.dec();
+            }
+            let _ = send_terminal_error(control, sender, session_id, &error).await;
+            return Err(error);
+        }
+        if let Some(metrics) = &self.metrics {
+            metrics.observe_phase(
+                "receiver_finalize",
+                finalize_started.elapsed(),
+                manifest.file_size,
+            );
+        }
+
+        let (persisted, duration_ms) = {
+            let mut sessions = self.sessions.write().await;
+            let session = sessions
+                .get_mut(&session_id)
+                .ok_or(FileTransferError::SessionNotFound(session_id))?;
+            session.manifest.file_hash.clone_from(&manifest.file_hash);
+            session.state = TransferState::Completed;
+            session.updated_at = SystemTime::now();
+            let duration_ms = SystemTime::now()
+                .duration_since(session.created_at)
+                .unwrap_or(Duration::ZERO)
+                .as_millis()
+                .min(u64::MAX as u128) as u64;
+            (
+                session.options.resumable.then(|| session.clone()),
+                duration_ms,
+            )
+        };
+        if let Some(persistence) = &self.persistence
+            && let Some(session) = persisted.as_ref()
+        {
+            let _ = persistence.save(session).await;
+        }
+        if let Some(metrics) = &self.metrics {
+            metrics.record_transfer(kind, "completed");
+            metrics.active_transfers.dec();
+        }
+        control
+            .send_message(
+                sender,
+                session_id,
+                FileTransferMessage::Complete(TransferComplete {
+                    bytes_transferred: manifest.file_size,
+                    duration_ms,
+                    file_hash: manifest.file_hash,
+                    hash_algorithm: to_wire_hash_algorithm(manifest.hash_algorithm),
+                }),
+            )
+            .await
+    }
 }
 
 async fn send_chunk_ack(
@@ -732,11 +1045,15 @@ async fn verify_and_finalize(
     dest_path: &Path,
     manifest: &TransferManifest,
     mode: TransferMode,
+    precomputed_hash: Option<&[u8]>,
 ) -> Result<(), FileTransferError> {
     if manifest.options.verify_on_complete {
-        let computed = IntegrityVerifier::compute_file_hash(temp_path, manifest.hash_algorithm)
-            .await
-            .map_err(FileTransferError::Io)?;
+        let computed = match precomputed_hash {
+            Some(hash) => hash.to_vec(),
+            None => IntegrityVerifier::compute_file_hash(temp_path, manifest.hash_algorithm)
+                .await
+                .map_err(FileTransferError::Io)?,
+        };
         if computed != manifest.file_hash {
             let _ = fs::remove_file(temp_path).await;
             return Err(FileTransferError::FileHashMismatch);
@@ -815,51 +1132,13 @@ async fn write_chunk_to_temp(
     dest_path: &Path,
     session_id: TransferSessionId,
     offset: u64,
-    data: &[u8],
-) -> Result<(), FileTransferError> {
+    data: Vec<u8>,
+) -> Result<Vec<u8>, FileTransferError> {
     let temp_path = temp_path_for(config, dest_path, session_id);
 
-    #[cfg(unix)]
-    {
-        let data = data.to_vec();
-        let write_result = tokio::task::spawn_blocking(move || {
-            use std::os::unix::fs::FileExt;
-
-            let file = StdOpenOptions::new().write(true).open(&temp_path)?;
-            let mut written = 0usize;
-            while written < data.len() {
-                let write_offset = offset.checked_add(written as u64).ok_or_else(|| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "chunk offset overflow")
-                })?;
-                let bytes = file.write_at(&data[written..], write_offset)?;
-                if bytes == 0 {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::WriteZero,
-                        "chunk write made no progress",
-                    ));
-                }
-                written += bytes;
-            }
-            Ok(())
-        })
+    write_owned_chunk_at(temp_path, offset, data)
         .await
-        .map_err(|error| {
-            FileTransferError::Internal(format!("chunk write task failed: {error}"))
-        })?;
-        write_result.map_err(FileTransferError::Io)
-    }
-
-    #[cfg(not(unix))]
-    {
-        let mut file = OpenOptions::new().write(true).open(&temp_path).await?;
-        file.seek(std::io::SeekFrom::Start(offset)).await?;
-        file.write_all(data).await?;
-        // Tokio requires a flush before drop when the next operation may read
-        // the same file.  Unix uses positional blocking writes above, which
-        // complete before the handler continues.
-        file.flush().await?;
-        Ok(())
-    }
+        .map_err(FileTransferError::Io)
 }
 
 async fn prepare_temp_file(
@@ -903,4 +1182,72 @@ fn temp_path_for(
 
 async fn path_exists(path: &Path) -> bool {
     fs::metadata(path).await.is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IncrementalReceiveHash, verify_and_finalize};
+    use crate::TransferSessionId;
+    use crate::manifest::TransferManifest;
+    use crate::options::{HashAlgorithm, TransferMode, TransferOptions};
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn incremental_receive_hash_reorders_chunks_and_ignores_duplicates() {
+        let chunks = [b"first".to_vec(), b"second".to_vec(), b"third".to_vec()];
+        let mut state = IncrementalReceiveHash::new(HashAlgorithm::Sha256);
+
+        assert_eq!(state.record(1, chunks[1].clone()), 0);
+        assert_eq!(state.record(1, chunks[1].clone()), 0);
+        assert_eq!(
+            state.record(0, chunks[0].clone()),
+            (chunks[0].len() + chunks[1].len()) as u64
+        );
+        assert_eq!(state.record(2, chunks[2].clone()), chunks[2].len() as u64);
+        assert_eq!(state.next_index, 3);
+        assert!(state.pending.is_empty());
+
+        let expected = Sha256::digest(chunks.concat()).to_vec();
+        assert_eq!(state.hasher.finalize(), expected);
+    }
+
+    #[tokio::test]
+    async fn trailing_hash_mismatch_never_installs_destination() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let temporary = directory.path().join("transfer.part");
+        let destination = directory.path().join("destination.bin");
+        tokio::fs::write(&temporary, b"received bytes")
+            .await
+            .expect("temporary file");
+        let manifest = TransferManifest {
+            version: TransferManifest::CURRENT_VERSION,
+            session_id: TransferSessionId::new(),
+            source_path: "source.bin".into(),
+            dest_path: destination.display().to_string(),
+            file_size: 14,
+            file_hash: vec![0; 32],
+            hash_algorithm: HashAlgorithm::Sha256,
+            chunk_size: 14,
+            chunk_count: 1,
+            chunks: crate::IntegrityVerifier::build_chunk_layout(14, 14).expect("layout"),
+            metadata: None,
+            options: TransferOptions::default(),
+            created_at: 0,
+        };
+
+        let result = verify_and_finalize(
+            &temporary,
+            &destination,
+            &manifest,
+            TransferMode::Copy,
+            None,
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(crate::FileTransferError::FileHashMismatch)
+        ));
+        assert!(!destination.exists());
+        assert!(!temporary.exists());
+    }
 }
