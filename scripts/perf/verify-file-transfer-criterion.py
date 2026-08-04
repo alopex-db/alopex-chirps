@@ -38,6 +38,7 @@ def main():
     function = contract["layers"]["function"]
     maximum = float(function["comparison"]["maximum_regression_ratio"])
     absolute_minimum = function["absolute_minimum_bytes_per_second"]
+    absolute_maximum = function["absolute_maximum_nanoseconds"]
     workload = contract["workload"]
     operation_bytes = {
         operation: (
@@ -56,14 +57,22 @@ def main():
             "current_mean_nanoseconds": current,
             "current_estimate": str(current_path),
         }
-        current_bytes_per_second = operation_bytes[operation] / (current / 1_000_000_000)
-        absolute_floor = float(absolute_minimum[operation])
-        absolute_passed = current_bytes_per_second >= absolute_floor
-        item.update(
-            current_bytes_per_second=current_bytes_per_second,
-            absolute_minimum_bytes_per_second=absolute_floor,
-            absolute_passed=absolute_passed,
-        )
+        if operation in absolute_minimum:
+            current_bytes_per_second = operation_bytes[operation] / (current / 1_000_000_000)
+            absolute_floor = float(absolute_minimum[operation])
+            absolute_passed = current_bytes_per_second >= absolute_floor
+            item.update(
+                current_bytes_per_second=current_bytes_per_second,
+                absolute_minimum_bytes_per_second=absolute_floor,
+                absolute_passed=absolute_passed,
+            )
+        else:
+            absolute_ceiling = float(absolute_maximum[operation])
+            absolute_passed = current <= absolute_ceiling
+            item.update(
+                absolute_maximum_nanoseconds=absolute_ceiling,
+                absolute_passed=absolute_passed,
+            )
         passed = passed and absolute_passed
         if args.baseline is not None:
             baseline, baseline_path = estimate(args.baseline, operation)

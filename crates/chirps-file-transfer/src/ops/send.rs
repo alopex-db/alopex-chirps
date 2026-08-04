@@ -139,12 +139,9 @@ pub(crate) async fn send_file_with_context(
         requested_session_id.unwrap_or_default()
     };
 
-    let (file_hash, chunks) = IntegrityVerifier::compute_file_hash_and_chunk_metas(
-        source_path,
-        options.hash_algorithm,
-        chunk_manager.chunk_size(),
-    )
-    .await?;
+    // Manifest v2 contains layout only. Per-chunk checksums travel with the
+    // chunk and the whole-file hash is computed concurrently with transfer.
+    let chunks = IntegrityVerifier::build_chunk_layout(file_size, chunk_manager.chunk_size())?;
 
     if let Some(resume) = resume_session.as_ref() {
         let manifest = &resume.manifest;
@@ -152,7 +149,6 @@ pub(crate) async fn send_file_with_context(
             || manifest.chunk_count != chunk_count
             || manifest.chunk_size != chunk_manager.chunk_size() as u32
             || manifest.hash_algorithm != options.hash_algorithm
-            || manifest.file_hash != file_hash
             || manifest.source_path != source_path_str
             || manifest.dest_path != dest_path_str
         {
@@ -169,7 +165,7 @@ pub(crate) async fn send_file_with_context(
         chunk_count,
         &chunk_manager,
         &options,
-        file_hash,
+        Vec::new(),
         chunks,
         &metadata,
         session_id,
@@ -298,6 +294,12 @@ pub(crate) async fn send_file_with_context(
         .await);
     }
 
+    let hash_path = source_path.to_path_buf();
+    let hash_algorithm = options.hash_algorithm;
+    let file_hash_task = tokio::spawn(async move {
+        IntegrityVerifier::compute_file_hash(&hash_path, hash_algorithm).await
+    });
+
     let mut skip_chunks: HashSet<u32> = response.existing_chunks.into_iter().collect();
     skip_chunks.extend(manifest_ack.skip_chunks);
     for index in &skip_chunks {
@@ -375,6 +377,7 @@ pub(crate) async fn send_file_with_context(
             let session_id = session.id;
             let chunk_size = chunk_manager.chunk_size();
             let compression = options.compression;
+            let trailing_integrity = session.manifest.uses_trailing_integrity();
             let metrics = metrics.clone();
             tokio::spawn(async move {
                 let result = send_chunk(
@@ -385,6 +388,7 @@ pub(crate) async fn send_file_with_context(
                     index,
                     chunk_size,
                     compression,
+                    trailing_integrity,
                     throttle,
                     metrics,
                 )
@@ -547,21 +551,38 @@ pub(crate) async fn send_file_with_context(
         .await);
     }
 
+    let file_hash = file_hash_task.await.map_err(|error| {
+        FileTransferError::Internal(format!("file hash task failed: {error}"))
+    })??;
+    session.manifest.file_hash.clone_from(&file_hash);
+
+    control
+        .send_message(
+            target,
+            session.id,
+            FileTransferMessage::FinalizeRequest(TransferComplete {
+                bytes_transferred: file_size,
+                duration_ms: start_time.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                file_hash: file_hash.clone(),
+                hash_algorithm: to_wire_hash_algorithm(session.manifest.hash_algorithm),
+            }),
+        )
+        .await?;
+
     // The receiver emits Complete only after it has verified the final hash,
     // restored requested metadata, and atomically renamed the temporary file.
     // Empty files are finalized while accepting the manifest, so its accepted
     // ManifestAck is already that completion proof.
-    if skip_chunks.len() != chunk_count as usize
-        && let Err(err) = wait_for_receiver_completion(
-            &control,
-            session.id,
-            target,
-            config.idle_timeout,
-            &session.manifest.file_hash,
-            session.manifest.hash_algorithm,
-            file_size,
-        )
-        .await
+    if let Err(err) = wait_for_receiver_completion(
+        &control,
+        session.id,
+        target,
+        config.idle_timeout,
+        &file_hash,
+        session.manifest.hash_algorithm,
+        file_size,
+    )
+    .await
     {
         return Err(fail_session(
             &mut session,
@@ -842,6 +863,7 @@ async fn send_chunk(
     index: u32,
     chunk_size: usize,
     compression: CompressionAlgorithm,
+    trailing_integrity: bool,
     throttle: Option<Arc<BandwidthThrottle>>,
     metrics: Option<Arc<PrometheusMetrics>>,
 ) -> Result<(), FileTransferError> {
@@ -863,6 +885,7 @@ async fn send_chunk(
     let compression_started = Instant::now();
     // Chunk reads already return an owned buffer. Passing it through avoids a
     // full-payload allocation and copy for the uncompressed profile.
+    let checksum = IntegrityVerifier::compute_chunk_checksum(&chunk.data);
     let payload = compress_owned_bytes(chunk.data, compression)?;
     if let Some(metrics) = &metrics {
         metrics.observe_phase(
@@ -878,7 +901,18 @@ async fn send_chunk(
 
     let stream_started = Instant::now();
     let mut stream = opener.open_chunk_stream(target).await?;
-    crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, &payload).await?;
+    if trailing_integrity {
+        crate::stream::ChunkStreamCodec::encode_with_checksum(
+            &mut stream,
+            &session_id,
+            index,
+            &payload,
+            checksum,
+        )
+        .await?;
+    } else {
+        crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, &payload).await?;
+    }
     stream
         .finish()
         .map_err(|e| FileTransferError::Transport(e.to_string()))?;
@@ -1204,6 +1238,7 @@ mod tests {
             0,
             64 * 1024,
             CompressionAlgorithm::Zstd,
+            false,
             None,
             None,
         )

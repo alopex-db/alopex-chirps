@@ -109,14 +109,21 @@ fn layered_performance_contract_is_complete_and_wired() {
     let absolute = function["absolute_minimum_bytes_per_second"]
         .as_object()
         .expect("function absolute limits");
+    let absolute_durations = function["absolute_maximum_nanoseconds"]
+        .as_object()
+        .expect("function absolute durations");
     assert_eq!(
-        absolute.len(),
+        absolute.len() + absolute_durations.len(),
         function["operations"].as_array().unwrap().len()
     );
     for operation in function["operations"].as_array().unwrap() {
-        assert!(absolute.contains_key(operation.as_str().unwrap()));
+        let operation = operation.as_str().unwrap();
+        assert!(absolute.contains_key(operation) || absolute_durations.contains_key(operation));
     }
-    assert_eq!(absolute["source_manifest_hash_128mib"], file_bytes * 10);
+    assert_eq!(
+        absolute_durations["source_manifest_layout_128mib"],
+        budget["maximum_manifest_ready_duration_nanoseconds"]
+    );
 
     for invariant in layers["module"]["invariants"]
         .as_array()

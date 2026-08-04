@@ -249,21 +249,12 @@ fn benchmark_components(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("file_transfer_components");
 
     group.throughput(Throughput::Bytes(FILE_BYTES as u64));
-    group.bench_function("source_manifest_hash_128mib", |bench| {
-        let path = path.clone();
-        bench.to_async(&runtime).iter(|| {
-            let path = path.clone();
-            async move {
-                black_box(
-                    IntegrityVerifier::compute_file_hash_and_chunk_metas(
-                        &path,
-                        HashAlgorithm::Sha256,
-                        CHUNK_BYTES,
-                    )
-                    .await
-                    .expect("manifest and hash"),
-                )
-            }
+    group.bench_function("source_manifest_layout_128mib", |bench| {
+        bench.iter(|| {
+            black_box(
+                IntegrityVerifier::build_chunk_layout(FILE_BYTES as u64, CHUNK_BYTES)
+                    .expect("manifest layout"),
+            )
         });
     });
 

@@ -626,6 +626,7 @@ fn spawn_control_plane(
                         message,
                         FileTransferMessage::TransferRequest(_)
                             | FileTransferMessage::Manifest(_)
+                            | FileTransferMessage::FinalizeRequest(_)
                             | FileTransferMessage::ExistsRequest(_)
                             | FileTransferMessage::RemoveRequest(_)
                             | FileTransferMessage::MetadataRequest(_)
@@ -674,6 +675,14 @@ fn spawn_control_plane(
                     let _ = control
                         .send_message(sender, session_id, FileTransferMessage::ManifestAck(ack))
                         .await;
+                }
+                FileTransferMessage::FinalizeRequest(completion) => {
+                    if let Err(error) = receive_handler
+                        .handle_finalize_request(sender, &control, session_id, completion)
+                        .await
+                    {
+                        send_control_error(&control, sender, session_id, error).await;
+                    }
                 }
                 FileTransferMessage::ExistsRequest(request) => {
                     match handle_exists_request(&path_validator, request).await {

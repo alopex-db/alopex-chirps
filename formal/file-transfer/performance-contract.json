@@ -39,7 +39,6 @@
         "maximum_regression_ratio": 0.1
       },
       "absolute_minimum_bytes_per_second": {
-        "source_manifest_hash_128mib": 1342177280,
         "receiver_finalize_hash_128mib": 100000000,
         "receiver_resume_checkpoints_128x1mib": 4000000000,
         "source_open_and_read_1mib_chunk": 400000000,
@@ -49,15 +48,18 @@
         "quic_codec_round_trip/1mib": 400000000,
         "quic_chunk_pipeline_128x1mib/concurrency4": 400000000
       },
+      "absolute_maximum_nanoseconds": {
+        "source_manifest_layout_128mib": 100000000
+      },
       "absolute_budget_rationale": {
-        "source_manifest_hash_128mib": "must fit entirely inside the 100 ms manifest-ready budget; this RED proves the eager full-file scan is structurally invalid",
+        "source_manifest_layout_128mib": "must fit entirely inside the 100 ms manifest-ready budget without reading source contents",
         "receiver_resume_checkpoints_128x1mib": "allocates at most 2.5% of the binary E2E budget across 128 checkpoints",
         "compression_none_owned_1mib": "10 GB/s floor detects reintroduction of a full-payload allocation/copy in the no-compression path",
         "decompression_none_owned_1mib": "10 GB/s floor detects reintroduction of a full-payload allocation/copy in the no-compression path",
         "quic_chunk_pipeline_128x1mib/concurrency4": "four-way pipeline must provide 4x the 100 MB/s product floor before transport and control-plane overhead"
       },
       "operations": [
-        "source_manifest_hash_128mib",
+        "source_manifest_layout_128mib",
         "receiver_finalize_hash_128mib",
         "receiver_resume_checkpoints_128x1mib",
         "source_open_and_read_1mib_chunk",
@@ -82,8 +84,18 @@
         },
         {
           "id": "FT-CORRUPTION-RETRY-ACCOUNTED",
-          "assertion": "A corrupted chunk is NACKed, retried, and counted before successful completion.",
+          "assertion": "A manifest-v2 chunk whose payload does not match its trailing XXHash64 is NACKed, retried, and counted before successful completion.",
           "test": "crates/chirps-file-transfer/tests/integration/file_transfer.rs::send_file_retries_after_corrupted_chunk"
+        },
+        {
+          "id": "FT-MANIFEST-NO-SOURCE-SCAN",
+          "assertion": "Manifest-v2 layout is derived from file size and chunk size without reading source contents.",
+          "test": "crates/chirps-file-transfer/tests/unit/integrity.rs::manifest_v2_chunk_layout_requires_no_source_read"
+        },
+        {
+          "id": "FT-TRAILING-HASH-BEFORE-INSTALL",
+          "assertion": "A trailing whole-file hash mismatch removes the temporary file and never installs the destination.",
+          "test": "crates/chirps-file-transfer/src/ops/receive.rs::trailing_hash_mismatch_never_installs_destination"
         },
         {
           "id": "FT-STREAM-ERROR-RETRY-ACCOUNTED",

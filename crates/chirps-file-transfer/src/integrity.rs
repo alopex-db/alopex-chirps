@@ -12,6 +12,38 @@ const SOURCE_SCAN_BATCH_BYTES: usize = 8 * 1024 * 1024;
 pub struct IntegrityVerifier;
 
 impl IntegrityVerifier {
+    /// Builds fixed-size chunk layout metadata without reading file contents.
+    /// Checksums are zero because manifest v2 carries them with each chunk.
+    pub fn build_chunk_layout(
+        file_size: u64,
+        chunk_size: usize,
+    ) -> std::io::Result<Vec<ChunkMeta>> {
+        if chunk_size == 0 || chunk_size > u32::MAX as usize {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "chunk_size must be between 1 and u32::MAX",
+            ));
+        }
+        let count = file_size.div_ceil(chunk_size as u64);
+        if count > u32::MAX as u64 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "chunk count exceeds u32::MAX",
+            ));
+        }
+        Ok((0..count)
+            .map(|index| {
+                let offset = index * chunk_size as u64;
+                ChunkMeta {
+                    index: index as u32,
+                    offset,
+                    size: (file_size - offset).min(chunk_size as u64) as u32,
+                    checksum: 0,
+                }
+            })
+            .collect())
+    }
+
     /// Computes an XXHash64 checksum for a chunk payload.
     ///
     /// # Panics

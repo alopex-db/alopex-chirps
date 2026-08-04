@@ -15,6 +15,21 @@ fn chunk_checksum_matches_expected() {
     assert!(!IntegrityVerifier::verify_chunk_checksum(data, wrong));
 }
 
+#[test]
+fn manifest_v2_chunk_layout_requires_no_source_read() {
+    let file_size = 10 * 1024 * 1024 + 17;
+    let chunk_size = 1024 * 1024;
+    let chunks = IntegrityVerifier::build_chunk_layout(file_size, chunk_size).expect("layout");
+
+    assert_eq!(chunks.len(), 11);
+    for (index, chunk) in chunks.iter().enumerate() {
+        assert_eq!(chunk.index, index as u32);
+        assert_eq!(chunk.offset, (index * chunk_size) as u64);
+        assert_eq!(chunk.checksum, 0);
+    }
+    assert_eq!(chunks.last().expect("last chunk").size, 17);
+}
+
 #[tokio::test]
 async fn file_hashes_match_reference() {
     let dir = tempdir().expect("tempdir");
