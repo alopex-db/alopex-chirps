@@ -26,7 +26,6 @@ use tempfile::TempDir;
 
 const FILE_BYTES: usize = 128 * 1024 * 1024;
 const CHUNK_BYTES: usize = 1024 * 1024;
-const PIPELINE_CONCURRENCY: usize = 4;
 const PIPELINE_CHUNKS: usize = FILE_BYTES / CHUNK_BYTES;
 const SERVER_NAME: &str = "localhost";
 const STREAM_WINDOW_BYTES: u32 = 16 * 1024 * 1024;
@@ -182,6 +181,63 @@ async fn quic_fixture() -> QuicFixture {
         client,
         server,
     }
+}
+
+async fn run_quic_chunk_pipeline(
+    client: Connection,
+    server: Connection,
+    chunk: Arc<Vec<u8>>,
+    concurrency: usize,
+) -> usize {
+    let acknowledgements = Arc::new(
+        (0..PIPELINE_CHUNKS)
+            .map(|_| tokio::sync::Notify::new())
+            .collect::<Vec<_>>(),
+    );
+    let receiver_acknowledgements = Arc::clone(&acknowledgements);
+    let receiver = tokio::spawn(async move {
+        let mut receives = tokio::task::JoinSet::new();
+        for _ in 0..PIPELINE_CHUNKS {
+            let mut stream = server.accept_uni().await.expect("accept stream");
+            let acknowledgements = Arc::clone(&receiver_acknowledgements);
+            receives.spawn(async move {
+                let mut magic = [0u8; 1];
+                stream.read_exact(&mut magic).await.expect("read magic");
+                assert_eq!(magic[0], CHUNK_STREAM_MAGIC);
+                let (_, index, payload) =
+                    ChunkStreamCodec::decode(&mut stream).await.expect("decode");
+                acknowledgements[index as usize].notify_one();
+                payload.len()
+            });
+        }
+        let mut received = 0usize;
+        while let Some(result) = receives.join_next().await {
+            received += result.expect("receiver task");
+        }
+        received
+    });
+
+    let mut sends = tokio::task::JoinSet::new();
+    let slots = Arc::new(tokio::sync::Semaphore::new(concurrency));
+    for index in 0..PIPELINE_CHUNKS {
+        let client = client.clone();
+        let chunk = Arc::clone(&chunk);
+        let slots = Arc::clone(&slots);
+        let acknowledgements = Arc::clone(&acknowledgements);
+        sends.spawn(async move {
+            let _slot = slots.acquire_owned().await.expect("pipeline slot");
+            let mut stream = client.open_uni().await.expect("open stream");
+            ChunkStreamCodec::encode(&mut stream, &TransferSessionId::new(), index as u32, &chunk)
+                .await
+                .expect("encode");
+            stream.finish().expect("finish stream");
+            acknowledgements[index].notified().await;
+        });
+    }
+    while let Some(result) = sends.join_next().await {
+        result.expect("sender task");
+    }
+    receiver.await.expect("receiver task")
 }
 
 fn benchmark_components(criterion: &mut Criterion) {
@@ -346,71 +402,25 @@ fn benchmark_components(criterion: &mut Criterion) {
     );
 
     group.throughput(Throughput::Bytes((CHUNK_BYTES * PIPELINE_CHUNKS) as u64));
-    group.bench_function("quic_chunk_pipeline_128x1mib_concurrency4", |bench| {
-        let client = quic.client.clone();
-        let server = quic.server.clone();
-        let chunk = Arc::clone(&chunk);
-        bench.to_async(&runtime).iter(|| {
-            let client = client.clone();
-            let server = server.clone();
-            let chunk = Arc::clone(&chunk);
-            async move {
-                let acknowledgements = Arc::new(
-                    (0..PIPELINE_CHUNKS)
-                        .map(|_| tokio::sync::Notify::new())
-                        .collect::<Vec<_>>(),
-                );
-                let receiver_acknowledgements = Arc::clone(&acknowledgements);
-                let receiver = tokio::spawn(async move {
-                    let mut receives = tokio::task::JoinSet::new();
-                    for _ in 0..PIPELINE_CHUNKS {
-                        let mut stream = server.accept_uni().await.expect("accept stream");
-                        let acknowledgements = Arc::clone(&receiver_acknowledgements);
-                        receives.spawn(async move {
-                            let mut magic = [0u8; 1];
-                            stream.read_exact(&mut magic).await.expect("read magic");
-                            assert_eq!(magic[0], CHUNK_STREAM_MAGIC);
-                            let (_, index, payload) =
-                                ChunkStreamCodec::decode(&mut stream).await.expect("decode");
-                            acknowledgements[index as usize].notify_one();
-                            payload.len()
-                        });
-                    }
-                    let mut received = 0usize;
-                    while let Some(result) = receives.join_next().await {
-                        received += result.expect("receiver task");
-                    }
-                    received
+    for (concurrency, label) in [(4usize, "concurrency4"), (8usize, "concurrency8")] {
+        group.bench_with_input(
+            BenchmarkId::new("quic_chunk_pipeline_128x1mib", label),
+            &concurrency,
+            |bench, concurrency| {
+                let client = quic.client.clone();
+                let server = quic.server.clone();
+                let chunk = Arc::clone(&chunk);
+                bench.to_async(&runtime).iter(|| {
+                    run_quic_chunk_pipeline(
+                        client.clone(),
+                        server.clone(),
+                        Arc::clone(&chunk),
+                        *concurrency,
+                    )
                 });
-                let mut sends = tokio::task::JoinSet::new();
-                let slots = Arc::new(tokio::sync::Semaphore::new(PIPELINE_CONCURRENCY));
-                for index in 0..PIPELINE_CHUNKS {
-                    let client = client.clone();
-                    let chunk = Arc::clone(&chunk);
-                    let slots = Arc::clone(&slots);
-                    let acknowledgements = Arc::clone(&acknowledgements);
-                    sends.spawn(async move {
-                        let _slot = slots.acquire_owned().await.expect("pipeline slot");
-                        let mut stream = client.open_uni().await.expect("open stream");
-                        ChunkStreamCodec::encode(
-                            &mut stream,
-                            &TransferSessionId::new(),
-                            index as u32,
-                            &chunk,
-                        )
-                        .await
-                        .expect("encode");
-                        stream.finish().expect("finish stream");
-                        acknowledgements[index].notified().await;
-                    });
-                }
-                while let Some(result) = sends.join_next().await {
-                    result.expect("sender task");
-                }
-                black_box(receiver.await.expect("receiver task"))
-            }
-        });
-    });
+            },
+        );
+    }
     group.finish();
 }
 

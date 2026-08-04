@@ -77,11 +77,22 @@ The direct two-process opener coalesces concurrent first chunk requests into
 one QUIC connection per peer. This removes duplicate handshakes from a transfer
 that starts multiple chunk tasks while keeping every chunk on a separate
 unidirectional stream. The profile keeps the public default of four concurrent
-chunks; raising it to the 16-stream ceiling reduced local QUIC throughput during
-prior diagnosis. The performance assertion remains
+chunks. A fixed 128 MiB application-acknowledged QUIC pipeline measured
+96.4--99.6 MiB/s at concurrency 4 and 77.8--86.1 MiB/s at concurrency 8 on the
+same WSL calibration host, so increasing the window is rejected as a
+regression rather than used as a release workaround. The performance assertion remains
 end-to-end: source metadata/hash creation, chunk transfer, receiver
 verification, metadata application, atomic placement, and `Complete`
 acknowledgement are all within the measured interval.
+
+Source preparation reuses an 8 MiB scan buffer and derives the 1 MiB chunk
+checksums from each batch while feeding the same bytes to SHA-256. This keeps
+the required final SHA-256 and chunk boundaries while reducing the fixed
+workload from 128 reads/allocations to 16 reads/one allocation. The component
+benchmark improved from about 151.42 ms to 135.90 ms on the same WSL host;
+boundary tests cover partial final chunks, multiple batches, and chunks larger
+than the scan batch. The host-specific timing is diagnostic evidence, not the
+release SLO.
 
 The current ignored fixture places both QUIC endpoints in the same test
 process. It remains useful for local component diagnosis, but is not

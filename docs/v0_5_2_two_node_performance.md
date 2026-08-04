@@ -83,6 +83,13 @@ bash scripts/perf/run-local-v0_5_2-baseline.sh \
 
 この bench は source manifest/hash（128 MiB）、実際の source open + 1 MiB chunk read、allocation を再利用する `compression=none` の送受信、receiver positional write、接続再利用済み QUIC codec round trip、release と同じ flow-control 設定による 128 × 1 MiB / concurrency 4 pipeline を測定する。比較器は contract に列挙した全 operation の欠落を拒否し、同一 host / kernel / Rust / profile の前回値に対する 10% 超の回帰で失敗する。baseline なしの初回は calibration artifact を作るだけで release 合格とはしない。
 
+2026-08-04 の WSL診断では、source manifest/hash は約151.42 msから
+135.90 msへ短縮し、実QUIC二プロセスの `sender_source_prepare` は
+147.48 msだった。128 MiB application-ACK pipeline は concurrency 4で
+96.4--99.6 MiB/s、8で77.8--86.1 MiB/sだったため、並列度8は採用しない。
+これらは関数・モジュールの原因帰属と修正確認であり、native Linux
+`ft-1g-v1` の5 sample合格を置き換えない。
+
 local service runner は旧 `MockNetwork` control plane を使用しない。`two_node_transfer` の sender/receiver を別 process として localhost に起動し、control/data とも実 QUIC を通す。SHA-256、全 phase count/bytes、receiver control の `max_concurrent_sends >= 2` を JSON で検査する。この結果も host 依存の診断であり、二 container `ft-1g-v1` の SLO 証跡には代用しない。
 
 fresh transfer の receiver は checksum 合格かつ resume checkpoint 永続化済みの chunk を index 順に `receiver_file_hash` へ投入し、全 chunk が揃った場合はその SHA-256 を最終照合へ使う。順不同 chunk は並列数の範囲で一時保持し、resume/欠番/状態不整合では従来の完成ファイル全走査へ fallback する。従って `receiver_finalize` が短縮されても、最終 SHA-256 照合を省略したことを意味しない。

@@ -19,6 +19,7 @@
 - fresh File Transfer は検証・永続化済みchunkを受信中にindex順でSHA-256へ投入し、最終配置前の全ファイル再走査を省いた。resumeや不完全状態は従来の全走査へfallbackする。
 - FileTransfer の `compression=none` で sender/receiver の所有済みchunk allocationを再利用し、blocking positional writeも同じbufferを返すことでpayload全量の不要コピーを除去した。
 - 128 MiB workloadをfunction/module/service/binaryへ対応付けるmachine-readable性能契約、実QUIC control/data二プロセス診断、transport/chunk並列度の決定的テスト、same-host Criterion回帰比較器を追加した。
+- source manifest生成を8 MiBの再利用bufferによるbatch走査へ変更し、SHA-256と1 MiB chunk checksumの意味を保ったままread/allocation回数を削減した。
 
 ### 検証
 

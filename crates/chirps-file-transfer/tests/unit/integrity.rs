@@ -81,3 +81,67 @@ async fn file_hash_and_chunk_metadata_share_one_scan() {
         );
     }
 }
+
+#[tokio::test]
+async fn file_hash_and_chunk_metadata_preserve_boundaries_across_scan_batches() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("batched-chunks.bin");
+    let chunk_size = 1024 * 1024;
+    let data: Vec<u8> = (0..(10 * chunk_size + 123))
+        .map(|index| (index % 251) as u8)
+        .collect();
+    let mut file = File::create(&path).await.expect("create file");
+    file.write_all(&data).await.expect("write file");
+    file.flush().await.expect("flush file");
+
+    let (hash, chunks) = IntegrityVerifier::compute_file_hash_and_chunk_metas(
+        &path,
+        HashAlgorithm::Sha256,
+        chunk_size,
+    )
+    .await
+    .expect("batched scan");
+
+    assert_eq!(
+        hash,
+        IntegrityVerifier::compute_file_hash(&path, HashAlgorithm::Sha256)
+            .await
+            .expect("reference hash")
+    );
+    assert_eq!(chunks.len(), 11);
+    for (index, chunk) in chunks.iter().enumerate() {
+        let start = index * chunk_size;
+        let end = (start + chunk_size).min(data.len());
+        assert_eq!(chunk.index, index as u32);
+        assert_eq!(chunk.offset, start as u64);
+        assert_eq!(chunk.size, (end - start) as u32);
+        assert_eq!(
+            chunk.checksum,
+            IntegrityVerifier::compute_chunk_checksum(&data[start..end])
+        );
+    }
+}
+
+#[tokio::test]
+async fn file_hash_and_chunk_metadata_support_chunks_larger_than_scan_batch() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("large-chunk.bin");
+    let chunk_size = 9 * 1024 * 1024;
+    let data = vec![0x5a; chunk_size + 17];
+    let mut file = File::create(&path).await.expect("create file");
+    file.write_all(&data).await.expect("write file");
+    file.flush().await.expect("flush file");
+
+    let (_, chunks) = IntegrityVerifier::compute_file_hash_and_chunk_metas(
+        &path,
+        HashAlgorithm::Sha256,
+        chunk_size,
+    )
+    .await
+    .expect("large chunk scan");
+
+    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks[0].size, chunk_size as u32);
+    assert_eq!(chunks[1].offset, chunk_size as u64);
+    assert_eq!(chunks[1].size, 17);
+}

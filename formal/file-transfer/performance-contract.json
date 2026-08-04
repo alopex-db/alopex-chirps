@@ -25,7 +25,7 @@
         "decompression_none_owned_1mib",
         "receiver_write_owned_1mib_chunk",
         "quic_codec_round_trip/1mib",
-        "quic_chunk_pipeline_128x1mib_concurrency4"
+        "quic_chunk_pipeline_128x1mib/concurrency4"
       ]
     },
     "module": {
