@@ -641,7 +641,11 @@ async fn main() -> Result<(), DynError> {
     };
     let backend = Arc::new(QuicBackend::new(args.node_id, Arc::new(node_config)).await?);
     let backend_for_service: Arc<dyn MessageBackend> = backend.clone();
+    let detailed_metrics = std::env::var("CHIRPS_DISABLE_DETAILED_METRICS")
+        .map(|value| value != "1" && !value.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
     let transfer_config = FileTransferConfig::default()
+        .with_detailed_metrics(detailed_metrics)
         .with_base_path(args.base_path.clone())
         .with_temp_dir(Some(args.base_path.join("tmp")))
         .with_session_dir(Some(args.base_path.join("sessions")));

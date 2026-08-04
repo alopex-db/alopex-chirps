@@ -356,6 +356,37 @@ fn benchmark_components(criterion: &mut Criterion) {
         );
     });
 
+    // Compression is a separate cost center from the release profile's
+    // compression=none transport measurement.  Keep both levels visible so
+    // a fast wire path cannot hide a Zstd CPU regression.
+    group.bench_function("compression_zstd_owned_1mib", |bench| {
+        let chunk = Arc::clone(&chunk);
+        bench.iter_batched(
+            || chunk.as_ref().clone(),
+            |owned| {
+                black_box(
+                    compress_owned_bytes(black_box(owned), CompressionAlgorithm::Zstd)
+                        .expect("zstd payload"),
+                )
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    group.bench_function("compression_zstd_level9_owned_1mib", |bench| {
+        let chunk = Arc::clone(&chunk);
+        bench.iter_batched(
+            || chunk.as_ref().clone(),
+            |owned| {
+                black_box(
+                    compress_owned_bytes(black_box(owned), CompressionAlgorithm::ZstdLevel(9))
+                        .expect("zstd level 9 payload"),
+                )
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
     group.bench_function("decompression_none_owned_1mib", |bench| {
         let chunk = Arc::clone(&chunk);
         bench.iter_batched(
@@ -368,6 +399,28 @@ fn benchmark_components(criterion: &mut Criterion) {
                         Some(CHUNK_BYTES),
                     )
                     .expect("uncompressed payload"),
+                )
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    let compressed_zstd = Arc::new(
+        compress_owned_bytes(chunk.as_ref().clone(), CompressionAlgorithm::Zstd)
+            .expect("prepare zstd payload"),
+    );
+    group.bench_function("decompression_zstd_owned_1mib", |bench| {
+        let compressed = Arc::clone(&compressed_zstd);
+        bench.iter_batched(
+            || compressed.as_ref().clone(),
+            |owned| {
+                black_box(
+                    decompress_owned_bytes(
+                        black_box(owned),
+                        CompressionAlgorithm::Zstd,
+                        Some(CHUNK_BYTES),
+                    )
+                    .expect("zstd decompressed payload"),
                 )
             },
             BatchSize::LargeInput,

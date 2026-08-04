@@ -27,6 +27,9 @@ pub struct FileTransferConfig {
     pub session_dir: Option<PathBuf>,
     pub session_retention: Duration,
     pub max_sessions: usize,
+    /// Enables per-phase/chunk instrumentation in addition to the service API.
+    /// Disable this for minimum-footprint performance measurements.
+    pub detailed_metrics: bool,
 }
 
 impl Default for FileTransferConfig {
@@ -47,6 +50,7 @@ impl Default for FileTransferConfig {
             session_dir: None,
             session_retention: Duration::from_secs(DEFAULT_SESSION_RETENTION_HOURS * 60 * 60),
             max_sessions: DEFAULT_MAX_SESSIONS,
+            detailed_metrics: true,
         }
     }
 }
@@ -103,6 +107,12 @@ impl FileTransferConfig {
     /// This method does not panic.
     pub fn with_max_concurrent_transfers(mut self, max_concurrent_transfers: usize) -> Self {
         self.max_concurrent_transfers = max_concurrent_transfers;
+        self
+    }
+
+    /// Enables or disables detailed phase and chunk instrumentation.
+    pub fn with_detailed_metrics(mut self, detailed_metrics: bool) -> Self {
+        self.detailed_metrics = detailed_metrics;
         self
     }
 

@@ -219,6 +219,7 @@ launch_container() {
     --cap-add NET_ADMIN \
     --tmpfs "/work:rw,size=$TMPFS_BYTES,mode=700" \
     --tmpfs "/run/chirps:rw,size=$TLS_TMPFS_BYTES,mode=700" \
+    --env CHIRPS_DISABLE_DETAILED_METRICS=1 \
     "$image" sleep infinity >/dev/null
   docker exec --user root "$name" sh -ceu '
     chown chirps:chirps /work /run/chirps
