@@ -240,6 +240,38 @@ async fn run_quic_chunk_pipeline(
     receiver.await.expect("receiver task")
 }
 
+/// Upper-bound diagnostic matching the long-lived-stream pattern used by
+/// reference QUIC file-transfer implementations. It is not production
+/// protocol evidence: the receiver still validates every framed chunk, but
+/// stream establishment happens once for the whole file.
+async fn run_quic_single_stream_pipeline(
+    client: Connection,
+    server: Connection,
+    chunk: Arc<Vec<u8>>,
+) -> usize {
+    let receiver = tokio::spawn(async move {
+        let mut stream = server.accept_uni().await.expect("accept stream");
+        let mut received = 0usize;
+        for _ in 0..PIPELINE_CHUNKS {
+            let mut magic = [0u8; 1];
+            stream.read_exact(&mut magic).await.expect("read magic");
+            assert_eq!(magic[0], CHUNK_STREAM_MAGIC);
+            let (_, _, payload) = ChunkStreamCodec::decode(&mut stream).await.expect("decode");
+            received += payload.len();
+        }
+        received
+    });
+
+    let mut stream = client.open_uni().await.expect("open stream");
+    for index in 0..PIPELINE_CHUNKS {
+        ChunkStreamCodec::encode(&mut stream, &TransferSessionId::new(), index as u32, &chunk)
+            .await
+            .expect("encode");
+    }
+    stream.finish().expect("finish stream");
+    receiver.await.expect("receiver task")
+}
+
 fn benchmark_components(criterion: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let fixture = FileFixture::new();
@@ -406,6 +438,14 @@ fn benchmark_components(criterion: &mut Criterion) {
     );
 
     group.throughput(Throughput::Bytes((CHUNK_BYTES * PIPELINE_CHUNKS) as u64));
+    group.bench_function("quic_single_stream_pipeline_128x1mib", |bench| {
+        let client = quic.client.clone();
+        let server = quic.server.clone();
+        let chunk = Arc::clone(&chunk);
+        bench.to_async(&runtime).iter(|| {
+            run_quic_single_stream_pipeline(client.clone(), server.clone(), Arc::clone(&chunk))
+        });
+    });
     for (concurrency, label) in [
         (1usize, "concurrency1"),
         (2usize, "concurrency2"),
