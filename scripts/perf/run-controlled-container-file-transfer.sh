@@ -44,8 +44,10 @@ USAGE
 
 output=""
 image=""
-sender_cpus="0-1"
-receiver_cpus="2-3"
+# WSL2 calibration host: four dedicated vCPUs per process reduce scheduler
+# contention while preserving disjoint sender/receiver CPU sets.
+sender_cpus="0-3"
+receiver_cpus="4-7"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
