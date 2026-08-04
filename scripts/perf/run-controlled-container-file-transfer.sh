@@ -26,7 +26,8 @@ usage() {
   cat <<'USAGE'
 Usage:
   run-controlled-container-file-transfer.sh --output DIR
-    [--image IMAGE] [--sender-cpus CPUSET] [--receiver-cpus CPUSET]
+  [--image IMAGE] [--sender-cpus CPUSET] [--receiver-cpus CPUSET]
+    [--compression none|zstd|zstd-level:N]
 
 First runs containerized FileTransfer/QUIC tests and component Criterion for the
 same source SHA. It then builds (unless --image is supplied) a source-SHA-labelled
@@ -48,6 +49,7 @@ image=""
 # contention while preserving disjoint sender/receiver CPU sets.
 sender_cpus="0-3"
 receiver_cpus="4-7"
+compression="none"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --image) image="${2:?missing value for --image}"; shift 2 ;;
     --sender-cpus) sender_cpus="${2:?missing value for --sender-cpus}"; shift 2 ;;
     --receiver-cpus) receiver_cpus="${2:?missing value for --receiver-cpus}"; shift 2 ;;
+    --compression) compression="${2:?missing value for --compression}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -188,6 +191,7 @@ image_source_sha="$(docker image inspect --format '{{ index .Config.Labels "org.
   printf 'container_memory=%s\n' "$CONTAINER_MEMORY"
   printf 'sender_cpus=%s\n' "$sender_cpus"
   printf 'receiver_cpus=%s\n' "$receiver_cpus"
+  printf 'compression=%s\n' "$compression"
   printf 'started_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"$output/run.env"
 
@@ -298,7 +302,8 @@ run_transfer() {
     --profile-id "$PROFILE_ID" \
     --image-digest "$image_digest" \
     --destination throughput-dest.bin \
-    --expected-bytes "$FILE_BYTES" >"$receiver_log" 2>&1 &
+    --expected-bytes "$FILE_BYTES" \
+    --compression "$compression" >"$receiver_log" 2>&1 &
   receiver_exec_pid=$!
   wait_for_receiver || {
     printf 'receiver did not bind expected QUIC ports\n' >&2
@@ -323,6 +328,7 @@ run_transfer() {
     --source throughput-source.bin \
     --destination throughput-dest.bin \
     --expected-bytes "$FILE_BYTES" \
+    --compression "$compression" \
     --resumable true >"$sender_log" 2>&1
   wait "$receiver_exec_pid"
   receiver_exec_pid=""
