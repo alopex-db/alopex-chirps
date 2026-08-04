@@ -81,8 +81,13 @@ impl ChunkStreamCodec {
         data: &[u8],
     ) -> io::Result<()> {
         let header = Self::encode_header(session_id, chunk_index, data.len())?;
-        stream.write_all(&header).await?;
-        stream.write_all(data).await?;
+        // Keep the frame in one transport write. With one uni-stream per chunk,
+        // a separate header write adds a syscall and scheduler turn to every
+        // 1 MiB payload.
+        let mut frame = Vec::with_capacity(header.len() + data.len());
+        frame.extend_from_slice(&header);
+        frame.extend_from_slice(data);
+        stream.write_all(&frame).await?;
         Ok(())
     }
 
