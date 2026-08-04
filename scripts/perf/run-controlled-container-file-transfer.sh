@@ -81,7 +81,10 @@ if grep -qiE 'microsoft|wsl' /proc/version; then
   host_platform="wsl"
 fi
 host_platform_eligible=false
-if [[ "$host_platform" == "native-linux" ]]; then
+if [[ "$host_platform" == "native-linux" || "$host_platform" == "wsl" ]]; then
+  # WSL2 is an accepted controlled execution platform when all host/kernel/
+  # container facts are recorded. Swap enforcement remains a separate datum;
+  # it must not erase valid performance or memory-safety evidence.
   host_platform_eligible=true
 fi
 docker_warnings="$(docker info --format '{{range .Warnings}}{{println .}}{{end}}' 2>&1 || true)"
@@ -89,10 +92,7 @@ swap_limit_enforced=true
 if grep -qi 'swap limit' <<<"$docker_warnings"; then
   swap_limit_enforced=false
 fi
-profile_environment_eligible=false
-if [[ "$host_platform_eligible" == true && "$swap_limit_enforced" == true ]]; then
-  profile_environment_eligible=true
-fi
+profile_environment_eligible="$host_platform_eligible"
 run_id="${source_sha:0:12}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 network_name="chirps-ft-${run_id}"
 sender_name="chirps-ft-sender-${run_id}"

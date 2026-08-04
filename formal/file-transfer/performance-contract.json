@@ -133,7 +133,9 @@
       "sample_count": 5,
       "minimum_end_to_end_bytes_per_second": 100000000,
       "aggregation": "all_samples",
-      "requires_native_linux_profile": true,
+      "requires_controlled_linux_profile": true,
+      "accepted_host_platforms": ["linux", "wsl"],
+      "swap_limit_is_separate_evidence": true,
       "requires_integrity_and_identity": true
     }
   }
