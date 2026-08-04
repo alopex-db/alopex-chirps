@@ -326,6 +326,13 @@ run_transfer() {
   docker exec "$sender_name" cat "$sender_dir/sender-result.env" >"$sample_dir/sender-result.env"
   docker exec "$receiver_name" cat "$receiver_dir/receiver-result.env" >"$sample_dir/receiver-result.env"
   docker exec "$receiver_name" sha256sum "$receiver_dir/throughput-dest.bin" >"$sample_dir/destination.sha256"
+  # Capture cgroup-v2 memory usage before removing the per-sample workload.
+  # `memory.peak` is the authoritative container cgroup peak when supported;
+  # docker stats alone reports only an instantaneous value.
+  for name in "$sender_name" "$receiver_name"; do
+    docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.current' >"$sample_dir/$name.memory.current" 2>&1 || true
+    docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.peak' >"$sample_dir/$name.memory.peak" 2>&1 || true
+  done
   docker exec "$sender_name" rm -rf -- "$sender_dir"
   docker exec "$receiver_name" rm -rf -- "$receiver_dir"
 }
@@ -368,6 +375,15 @@ def env(path):
 def phase_metrics(report):
     return {key: value for key, value in report.items() if key.startswith("phase_")}
 
+def cgroup_value(directory, suffix, role):
+    paths = sorted(directory.glob(f"*{role}*.memory.{suffix}"))
+    if not paths:
+        return None
+    try:
+        return int(paths[0].read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
 samples = []
 for number in range(1, 6):
     directory = root / "samples" / f"sample-{number}"
@@ -406,6 +422,10 @@ for number in range(1, 6):
             "receiver_phase_metrics": phase_metrics(receiver),
             "sender_receiver_destination_sha256_match": bool(integrity),
             "identity_match": identity,
+            "sender_memory_current_bytes": cgroup_value(directory, "current", "sender"),
+            "sender_memory_peak_bytes": cgroup_value(directory, "peak", "sender"),
+            "receiver_memory_current_bytes": cgroup_value(directory, "current", "receiver"),
+            "receiver_memory_peak_bytes": cgroup_value(directory, "peak", "receiver"),
         }
     )
 
@@ -457,6 +477,7 @@ summary = [
 for sample in samples:
     value = sample["end_to_end_goodput_bytes_per_second"]
     summary.append(f"- Sample {sample['sample']} goodput: `{value:.0f} B/s`" if value is not None else f"- Sample {sample['sample']} goodput: `missing`")
+    summary.append(f"  - sender memory peak: `{sample['sender_memory_peak_bytes']} B`, receiver memory peak: `{sample['receiver_memory_peak_bytes']} B`")
 (root / "evidence" / "summary.md").write_text("\n".join(summary) + "\n", encoding="utf-8")
 PY
 
