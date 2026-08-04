@@ -90,6 +90,13 @@ bash scripts/perf/run-local-v0_5_2-baseline.sh \
 これらは関数・モジュールの原因帰属と修正確認であり、native Linux
 `ft-1g-v1` の5 sample合格を置き換えない。
 
+同じ診断で、従来phase化されていなかったACK前resume checkpointを
+`receiver_checkpoint` として追加した。`resumable=true/false` の隣接A/Bでは
+true側に86.53 ms/128回のcheckpointが観測され、append journal化後の関数
+benchmarkは61.85 msから16.56 ms、実サービスphaseは42.36 msへ短縮した。
+正式workloadは `resumable=true` のままであり、無効化した測定をSLO証跡へ
+採用しない。
+
 local service runner は旧 `MockNetwork` control plane を使用しない。`two_node_transfer` の sender/receiver を別 process として localhost に起動し、control/data とも実 QUIC を通す。SHA-256、全 phase count/bytes、receiver control の `max_concurrent_sends >= 2` を JSON で検査する。この結果も host 依存の診断であり、二 container `ft-1g-v1` の SLO 証跡には代用しない。
 
 fresh transfer の receiver は checksum 合格かつ resume checkpoint 永続化済みの chunk を index 順に `receiver_file_hash` へ投入し、全 chunk が揃った場合はその SHA-256 を最終照合へ使う。順不同 chunk は並列数の範囲で一時保持し、resume/欠番/状態不整合では従来の完成ファイル全走査へ fallback する。従って `receiver_finalize` が短縮されても、最終 SHA-256 照合を省略したことを意味しない。

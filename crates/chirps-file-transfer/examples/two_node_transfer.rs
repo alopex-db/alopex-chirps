@@ -56,6 +56,7 @@ struct Arguments {
     source: Option<PathBuf>,
     destination: PathBuf,
     expected_bytes: u64,
+    resumable: bool,
 }
 
 #[derive(Clone)]
@@ -108,7 +109,7 @@ fn usage() -> ! {
         "  --report RESULT.ENV --source-sha GIT_SHA --scope SCOPE --destination RELATIVE_PATH"
     );
     eprintln!(
-        "  [--profile-id ID --image-digest DIGEST] [--source RELATIVE_PATH] [--expected-bytes BYTES]"
+        "  [--profile-id ID --image-digest DIGEST] [--source RELATIVE_PATH] [--expected-bytes BYTES] [--resumable true|false]"
     );
     std::process::exit(2);
 }
@@ -181,6 +182,15 @@ fn parse_arguments() -> Result<Arguments, DynError> {
     if expected_bytes == 0 {
         return Err(input_error("--expected-bytes must be positive"));
     }
+    let resumable = match values
+        .get("resumable")
+        .map(String::as_str)
+        .unwrap_or("true")
+    {
+        "true" => true,
+        "false" => false,
+        _ => return Err(input_error("--resumable must be true or false")),
+    };
     let source = values
         .get("source")
         .map(|value| parse_relative_path(value, "source"))
@@ -240,6 +250,7 @@ fn parse_arguments() -> Result<Arguments, DynError> {
         source,
         destination: parse_relative_path(&required(&values, "destination")?, "destination")?,
         expected_bytes,
+        resumable,
     })
 }
 
@@ -485,7 +496,8 @@ async fn run_sender(
             &args.destination,
             TransferOptions::default()
                 .with_chunk_size(1024 * 1024)
-                .with_concurrency(4),
+                .with_concurrency(4)
+                .with_resumable(args.resumable),
         )
         .await?;
     let elapsed_seconds = started.elapsed().as_secs_f64();
@@ -517,6 +529,7 @@ async fn run_sender(
             ("control_plane", "chirps-quic".to_string()),
             ("data_plane", "quic-chunk-stream".to_string()),
             ("compression", "none".to_string()),
+            ("resumable", args.resumable.to_string()),
             ("file_bytes", metadata.len().to_string()),
             ("elapsed_seconds", format!("{elapsed_seconds:.9}")),
             (
@@ -574,6 +587,7 @@ async fn run_receiver(
                         ("source_sha", args.source_sha.clone()),
                         ("control_plane", "chirps-quic".to_string()),
                         ("data_plane", "quic-chunk-stream".to_string()),
+                        ("resumable", args.resumable.to_string()),
                         ("file_bytes", metadata.len().to_string()),
                         ("sha256", sha256),
                         ("completed", "true".to_string()),

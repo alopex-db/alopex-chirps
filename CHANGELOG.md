@@ -20,6 +20,7 @@
 - FileTransfer の `compression=none` で sender/receiver の所有済みchunk allocationを再利用し、blocking positional writeも同じbufferを返すことでpayload全量の不要コピーを除去した。
 - 128 MiB workloadをfunction/module/service/binaryへ対応付けるmachine-readable性能契約、実QUIC control/data二プロセス診断、transport/chunk並列度の決定的テスト、same-host Criterion回帰比較器を追加した。
 - source manifest生成を8 MiBの再利用bufferによるbatch走査へ変更し、SHA-256と1 MiB chunk checksumの意味を保ったままread/allocation回数を削減した。
+- resumable受信のACK前checkpointを、毎chunkのfull session再書込みから固定長append journalへ変更した。replayは重複・不完全末尾に対して冪等で、full snapshot時にjournalを畳み込む。
 
 ### 検証
 

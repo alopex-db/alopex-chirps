@@ -289,10 +289,14 @@ fn benchmark_components(criterion: &mut Criterion) {
             let persistence = Arc::clone(&persistence);
             let mut session = checkpoint_template.clone();
             async move {
+                persistence
+                    .save(&session)
+                    .await
+                    .expect("persist receiver session base");
                 for index in 0..session.manifest.chunk_count {
                     session.chunk_tracker.mark_completed(index);
                     persistence
-                        .save(&session)
+                        .checkpoint_chunk(session.id, index)
                         .await
                         .expect("persist receiver checkpoint");
                 }

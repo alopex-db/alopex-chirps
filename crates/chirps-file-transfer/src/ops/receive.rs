@@ -666,9 +666,10 @@ impl ReceiveHandler {
             }
             session.chunk_tracker.mark_completed(chunk_index);
             session.updated_at = SystemTime::now();
+            let checkpoint_started = Instant::now();
             if session.options.resumable
                 && let Some(persistence) = &self.persistence
-                && let Err(error) = persistence.save(session).await
+                && let Err(error) = persistence.checkpoint_chunk(session_id, chunk_index).await
             {
                 session.chunk_tracker.completed.remove(&chunk_index);
                 session.chunk_tracker.mark_failed(chunk_index);
@@ -689,6 +690,15 @@ impl ReceiveHandler {
                     verified: false,
                     completed: false,
                 });
+            }
+            if session.options.resumable
+                && let Some(metrics) = &self.metrics
+            {
+                metrics.observe_phase(
+                    "receiver_checkpoint",
+                    checkpoint_started.elapsed(),
+                    data_len,
+                );
             }
             let hash_started = Instant::now();
             let bytes_hashed = self

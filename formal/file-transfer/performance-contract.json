@@ -7,7 +7,8 @@
     "chunk_bytes": 1048576,
     "chunk_count": 128,
     "concurrency": 4,
-    "compression": "none"
+    "compression": "none",
+    "resumable": true
   },
   "layers": {
     "function": {
@@ -68,6 +69,7 @@
         "receiver": {
           "receiver_chunk_verify": { "count": 128, "bytes": 134217728 },
           "receiver_chunk_write": { "count": 128, "bytes": 134217728 },
+          "receiver_checkpoint": { "count": 128, "bytes": 134217728 },
           "receiver_file_hash": { "minimum_count": 1, "bytes": 134217728 },
           "receiver_finalize": { "count": 1, "bytes": 134217728 }
         }

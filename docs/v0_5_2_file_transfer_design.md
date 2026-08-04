@@ -94,6 +94,15 @@ boundary tests cover partial final chunks, multiple batches, and chunks larger
 than the scan batch. The host-specific timing is diagnostic evidence, not the
 release SLO.
 
+Resumable receive progress uses a full session snapshot at manifest acceptance
+and a fixed-size append journal for each verified chunk before its positive
+acknowledgement. Each record contains the chunk index and its bitwise
+complement; replay ignores an incomplete/corrupt trailing record and duplicate
+indices are idempotent. Completion writes one full snapshot and removes the
+journal. This preserves the ACK-before-persistence recovery invariant without
+serializing and atomically replacing the complete manifest 128 times. The
+128-checkpoint component benchmark improved from about 61.85 ms to 16.56 ms.
+
 The current ignored fixture places both QUIC endpoints in the same test
 process. It remains useful for local component diagnosis, but is not
 `ft-1g-v1` evidence and cannot satisfy the 100 MB/s product SLO. The release

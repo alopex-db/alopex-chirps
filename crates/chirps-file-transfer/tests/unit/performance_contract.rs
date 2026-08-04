@@ -32,6 +32,7 @@ fn layered_performance_contract_is_complete_and_wired() {
     assert_eq!(file_bytes, chunk_bytes * chunk_count);
     assert_eq!(workload["concurrency"], 4);
     assert_eq!(workload["compression"], "none");
+    assert_eq!(workload["resumable"], true);
 
     let layers = required(&contract, &["layers"]);
     assert_eq!(

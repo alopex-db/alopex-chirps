@@ -5,6 +5,7 @@ use alopex_chirps_file_transfer::{
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::tempdir;
+use tokio::io::AsyncWriteExt;
 
 fn build_manifest(session_id: TransferSessionId, data: &[u8]) -> TransferManifest {
     let checksum = xxhash_rust::xxh64::xxh64(data, 0);
@@ -75,6 +76,92 @@ async fn session_persistence_round_trip() {
         loaded.chunk_tracker.completed,
         session.chunk_tracker.completed
     );
+}
+
+#[tokio::test]
+async fn chunk_checkpoint_journal_replays_after_the_base_snapshot() {
+    let dir = tempdir().expect("tempdir");
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(dir.path().join("sessions")),
+        ..FileTransferConfig::default()
+    };
+    let persistence = SessionPersistence::new(&config);
+    let session_id = TransferSessionId::new();
+    let session = build_session(session_id);
+
+    persistence.save(&session).await.expect("save base session");
+    persistence
+        .checkpoint_chunk(session_id, 0)
+        .await
+        .expect("append checkpoint");
+    persistence
+        .checkpoint_chunk(session_id, 0)
+        .await
+        .expect("append duplicate checkpoint");
+
+    let loaded = persistence.load(session_id).await.expect("load journal");
+    assert_eq!(loaded.chunk_tracker.completed.len(), 1);
+    assert!(loaded.chunk_tracker.completed.contains(&0));
+}
+
+#[tokio::test]
+async fn full_snapshot_compacts_the_chunk_checkpoint_journal() {
+    let dir = tempdir().expect("tempdir");
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(dir.path().join("sessions")),
+        ..FileTransferConfig::default()
+    };
+    let persistence = SessionPersistence::new(&config);
+    let session_id = TransferSessionId::new();
+    let mut session = build_session(session_id);
+
+    persistence.save(&session).await.expect("save base session");
+    persistence
+        .checkpoint_chunk(session_id, 0)
+        .await
+        .expect("append checkpoint");
+    session.chunk_tracker.mark_completed(0);
+    persistence.save(&session).await.expect("compact snapshot");
+
+    let loaded = persistence.load(session_id).await.expect("load compacted");
+    assert_eq!(loaded.chunk_tracker.completed.len(), 1);
+    assert!(loaded.chunk_tracker.completed.contains(&0));
+}
+
+#[tokio::test]
+async fn chunk_checkpoint_journal_ignores_an_incomplete_trailing_record() {
+    let dir = tempdir().expect("tempdir");
+    let session_dir = dir.path().join("sessions");
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(session_dir.clone()),
+        ..FileTransferConfig::default()
+    };
+    let persistence = SessionPersistence::new(&config);
+    let session_id = TransferSessionId::new();
+    let session = build_session(session_id);
+
+    persistence.save(&session).await.expect("save base session");
+    persistence
+        .checkpoint_chunk(session_id, 0)
+        .await
+        .expect("append checkpoint");
+    let journal = session_dir.join(format!("session_{session_id}.progress"));
+    let mut file = tokio::fs::OpenOptions::new()
+        .append(true)
+        .open(journal)
+        .await
+        .expect("open journal");
+    file.write_all(&[0xaa, 0xbb, 0xcc])
+        .await
+        .expect("append incomplete record");
+    file.flush().await.expect("flush incomplete record");
+
+    let loaded = persistence.load(session_id).await.expect("load journal");
+    assert_eq!(loaded.chunk_tracker.completed.len(), 1);
+    assert!(loaded.chunk_tracker.completed.contains(&0));
 }
 
 #[tokio::test]

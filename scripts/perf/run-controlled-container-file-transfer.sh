@@ -296,7 +296,8 @@ run_transfer() {
     --image-digest "$image_digest" \
     --source throughput-source.bin \
     --destination throughput-dest.bin \
-    --expected-bytes "$FILE_BYTES" >"$sender_log" 2>&1
+    --expected-bytes "$FILE_BYTES" \
+    --resumable true >"$sender_log" 2>&1
   wait "$receiver_exec_pid"
   receiver_exec_pid=""
   docker exec "$sender_name" cat "$sender_dir/sender-result.env" >"$sample_dir/sender-result.env"
@@ -367,6 +368,7 @@ for number in range(1, 6):
         and report.get("profile_id") == "ft-1g-v1"
         and report.get("source_sha") == source_sha
         and report.get("image_digest") == image_digest
+        and report.get("resumable") == "true"
         for report in (sender, receiver)
     )
     samples.append(
