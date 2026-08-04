@@ -40,10 +40,14 @@ impl ChunkStreamCodec {
                 "encoded chunk data exceeds maximum size",
             ));
         }
-        stream.write_all(&[CHUNK_STREAM_MAGIC]).await?;
-        stream.write_all(session_id.as_bytes()).await?;
-        stream.write_all(&chunk_index.to_le_bytes()).await?;
-        stream.write_all(&(data.len() as u32).to_le_bytes()).await?;
+        // Coalesce the fixed header into one QUIC write. Five tiny writes here
+        // previously put the single-stream codec below its absolute budget.
+        let mut header = [0u8; 25];
+        header[0] = CHUNK_STREAM_MAGIC;
+        header[1..17].copy_from_slice(session_id.as_bytes());
+        header[17..21].copy_from_slice(&chunk_index.to_le_bytes());
+        header[21..25].copy_from_slice(&(data.len() as u32).to_le_bytes());
+        stream.write_all(&header).await?;
         stream.write_all(data).await?;
         Ok(())
     }
@@ -78,27 +82,16 @@ impl ChunkStreamCodec {
 
     /// Decodes the header after the transport has consumed the magic byte.
     pub async fn decode_header(stream: &mut RecvStream) -> io::Result<ChunkStreamHeader> {
-        let mut session_id_bytes = [0u8; 16];
+        let mut header = [0u8; 24];
         stream
-            .read_exact(&mut session_id_bytes)
+            .read_exact(&mut header)
             .await
             .map_err(map_read_exact)?;
-        let session_id = TransferSessionId::from_bytes(&session_id_bytes)
+        let session_id = TransferSessionId::from_bytes(&header[..16])
             .map_err(|_| io::Error::new(ErrorKind::InvalidData, "invalid session id"))?;
-
-        let mut index_bytes = [0u8; 4];
-        stream
-            .read_exact(&mut index_bytes)
-            .await
-            .map_err(map_read_exact)?;
-        let chunk_index = u32::from_le_bytes(index_bytes);
-
-        let mut len_bytes = [0u8; 4];
-        stream
-            .read_exact(&mut len_bytes)
-            .await
-            .map_err(map_read_exact)?;
-        let data_len = u32::from_le_bytes(len_bytes) as usize;
+        let chunk_index = u32::from_le_bytes(header[16..20].try_into().expect("fixed header"));
+        let data_len =
+            u32::from_le_bytes(header[20..24].try_into().expect("fixed header")) as usize;
         if data_len > MAX_WIRE_CHUNK_SIZE {
             return Err(io::Error::new(
                 ErrorKind::InvalidData,
