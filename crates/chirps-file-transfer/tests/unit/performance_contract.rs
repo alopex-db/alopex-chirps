@@ -158,6 +158,11 @@ fn layered_performance_contract_is_complete_and_wired() {
     assert_eq!(binary["sample_count"], 5);
     assert_eq!(binary["minimum_end_to_end_bytes_per_second"], 100_000_000);
     assert_eq!(binary["aggregation"], "all_samples");
-    assert_eq!(binary["requires_native_linux_profile"], true);
+    assert_eq!(binary["requires_controlled_linux_profile"], true);
+    assert_eq!(
+        binary["accepted_host_platforms"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(binary["swap_limit_is_separate_evidence"], true);
     assert_eq!(binary["requires_integrity_and_identity"], true);
 }
