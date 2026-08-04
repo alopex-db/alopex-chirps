@@ -203,22 +203,37 @@ async fn close_after_send_preserves_file_transfer_control_frames() -> anyhow::Re
     wait_for_connected(&backend_a, 1).await;
     wait_for_connected(&backend_b, 1).await;
 
+    let backend_b = Arc::new(backend_b);
+    let mut sends = tokio::task::JoinSet::new();
     for index in 0..FRAME_COUNT {
-        backend_b
-            .send(
-                node_a,
-                Frame::FileTransfer(FileTransferFrame {
-                    session_id: TransferSessionId::new(),
-                    message: FileTransferMessage::Cancel(CancelRequest {
-                        reason: format!("close-after-send-{index}"),
+        let backend = Arc::clone(&backend_b);
+        sends.spawn(async move {
+            backend
+                .send(
+                    node_a,
+                    Frame::FileTransfer(FileTransferFrame {
+                        session_id: TransferSessionId::new(),
+                        message: FileTransferMessage::Cancel(CancelRequest {
+                            reason: format!("close-after-send-{index}"),
+                        }),
                     }),
-                }),
-            )
-            .await?;
+                )
+                .await
+        });
     }
+    while let Some(result) = sends.join_next().await {
+        result.expect("control send task")?;
+    }
+    let send_metrics = backend_b.metrics();
+    assert_eq!(send_metrics.concurrent_sends, 0);
+    assert!(
+        send_metrics.max_concurrent_sends > 1,
+        "concurrently submitted FileTransfer control frames must overlap in the QUIC send worker"
+    );
     backend_b.close().await?;
 
-    for index in 0..FRAME_COUNT {
+    let mut reasons = std::collections::BTreeSet::new();
+    for _ in 0..FRAME_COUNT {
         let (from, frame) = tokio::time::timeout(Duration::from_secs(2), rx_a.recv())
             .await?
             .expect("all acknowledged control frames must survive immediate close");
@@ -227,9 +242,15 @@ async fn close_after_send_preserves_file_transfer_control_frames() -> anyhow::Re
             Frame::FileTransfer(FileTransferFrame {
                 message: FileTransferMessage::Cancel(cancel),
                 ..
-            }) => assert_eq!(cancel.reason, format!("close-after-send-{index}")),
+            }) => {
+                reasons.insert(cancel.reason);
+            }
             other => panic!("expected FileTransfer Cancel, got {other:?}"),
         }
+    }
+    assert_eq!(reasons.len(), FRAME_COUNT);
+    for index in 0..FRAME_COUNT {
+        assert!(reasons.contains(&format!("close-after-send-{index}")));
     }
 
     backend_a.close().await?;

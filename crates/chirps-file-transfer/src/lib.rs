@@ -28,8 +28,11 @@ pub mod stream;
 pub mod wire;
 
 pub use bandwidth::BandwidthThrottle;
-pub use chunk::{Chunk, ChunkManager, ChunkMeta, ChunkTracker};
-pub use compression::{compress_bytes, compress_reader, decompress_bytes, decompress_reader};
+pub use chunk::{Chunk, ChunkManager, ChunkMeta, ChunkTracker, write_owned_chunk_at};
+pub use compression::{
+    compress_bytes, compress_owned_bytes, compress_reader, decompress_bytes,
+    decompress_owned_bytes, decompress_reader,
+};
 pub use config::FileTransferConfig;
 pub use error::FileTransferError;
 pub use integrity::IntegrityVerifier;

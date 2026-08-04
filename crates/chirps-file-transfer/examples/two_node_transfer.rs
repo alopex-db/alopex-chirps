@@ -428,6 +428,21 @@ fn append_phase_metrics(path: &Path, service: &FileTransferServiceImpl) -> Resul
     Ok(())
 }
 
+fn append_transport_metrics(path: &Path, backend: &QuicBackend) -> Result<(), DynError> {
+    let metrics = backend.metrics();
+    let mut report = fs::OpenOptions::new().append(true).open(path)?;
+    writeln!(report, "transport_sent={}", metrics.sent)?;
+    writeln!(report, "transport_received={}", metrics.received)?;
+    writeln!(report, "transport_dropped={}", metrics.dropped)?;
+    writeln!(report, "transport_retried={}", metrics.retried)?;
+    writeln!(
+        report,
+        "transport_max_concurrent_sends={}",
+        metrics.max_concurrent_sends
+    )?;
+    Ok(())
+}
+
 async fn wait_for_peer(backend: &QuicBackend, peer_id: NodeId) -> Result<(), DynError> {
     timeout(Duration::from_secs(30), async {
         loop {
@@ -516,10 +531,15 @@ async fn run_sender(
             ("completed", "true".to_string()),
         ],
     )?;
-    append_phase_metrics(&args.report, service)
+    append_phase_metrics(&args.report, service)?;
+    append_transport_metrics(&args.report, backend)
 }
 
-async fn run_receiver(args: &Arguments, service: &FileTransferServiceImpl) -> Result<(), DynError> {
+async fn run_receiver(
+    args: &Arguments,
+    service: &FileTransferServiceImpl,
+    backend: &QuicBackend,
+) -> Result<(), DynError> {
     let destination = args.base_path.join(&args.destination);
     timeout(Duration::from_secs(180), async {
         loop {
@@ -560,6 +580,7 @@ async fn run_receiver(args: &Arguments, service: &FileTransferServiceImpl) -> Re
                     ],
                 )?;
                 append_phase_metrics(&args.report, service)?;
+                append_transport_metrics(&args.report, backend)?;
                 return Ok::<(), DynError>(());
             }
             sleep(Duration::from_millis(50)).await;
@@ -624,7 +645,7 @@ async fn main() -> Result<(), DynError> {
     let result = if args.role == "sender" {
         run_sender(&args, &service, &backend).await
     } else {
-        run_receiver(&args, &service).await
+        run_receiver(&args, &service, &backend).await
     };
     listener.abort();
     let _ = listener.await;

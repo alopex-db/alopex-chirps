@@ -1,7 +1,7 @@
 use crate::TransferSessionId;
 use crate::bandwidth::BandwidthThrottle;
 use crate::chunk::ChunkManager;
-use crate::compression::compress_bytes;
+use crate::compression::compress_owned_bytes;
 use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
 use crate::integrity::IntegrityVerifier;
@@ -325,6 +325,7 @@ pub(crate) async fn send_file_with_context(
     let mut retry_counts: HashMap<u32, u8> = HashMap::new();
     let mut scheduled_retries = 0usize;
     let concurrency = options.concurrency.max(1).min(config.max_concurrency);
+    let mut max_in_flight = 0usize;
 
     let (send_tx, mut send_rx) =
         mpsc::channel::<(u32, Result<(), FileTransferError>)>(concurrency.saturating_mul(2));
@@ -365,6 +366,7 @@ pub(crate) async fn send_file_with_context(
         while in_flight.len() < concurrency && !pending.is_empty() {
             let index = pending.pop_front().expect("pending checked");
             in_flight.insert(index, Instant::now());
+            max_in_flight = max_in_flight.max(in_flight.len());
             update_chunks_in_flight(&metrics, in_flight.len());
             let send_tx = send_tx.clone();
             let opener = Arc::clone(&stream_opener);
@@ -596,6 +598,7 @@ pub(crate) async fn send_file_with_context(
         metrics.record_transfer(kind, "completed");
         metrics.active_transfers.dec();
         metrics.observe_transfer_duration(kind, duration_secs);
+        metrics.observe_chunk_concurrency(kind, max_in_flight);
         if duration_secs > 0.0 {
             metrics.observe_throughput(kind, file_size as f64 / duration_secs);
         }
@@ -858,7 +861,9 @@ async fn send_chunk(
     }
 
     let compression_started = Instant::now();
-    let payload = compress_bytes(&chunk.data, compression)?;
+    // Chunk reads already return an owned buffer. Passing it through avoids a
+    // full-payload allocation and copy for the uncompressed profile.
+    let payload = compress_owned_bytes(chunk.data, compression)?;
     if let Some(metrics) = &metrics {
         metrics.observe_phase(
             "sender_chunk_compress",

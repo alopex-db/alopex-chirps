@@ -63,17 +63,27 @@ scripts/perf/run-controlled-container-file-transfer.sh \
 | --- | --- | --- | --- |
 | function | manifest/hash、chunk read、compression、`ChunkStreamCodec`、receiver write/finalize | 正しい byte 数・checksum、境界、無効 frame 拒否 | operation ごとの bytes/s・allocation/operation count |
 | module | sender scheduler、connection reuse、ACK/NACK/retry、receiver session | `concurrency` 上限、全 chunk の一回限り completion、retry と in-flight accounting | chunk read / encode / stream / verify / write の bytes/s と duration |
-| service | `FileTransferService` と実 QUIC data plane の local diagnostic | phase observation の全項目、retry/byte/integrity の集計一致 | source prepare、control、chunk pipeline、incremental receiver file hash、receiver finalize の各 duration |
+| service | `FileTransferService` と実 Chirps QUIC control/data plane の二プロセス local diagnostic | phase observation の全項目、retry/byte/integrity、control send 並列度の集計一致 | source prepare、control、chunk pipeline、incremental receiver file hash、receiver finalize の各 duration |
 | binary | `two_node_transfer` / controlled two-container | source/image/profile/scope と SHA-256 の一致 | 上記 phase 集計と end-to-end goodput |
 
 通常の `cargo test` に host 固有の B/s 閾値を置かない。代わりに byte accounting、phase event count、connection/retry/concurrency の構造的不変条件を検証する。function/module の速度比較は `cargo bench` の Criterion evidence として local calibration host に保存し、前回の同一 profile と比較する。最終 `ft-1g-v1` の `100,000,000 B/s` だけが release SLO であり、下位 benchmark は原因帰属と回帰検知のための入力である。
 
+この対応は `formal/file-transfer/performance-contract.json` を正本とし、workload、function operation、module invariant、service phase、binary SLO を一つの machine-readable contract へ固定する。`performance_contract` UT は contract 内の benchmark/test/harness 参照が実在し、`128 MiB = 128 × 1 MiB`、concurrency 4、5 sample 全件 100,000,000 B/s という条件が一致することをローカルで検証する。
+
 ```bash
 CARGO_TARGET_DIR=/var/tmp/chirps-ft-component-bench \
   cargo bench -p alopex-chirps-file-transfer --bench file_transfer_components
+python3 scripts/perf/verify-file-transfer-criterion.py \
+  --current /var/tmp/chirps-ft-component-bench/criterion \
+  --baseline <same-host-previous-criterion-directory> \
+  --output /var/tmp/chirps-ft-component-result.json
+bash scripts/perf/run-local-v0_5_2-baseline.sh \
+  --output /var/tmp/chirps-ft-local-service
 ```
 
-この bench は source manifest/hash（128 MiB）、実際の source open + 1 MiB chunk read、`compression=none`、接続再利用済み QUIC codec round trip を測定する。結果は同一 host / kernel / Rust / profile の前回値とだけ比較し、`ft-1g-v1` の release 判定値に代用しない。
+この bench は source manifest/hash（128 MiB）、実際の source open + 1 MiB chunk read、allocation を再利用する `compression=none` の送受信、receiver positional write、接続再利用済み QUIC codec round trip、release と同じ flow-control 設定による 128 × 1 MiB / concurrency 4 pipeline を測定する。比較器は contract に列挙した全 operation の欠落を拒否し、同一 host / kernel / Rust / profile の前回値に対する 10% 超の回帰で失敗する。baseline なしの初回は calibration artifact を作るだけで release 合格とはしない。
+
+local service runner は旧 `MockNetwork` control plane を使用しない。`two_node_transfer` の sender/receiver を別 process として localhost に起動し、control/data とも実 QUIC を通す。SHA-256、全 phase count/bytes、receiver control の `max_concurrent_sends >= 2` を JSON で検査する。この結果も host 依存の診断であり、二 container `ft-1g-v1` の SLO 証跡には代用しない。
 
 fresh transfer の receiver は checksum 合格かつ resume checkpoint 永続化済みの chunk を index 順に `receiver_file_hash` へ投入し、全 chunk が揃った場合はその SHA-256 を最終照合へ使う。順不同 chunk は並列数の範囲で一時保持し、resume/欠番/状態不整合では従来の完成ファイル全走査へ fallback する。従って `receiver_finalize` が短縮されても、最終 SHA-256 照合を省略したことを意味しない。
 

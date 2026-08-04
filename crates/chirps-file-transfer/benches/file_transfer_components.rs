@@ -8,11 +8,14 @@ use alopex_chirps_file_transfer::{
     CHUNK_STREAM_MAGIC, ChunkManager, ChunkMeta, ChunkStreamCodec, ChunkTracker,
     CompressionAlgorithm, FileTransferConfig, HashAlgorithm, IntegrityVerifier, SessionPersistence,
     TransferKind, TransferManifest, TransferMode, TransferOptions, TransferSession,
-    TransferSessionId, TransferState, compress_bytes,
+    TransferSessionId, TransferState, compress_owned_bytes, decompress_owned_bytes,
+    write_owned_chunk_at,
 };
 use alopex_chirps_wire::node_id::NodeId;
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use quinn::{ClientConfig, Connection, Endpoint, ServerConfig};
+use criterion::{
+    BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
+};
+use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
 use rcgen::generate_simple_self_signed;
 use rustls::RootCertStore;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
@@ -23,7 +26,12 @@ use tempfile::TempDir;
 
 const FILE_BYTES: usize = 128 * 1024 * 1024;
 const CHUNK_BYTES: usize = 1024 * 1024;
+const PIPELINE_CONCURRENCY: usize = 4;
+const PIPELINE_CHUNKS: usize = FILE_BYTES / CHUNK_BYTES;
 const SERVER_NAME: &str = "localhost";
+const STREAM_WINDOW_BYTES: u32 = 16 * 1024 * 1024;
+const CONNECTION_WINDOW_BYTES: u32 = 64 * 1024 * 1024;
+const MAX_UNI_STREAMS: u32 = 256;
 
 struct FileFixture {
     _directory: TempDir,
@@ -118,7 +126,7 @@ fn tls_configs() -> (ServerConfig, ClientConfig) {
     let certificate = generate_simple_self_signed([SERVER_NAME.to_string()]).expect("certificate");
     let certificate_der = certificate.serialize_der().expect("certificate DER");
     let key_der = certificate.serialize_private_key_der();
-    let server = ServerConfig::with_single_cert(
+    let mut server = ServerConfig::with_single_cert(
         vec![CertificateDer::from(certificate_der.clone())],
         PrivatePkcs8KeyDer::from(key_der).into(),
     )
@@ -128,7 +136,16 @@ fn tls_configs() -> (ServerConfig, ClientConfig) {
     roots
         .add(CertificateDer::from(certificate_der))
         .expect("trusted certificate");
-    let client = ClientConfig::with_root_certificates(Arc::new(roots)).expect("client config");
+    let mut client = ClientConfig::with_root_certificates(Arc::new(roots)).expect("client config");
+    let mut transport = TransportConfig::default();
+    transport
+        .stream_receive_window(STREAM_WINDOW_BYTES.into())
+        .receive_window(CONNECTION_WINDOW_BYTES.into())
+        .send_window(CONNECTION_WINDOW_BYTES as u64)
+        .max_concurrent_uni_streams(MAX_UNI_STREAMS.into());
+    let transport = Arc::new(transport);
+    server.transport_config(Arc::clone(&transport));
+    client.transport_config(transport);
     (server, client)
 }
 
@@ -242,14 +259,59 @@ fn benchmark_components(criterion: &mut Criterion) {
         });
     });
 
-    group.bench_function("compression_none_1mib", |bench| {
+    group.bench_function("compression_none_owned_1mib", |bench| {
         let chunk = Arc::clone(&chunk);
-        bench.iter(|| {
-            black_box(
-                compress_bytes(black_box(chunk.as_slice()), CompressionAlgorithm::None)
+        bench.iter_batched(
+            || chunk.as_ref().clone(),
+            |owned| {
+                black_box(
+                    compress_owned_bytes(black_box(owned), CompressionAlgorithm::None)
+                        .expect("uncompressed payload"),
+                )
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    group.bench_function("decompression_none_owned_1mib", |bench| {
+        let chunk = Arc::clone(&chunk);
+        bench.iter_batched(
+            || chunk.as_ref().clone(),
+            |owned| {
+                black_box(
+                    decompress_owned_bytes(
+                        black_box(owned),
+                        CompressionAlgorithm::None,
+                        Some(CHUNK_BYTES),
+                    )
                     .expect("uncompressed payload"),
-            )
-        });
+                )
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    let receiver_write_path = fixture._directory.path().join("receiver-write.bin");
+    std::fs::File::create(&receiver_write_path)
+        .and_then(|file| file.set_len(CHUNK_BYTES as u64))
+        .expect("receiver write fixture");
+    group.bench_function("receiver_write_owned_1mib_chunk", |bench| {
+        let chunk = Arc::clone(&chunk);
+        let path = receiver_write_path.clone();
+        bench.to_async(&runtime).iter_batched(
+            || chunk.as_ref().clone(),
+            |owned| {
+                let path = path.clone();
+                async move {
+                    black_box(
+                        write_owned_chunk_at(path, 0, owned)
+                            .await
+                            .expect("receiver positional write"),
+                    )
+                }
+            },
+            BatchSize::LargeInput,
+        );
     });
 
     let quic = runtime.block_on(quic_fixture());
@@ -282,6 +344,73 @@ fn benchmark_components(criterion: &mut Criterion) {
             });
         },
     );
+
+    group.throughput(Throughput::Bytes((CHUNK_BYTES * PIPELINE_CHUNKS) as u64));
+    group.bench_function("quic_chunk_pipeline_128x1mib_concurrency4", |bench| {
+        let client = quic.client.clone();
+        let server = quic.server.clone();
+        let chunk = Arc::clone(&chunk);
+        bench.to_async(&runtime).iter(|| {
+            let client = client.clone();
+            let server = server.clone();
+            let chunk = Arc::clone(&chunk);
+            async move {
+                let acknowledgements = Arc::new(
+                    (0..PIPELINE_CHUNKS)
+                        .map(|_| tokio::sync::Notify::new())
+                        .collect::<Vec<_>>(),
+                );
+                let receiver_acknowledgements = Arc::clone(&acknowledgements);
+                let receiver = tokio::spawn(async move {
+                    let mut receives = tokio::task::JoinSet::new();
+                    for _ in 0..PIPELINE_CHUNKS {
+                        let mut stream = server.accept_uni().await.expect("accept stream");
+                        let acknowledgements = Arc::clone(&receiver_acknowledgements);
+                        receives.spawn(async move {
+                            let mut magic = [0u8; 1];
+                            stream.read_exact(&mut magic).await.expect("read magic");
+                            assert_eq!(magic[0], CHUNK_STREAM_MAGIC);
+                            let (_, index, payload) =
+                                ChunkStreamCodec::decode(&mut stream).await.expect("decode");
+                            acknowledgements[index as usize].notify_one();
+                            payload.len()
+                        });
+                    }
+                    let mut received = 0usize;
+                    while let Some(result) = receives.join_next().await {
+                        received += result.expect("receiver task");
+                    }
+                    received
+                });
+                let mut sends = tokio::task::JoinSet::new();
+                let slots = Arc::new(tokio::sync::Semaphore::new(PIPELINE_CONCURRENCY));
+                for index in 0..PIPELINE_CHUNKS {
+                    let client = client.clone();
+                    let chunk = Arc::clone(&chunk);
+                    let slots = Arc::clone(&slots);
+                    let acknowledgements = Arc::clone(&acknowledgements);
+                    sends.spawn(async move {
+                        let _slot = slots.acquire_owned().await.expect("pipeline slot");
+                        let mut stream = client.open_uni().await.expect("open stream");
+                        ChunkStreamCodec::encode(
+                            &mut stream,
+                            &TransferSessionId::new(),
+                            index as u32,
+                            &chunk,
+                        )
+                        .await
+                        .expect("encode");
+                        stream.finish().expect("finish stream");
+                        acknowledgements[index].notified().await;
+                    });
+                }
+                while let Some(result) = sends.join_next().await {
+                    result.expect("sender task");
+                }
+                black_box(receiver.await.expect("receiver task"))
+            }
+        });
+    });
     group.finish();
 }
 

@@ -145,6 +145,7 @@ pub struct PrometheusMetrics {
     pub retries_total: Counter,
     pub active_transfers: Gauge,
     pub chunks_in_flight: Gauge,
+    pub chunk_concurrency: HistogramVec,
     pub transfer_duration: HistogramVec,
     pub chunk_latency: HistogramVec,
     pub throughput: HistogramVec,
@@ -198,6 +199,14 @@ impl PrometheusMetrics {
             "chirps_ft_chunks_in_flight",
             "Number of chunks currently in flight",
         ))?;
+        let chunk_concurrency = HistogramVec::new(
+            HistogramOpts::new(
+                "chirps_ft_chunk_concurrency",
+                "Maximum number of chunks in flight during one transfer",
+            )
+            .buckets(vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0]),
+            &["kind"],
+        )?;
         let transfer_duration = HistogramVec::new(
             HistogramOpts::new(
                 "chirps_ft_transfer_duration_seconds",
@@ -247,6 +256,7 @@ impl PrometheusMetrics {
         registry.register(Box::new(retries_total.clone()))?;
         registry.register(Box::new(active_transfers.clone()))?;
         registry.register(Box::new(chunks_in_flight.clone()))?;
+        registry.register(Box::new(chunk_concurrency.clone()))?;
         registry.register(Box::new(transfer_duration.clone()))?;
         registry.register(Box::new(chunk_latency.clone()))?;
         registry.register(Box::new(throughput.clone()))?;
@@ -261,6 +271,7 @@ impl PrometheusMetrics {
             retries_total,
             active_transfers,
             chunks_in_flight,
+            chunk_concurrency,
             transfer_duration,
             chunk_latency,
             throughput,
@@ -322,6 +333,16 @@ impl PrometheusMetrics {
     /// This method does not panic.
     pub fn set_chunks_in_flight(&self, value: i64) {
         self.chunks_in_flight.set(value as f64);
+    }
+
+    /// Records the maximum chunk concurrency reached by one transfer.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn observe_chunk_concurrency(&self, kind: TransferKind, value: usize) {
+        self.chunk_concurrency
+            .with_label_values(&[kind_label(kind)])
+            .observe(value as f64);
     }
 
     /// Observes a transfer duration for the given kind.

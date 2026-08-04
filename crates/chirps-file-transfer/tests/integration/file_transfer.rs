@@ -1626,6 +1626,27 @@ fn phase_bytes(service: &FileTransferServiceImpl, phase: &str) -> u64 {
         .unwrap_or_else(|| panic!("missing phase byte metric for {phase}"))
 }
 
+fn transfer_chunk_concurrency(service: &FileTransferServiceImpl, kind: &str) -> f64 {
+    service
+        .metrics_registry()
+        .gather()
+        .into_iter()
+        .find(|family| family.name() == "chirps_ft_chunk_concurrency")
+        .and_then(|family| {
+            family
+                .get_metric()
+                .iter()
+                .find(|metric| {
+                    metric
+                        .get_label()
+                        .iter()
+                        .any(|label| label.name() == "kind" && label.value() == kind)
+                })
+                .map(|metric| metric.get_histogram().get_sample_sum())
+        })
+        .unwrap_or_else(|| panic!("missing chunk concurrency metric for {kind}"))
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn successful_transfer_records_complete_phase_accounting() {
     const FILE_BYTES: usize = 256 * 1024;
@@ -1714,6 +1735,11 @@ async fn successful_transfer_records_complete_phase_accounting() {
     assert_eq!(
         phase_bytes(&receiver.service, "receiver_finalize"),
         FILE_BYTES as u64
+    );
+    assert_eq!(
+        transfer_chunk_concurrency(&sender.service, "Send"),
+        2.0,
+        "the sender scheduler must fill the configured two-chunk window"
     );
 
     receiver.shutdown().await;

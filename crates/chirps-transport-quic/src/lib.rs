@@ -147,6 +147,8 @@ struct TransportCounters {
     received: AtomicU64,
     dropped: AtomicU64,
     retried: AtomicU64,
+    concurrent_sends: AtomicU64,
+    max_concurrent_sends: AtomicU64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -155,6 +157,32 @@ pub struct TransportMetricsSnapshot {
     pub received: u64,
     pub dropped: u64,
     pub retried: u64,
+    /// Number of QUIC sends currently executing in the transport worker.
+    pub concurrent_sends: u64,
+    /// High-water mark of concurrently executing QUIC sends.
+    pub max_concurrent_sends: u64,
+}
+
+struct SendConcurrencyGuard {
+    metrics: Arc<TransportCounters>,
+}
+
+impl SendConcurrencyGuard {
+    fn enter(metrics: Arc<TransportCounters>) -> Self {
+        let active = metrics.concurrent_sends.fetch_add(1, Ordering::Relaxed) + 1;
+        metrics
+            .max_concurrent_sends
+            .fetch_max(active, Ordering::Relaxed);
+        Self { metrics }
+    }
+}
+
+impl Drop for SendConcurrencyGuard {
+    fn drop(&mut self) {
+        self.metrics
+            .concurrent_sends
+            .fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 enum SendCommand {
@@ -366,6 +394,8 @@ impl QuicBackend {
             received: self.metrics.received.load(Ordering::Relaxed),
             dropped: self.metrics.dropped.load(Ordering::Relaxed),
             retried: self.metrics.retried.load(Ordering::Relaxed),
+            concurrent_sends: self.metrics.concurrent_sends.load(Ordering::Relaxed),
+            max_concurrent_sends: self.metrics.max_concurrent_sends.load(Ordering::Relaxed),
         }
     }
 }
@@ -795,6 +825,7 @@ fn spawn_send_loop(
                 let metrics_ext = Arc::clone(&metrics_ext);
                 let receive_handler = Arc::clone(&receive_handler);
                 in_flight.spawn(async move {
+                    let _concurrency = SendConcurrencyGuard::enter(Arc::clone(&metrics));
                     match command.payload {
                         SendCommand::Unicast {
                             target,

@@ -1,0 +1,86 @@
+{
+  "schema": "alopex-performance-contract/v1",
+  "requirement_id": "FT-THROUGHPUT-100MBPS",
+  "release": "v0.5.2",
+  "workload": {
+    "file_bytes": 134217728,
+    "chunk_bytes": 1048576,
+    "chunk_count": 128,
+    "concurrency": 4,
+    "compression": "none"
+  },
+  "layers": {
+    "function": {
+      "harness": "crates/chirps-file-transfer/benches/file_transfer_components.rs",
+      "comparison": {
+        "method": "criterion_same_host_baseline",
+        "maximum_regression_ratio": 0.1
+      },
+      "operations": [
+        "source_manifest_hash_128mib",
+        "receiver_finalize_hash_128mib",
+        "receiver_resume_checkpoints_128x1mib",
+        "source_open_and_read_1mib_chunk",
+        "compression_none_owned_1mib",
+        "decompression_none_owned_1mib",
+        "receiver_write_owned_1mib_chunk",
+        "quic_codec_round_trip/1mib",
+        "quic_chunk_pipeline_128x1mib_concurrency4"
+      ]
+    },
+    "module": {
+      "invariants": [
+        {
+          "id": "FT-CONTROL-SENDS-OVERLAP",
+          "assertion": "Concurrent FileTransfer control submissions execute with max_concurrent_sends greater than one and are delivered exactly once.",
+          "test": "crates/chirps-transport-quic/tests/quic_integration.rs::close_after_send_preserves_file_transfer_control_frames"
+        },
+        {
+          "id": "FT-CHUNK-WINDOW-FILLED",
+          "assertion": "A multi-chunk transfer reaches its configured sender concurrency without exceeding it.",
+          "test": "crates/chirps-file-transfer/tests/integration/file_transfer.rs::successful_transfer_records_complete_phase_accounting"
+        },
+        {
+          "id": "FT-CORRUPTION-RETRY-ACCOUNTED",
+          "assertion": "A corrupted chunk is NACKed, retried, and counted before successful completion.",
+          "test": "crates/chirps-file-transfer/tests/integration/file_transfer.rs::send_file_retries_after_corrupted_chunk"
+        },
+        {
+          "id": "FT-STREAM-ERROR-RETRY-ACCOUNTED",
+          "assertion": "A failed chunk stream is retried without losing in-flight accounting.",
+          "test": "crates/chirps-file-transfer/tests/integration/file_transfer.rs::send_file_retries_on_stream_failure"
+        }
+      ]
+    },
+    "service": {
+      "harness": "scripts/perf/run-local-v0_5_2-baseline.sh",
+      "scope": "local-two-process",
+      "control_plane": "chirps-quic",
+      "data_plane": "quic-chunk-stream",
+      "minimum_receiver_control_max_concurrent_sends": 2,
+      "phases": {
+        "sender": {
+          "sender_source_prepare": { "count": 1, "bytes": 134217728 },
+          "sender_chunk_read": { "count": 128, "bytes": 134217728 },
+          "sender_chunk_compress": { "count": 128, "bytes": 134217728 },
+          "sender_chunk_stream": { "count": 128, "bytes": 134217728 }
+        },
+        "receiver": {
+          "receiver_chunk_verify": { "count": 128, "bytes": 134217728 },
+          "receiver_chunk_write": { "count": 128, "bytes": 134217728 },
+          "receiver_file_hash": { "minimum_count": 1, "bytes": 134217728 },
+          "receiver_finalize": { "count": 1, "bytes": 134217728 }
+        }
+      }
+    },
+    "binary": {
+      "harness": "scripts/perf/run-controlled-container-file-transfer.sh",
+      "profile_id": "ft-1g-v1",
+      "sample_count": 5,
+      "minimum_end_to_end_bytes_per_second": 100000000,
+      "aggregation": "all_samples",
+      "requires_native_linux_profile": true,
+      "requires_integrity_and_identity": true
+    }
+  }
+}

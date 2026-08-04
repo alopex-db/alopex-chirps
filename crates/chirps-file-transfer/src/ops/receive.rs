@@ -1,6 +1,6 @@
 use crate::TransferSessionId;
-use crate::chunk::ChunkTracker;
-use crate::compression::decompress_bytes;
+use crate::chunk::{ChunkTracker, write_owned_chunk_at};
+use crate::compression::decompress_owned_bytes;
 use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
 use crate::integrity::{IncrementalFileHasher, IntegrityVerifier};
@@ -20,14 +20,10 @@ use alopex_chirps_wire::file_transfer::{
 use alopex_chirps_wire::node_id::NodeId;
 use quinn::RecvStream;
 use std::collections::{BTreeMap, HashMap, HashSet};
-#[cfg(unix)]
-use std::fs::OpenOptions as StdOpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs::{self, OpenOptions};
-#[cfg(not(unix))]
-use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, RwLock};
 
@@ -448,7 +444,9 @@ impl ReceiveHandler {
                 .handle_chunk_data(sender, control, session_id, chunk_index, payload)
                 .await;
         };
-        let data = match decompress_bytes(&payload, compression, expected_size) {
+        // The QUIC codec already owns the decoded payload. Preserve that
+        // allocation when no decompression is requested.
+        let data = match decompress_owned_bytes(payload, compression, expected_size) {
             Ok(data) => data,
             Err(error) => {
                 let _ = send_chunk_ack(
@@ -621,12 +619,21 @@ impl ReceiveHandler {
         }
 
         let write_started = Instant::now();
-        if let Err(error) =
-            write_chunk_to_temp(&self.config, &dest_path, session_id, meta.offset, &data).await
+        let data = match write_chunk_to_temp(
+            &self.config,
+            &dest_path,
+            session_id,
+            meta.offset,
+            data,
+        )
+        .await
         {
-            self.discard_incremental_hash(session_id).await;
-            return Err(error);
-        }
+            Ok(data) => data,
+            Err(error) => {
+                self.discard_incremental_hash(session_id).await;
+                return Err(error);
+            }
+        };
         if let Some(metrics) = &self.metrics {
             metrics.observe_phase(
                 "receiver_chunk_write",
@@ -956,51 +963,13 @@ async fn write_chunk_to_temp(
     dest_path: &Path,
     session_id: TransferSessionId,
     offset: u64,
-    data: &[u8],
-) -> Result<(), FileTransferError> {
+    data: Vec<u8>,
+) -> Result<Vec<u8>, FileTransferError> {
     let temp_path = temp_path_for(config, dest_path, session_id);
 
-    #[cfg(unix)]
-    {
-        let data = data.to_vec();
-        let write_result = tokio::task::spawn_blocking(move || {
-            use std::os::unix::fs::FileExt;
-
-            let file = StdOpenOptions::new().write(true).open(&temp_path)?;
-            let mut written = 0usize;
-            while written < data.len() {
-                let write_offset = offset.checked_add(written as u64).ok_or_else(|| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "chunk offset overflow")
-                })?;
-                let bytes = file.write_at(&data[written..], write_offset)?;
-                if bytes == 0 {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::WriteZero,
-                        "chunk write made no progress",
-                    ));
-                }
-                written += bytes;
-            }
-            Ok(())
-        })
+    write_owned_chunk_at(temp_path, offset, data)
         .await
-        .map_err(|error| {
-            FileTransferError::Internal(format!("chunk write task failed: {error}"))
-        })?;
-        write_result.map_err(FileTransferError::Io)
-    }
-
-    #[cfg(not(unix))]
-    {
-        let mut file = OpenOptions::new().write(true).open(&temp_path).await?;
-        file.seek(std::io::SeekFrom::Start(offset)).await?;
-        file.write_all(data).await?;
-        // Tokio requires a flush before drop when the next operation may read
-        // the same file.  Unix uses positional blocking writes above, which
-        // complete before the handler continues.
-        file.flush().await?;
-        Ok(())
-    }
+        .map_err(FileTransferError::Io)
 }
 
 async fn prepare_temp_file(

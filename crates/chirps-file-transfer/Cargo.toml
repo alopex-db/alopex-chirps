@@ -32,6 +32,7 @@ tempfile = "3.8"
 rcgen = "0.12"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
+serde_json = "1"
 alopex-chirps-mock.workspace = true
 alopex-chirps-transport-quic.workspace = true
 
@@ -62,6 +63,10 @@ path = "tests/unit/path_validator.rs"
 [[test]]
 name = "persistence"
 path = "tests/unit/persistence.rs"
+
+[[test]]
+name = "performance_contract"
+path = "tests/unit/performance_contract.rs"
 
 [[test]]
 name = "stream_codec"
