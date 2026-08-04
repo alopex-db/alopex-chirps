@@ -577,12 +577,15 @@ async fn run_receiver(
     service: &FileTransferServiceImpl,
     backend: &QuicBackend,
 ) -> Result<(), DynError> {
+    let detailed_metrics = std::env::var("CHIRPS_DISABLE_DETAILED_METRICS")
+        .map(|value| value != "1" && !value.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
     let destination = args.base_path.join(&args.destination);
     timeout(Duration::from_secs(180), async {
         loop {
             if let Ok(metadata) = tokio::fs::metadata(&destination).await
                 && metadata.len() == args.expected_bytes
-                && has_phase_observation(service, "receiver_finalize")
+                && (!detailed_metrics || has_phase_observation(service, "receiver_finalize"))
             {
                 let sha256 = hex(&IntegrityVerifier::compute_file_hash(
                     &destination,
