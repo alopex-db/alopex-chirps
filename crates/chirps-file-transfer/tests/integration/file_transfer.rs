@@ -1797,7 +1797,11 @@ async fn resume_transfer_restores_progress() {
 
     let source_path = sender_base.join("resume.bin");
     let dest_path = receiver_base.join("resume.bin");
-    write_pattern_file(&source_path, 512 * 1024)
+    // Keep enough chunks to exercise interruption/resume, but avoid making
+    // the test duration depend on a deliberately tiny throttled link.  The
+    // previous 512 KiB / 16 KiB/s fixture could exceed macOS CI's timeout
+    // without exposing a product failure.
+    write_pattern_file(&source_path, 256 * 1024)
         .await
         .expect("write source");
 
@@ -1808,7 +1812,7 @@ async fn resume_transfer_restores_progress() {
     let options = TransferOptions::default()
         .with_chunk_size(8 * 1024)
         .with_concurrency(1)
-        .with_bandwidth_limit(Some(16 * 1024))
+        .with_bandwidth_limit(Some(64 * 1024))
         .with_resumable(true);
 
     let send_task = {
@@ -1846,7 +1850,7 @@ async fn resume_transfer_restores_progress() {
         .await
         .expect("resume");
     let progress = handle.progress().await;
-    assert_eq!(progress.bytes_transferred, 512 * 1024);
+    assert_eq!(progress.bytes_transferred, 256 * 1024);
 
     assert_files_match(&source_path, &dest_path).await;
 }
@@ -1861,7 +1865,7 @@ async fn verified_chunks_are_persisted_before_interruption() {
     let receiver_id = NodeId::new();
     let source_path = sender_base.join("persist-before-interruption.bin");
     let dest_path = receiver_base.join("persist-before-interruption.bin");
-    write_pattern_file(&source_path, 512 * 1024)
+    write_pattern_file(&source_path, 256 * 1024)
         .await
         .expect("write source");
 
@@ -1871,7 +1875,7 @@ async fn verified_chunks_are_persisted_before_interruption() {
     let options = TransferOptions::default()
         .with_chunk_size(8 * 1024)
         .with_concurrency(1)
-        .with_bandwidth_limit(Some(16 * 1024))
+        .with_bandwidth_limit(Some(64 * 1024))
         .with_resumable(true);
     let send_task = {
         let sender = Arc::clone(&sender.service);
