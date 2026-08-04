@@ -188,12 +188,33 @@ identity = all(
     for report in (sender, receiver)
 )
 receiver_control_parallelism = number(receiver.get("transport_max_concurrent_sends"))
+source_prepare_seconds = sender_phases["sender_source_prepare"]["duration_seconds"]
+payload_bytes_per_second = number(sender.get("payload_bytes_per_second"))
+maximum_source_prepare = service_contract["maximum_sender_source_prepare_seconds"]
+minimum_payload = service_contract["minimum_payload_bytes_per_second"]
+maximum_projected = service_contract["maximum_projected_critical_path_seconds"]
+projected_critical_path = (
+    source_prepare_seconds + file_bytes / payload_bytes_per_second
+    if source_prepare_seconds is not None
+    and payload_bytes_per_second is not None
+    and payload_bytes_per_second > 0
+    else None
+)
+throughput_budget_passed = (
+    source_prepare_seconds is not None
+    and source_prepare_seconds <= maximum_source_prepare
+    and payload_bytes_per_second is not None
+    and payload_bytes_per_second >= minimum_payload
+    and projected_critical_path is not None
+    and projected_critical_path <= maximum_projected
+)
 contract_passed = (
     integrity
     and identity
     and all(item["contract_passed"] for item in [*sender_phases.values(), *receiver_phases.values()])
     and receiver_control_parallelism is not None
     and receiver_control_parallelism >= service_contract["minimum_receiver_control_max_concurrent_sends"]
+    and throughput_budget_passed
 )
 result = {
     "schema": "chirps-file-transfer-local-service/v2",
@@ -208,6 +229,8 @@ result = {
     "integrity_passed": integrity,
     "identity_passed": identity,
     "receiver_control_max_concurrent_sends": receiver_control_parallelism,
+    "projected_critical_path_seconds": projected_critical_path,
+    "throughput_budget_passed": throughput_budget_passed,
     "sender_phases": sender_phases,
     "receiver_phases": receiver_phases,
     "structural_contract_passed": contract_passed,

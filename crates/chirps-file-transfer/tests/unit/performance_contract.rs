@@ -34,6 +34,19 @@ fn layered_performance_contract_is_complete_and_wired() {
     assert_eq!(workload["compression"], "none");
     assert_eq!(workload["resumable"], true);
 
+    let budget = required(&contract, &["critical_path_budget"]);
+    let minimum_bps = contract["layers"]["binary"]["minimum_end_to_end_bytes_per_second"]
+        .as_u64()
+        .expect("binary minimum B/s");
+    let maximum_e2e_ns = budget["maximum_end_to_end_duration_nanoseconds"]
+        .as_u64()
+        .expect("maximum E2E ns");
+    assert_eq!(maximum_e2e_ns, file_bytes * 1_000_000_000 / minimum_bps);
+    assert_eq!(
+        budget["maximum_manifest_ready_duration_nanoseconds"],
+        100_000_000
+    );
+
     let container_validation = required(&contract, &["container_validation"]);
     assert!(
         root.join(container_validation["harness"].as_str().unwrap())
@@ -93,6 +106,17 @@ fn layered_performance_contract_is_complete_and_wired() {
         "criterion_same_host_baseline"
     );
     assert_eq!(function["comparison"]["maximum_regression_ratio"], 0.1);
+    let absolute = function["absolute_minimum_bytes_per_second"]
+        .as_object()
+        .expect("function absolute limits");
+    assert_eq!(
+        absolute.len(),
+        function["operations"].as_array().unwrap().len()
+    );
+    for operation in function["operations"].as_array().unwrap() {
+        assert!(absolute.contains_key(operation.as_str().unwrap()));
+    }
+    assert_eq!(absolute["source_manifest_hash_128mib"], file_bytes * 10);
 
     for invariant in layers["module"]["invariants"]
         .as_array()
@@ -112,6 +136,11 @@ fn layered_performance_contract_is_complete_and_wired() {
     assert!(root.join(service["harness"].as_str().unwrap()).is_file());
     assert_eq!(service["control_plane"], "chirps-quic");
     assert_eq!(service["data_plane"], "quic-chunk-stream");
+    assert_eq!(service["maximum_sender_source_prepare_seconds"], 0.1);
+    assert_eq!(
+        service["maximum_projected_critical_path_seconds"],
+        maximum_e2e_ns as f64 / 1_000_000_000.0
+    );
     assert!(service["phases"]["sender"].as_object().unwrap().len() >= 4);
     assert!(service["phases"]["receiver"].as_object().unwrap().len() >= 4);
 

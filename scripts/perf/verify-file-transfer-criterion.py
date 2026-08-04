@@ -37,6 +37,16 @@ def main():
     contract = json.loads(args.contract.read_text(encoding="utf-8"))
     function = contract["layers"]["function"]
     maximum = float(function["comparison"]["maximum_regression_ratio"])
+    absolute_minimum = function["absolute_minimum_bytes_per_second"]
+    workload = contract["workload"]
+    operation_bytes = {
+        operation: (
+            workload["chunk_bytes"]
+            if "1mib" in operation and "128x1mib" not in operation
+            else workload["file_bytes"]
+        )
+        for operation in function["operations"]
+    }
     results = []
     passed = True
     for operation in function["operations"]:
@@ -46,6 +56,15 @@ def main():
             "current_mean_nanoseconds": current,
             "current_estimate": str(current_path),
         }
+        current_bytes_per_second = operation_bytes[operation] / (current / 1_000_000_000)
+        absolute_floor = float(absolute_minimum[operation])
+        absolute_passed = current_bytes_per_second >= absolute_floor
+        item.update(
+            current_bytes_per_second=current_bytes_per_second,
+            absolute_minimum_bytes_per_second=absolute_floor,
+            absolute_passed=absolute_passed,
+        )
+        passed = passed and absolute_passed
         if args.baseline is not None:
             baseline, baseline_path = estimate(args.baseline, operation)
             ratio = current / baseline - 1.0
@@ -65,6 +84,7 @@ def main():
         "comparison_method": function["comparison"]["method"],
         "maximum_regression_ratio": maximum,
         "baseline_supplied": args.baseline is not None,
+        "absolute_limits_supplied": True,
         "operations": results,
         "passed": passed,
         "release_evidence": False,
