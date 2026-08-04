@@ -406,7 +406,14 @@ fn benchmark_components(criterion: &mut Criterion) {
     );
 
     group.throughput(Throughput::Bytes((CHUNK_BYTES * PIPELINE_CHUNKS) as u64));
-    for (concurrency, label) in [(4usize, "concurrency4"), (8usize, "concurrency8")] {
+    for (concurrency, label) in [
+        (1usize, "concurrency1"),
+        (2usize, "concurrency2"),
+        (4usize, "concurrency4"),
+        (8usize, "concurrency8"),
+        (16usize, "concurrency16"),
+        (32usize, "concurrency32"),
+    ] {
         group.bench_with_input(
             BenchmarkId::new("quic_chunk_pipeline_128x1mib", label),
             &concurrency,
