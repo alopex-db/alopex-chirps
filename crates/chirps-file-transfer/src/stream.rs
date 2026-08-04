@@ -20,6 +20,52 @@ pub struct ChunkStreamHeader {
 pub struct ChunkStreamCodec;
 
 impl ChunkStreamCodec {
+    /// Builds the fixed wire header for a chunk frame.
+    pub fn encode_header(
+        session_id: &TransferSessionId,
+        chunk_index: u32,
+        data_len: usize,
+    ) -> io::Result<[u8; 25]> {
+        if data_len > MAX_WIRE_CHUNK_SIZE || data_len > u32::MAX as usize {
+            return Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                "encoded chunk data exceeds maximum size",
+            ));
+        }
+        let mut header = [0u8; 25];
+        header[0] = CHUNK_STREAM_MAGIC;
+        header[1..17].copy_from_slice(session_id.as_bytes());
+        header[17..21].copy_from_slice(&chunk_index.to_le_bytes());
+        header[21..25].copy_from_slice(&(data_len as u32).to_le_bytes());
+        Ok(header)
+    }
+
+    /// Parses the fixed wire header, including its magic byte.
+    pub fn decode_header_bytes(header: &[u8; 25]) -> io::Result<ChunkStreamHeader> {
+        if header[0] != CHUNK_STREAM_MAGIC {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "invalid chunk stream magic",
+            ));
+        }
+        let session_id = TransferSessionId::from_bytes(&header[1..17])
+            .map_err(|_| io::Error::new(ErrorKind::InvalidData, "invalid session id"))?;
+        let chunk_index = u32::from_le_bytes(header[17..21].try_into().expect("fixed header"));
+        let data_len =
+            u32::from_le_bytes(header[21..25].try_into().expect("fixed header")) as usize;
+        if data_len > MAX_WIRE_CHUNK_SIZE {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "encoded chunk data exceeds maximum size",
+            ));
+        }
+        Ok(ChunkStreamHeader {
+            session_id,
+            chunk_index,
+            data_len,
+        })
+    }
+
     /// Encodes a chunk frame to the provided send stream.
     ///
     /// # Errors
@@ -34,19 +80,7 @@ impl ChunkStreamCodec {
         chunk_index: u32,
         data: &[u8],
     ) -> io::Result<()> {
-        if data.len() > MAX_WIRE_CHUNK_SIZE {
-            return Err(io::Error::new(
-                ErrorKind::InvalidInput,
-                "encoded chunk data exceeds maximum size",
-            ));
-        }
-        // Coalesce the fixed header into one QUIC write. Five tiny writes here
-        // previously put the single-stream codec below its absolute budget.
-        let mut header = [0u8; 25];
-        header[0] = CHUNK_STREAM_MAGIC;
-        header[1..17].copy_from_slice(session_id.as_bytes());
-        header[17..21].copy_from_slice(&chunk_index.to_le_bytes());
-        header[21..25].copy_from_slice(&(data.len() as u32).to_le_bytes());
+        let header = Self::encode_header(session_id, chunk_index, data.len())?;
         stream.write_all(&header).await?;
         stream.write_all(data).await?;
         Ok(())
@@ -87,23 +121,10 @@ impl ChunkStreamCodec {
             .read_exact(&mut header)
             .await
             .map_err(map_read_exact)?;
-        let session_id = TransferSessionId::from_bytes(&header[..16])
-            .map_err(|_| io::Error::new(ErrorKind::InvalidData, "invalid session id"))?;
-        let chunk_index = u32::from_le_bytes(header[16..20].try_into().expect("fixed header"));
-        let data_len =
-            u32::from_le_bytes(header[20..24].try_into().expect("fixed header")) as usize;
-        if data_len > MAX_WIRE_CHUNK_SIZE {
-            return Err(io::Error::new(
-                ErrorKind::InvalidData,
-                "encoded chunk data exceeds maximum size",
-            ));
-        }
-
-        Ok(ChunkStreamHeader {
-            session_id,
-            chunk_index,
-            data_len,
-        })
+        let mut full = [0u8; 25];
+        full[0] = CHUNK_STREAM_MAGIC;
+        full[1..].copy_from_slice(&header);
+        Self::decode_header_bytes(&full)
     }
 
     /// Reads a bounded payload described by [`ChunkStreamHeader`].

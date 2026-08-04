@@ -6,6 +6,24 @@ use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+#[test]
+fn chunk_stream_header_round_trip_without_transport() {
+    let session_id = TransferSessionId::new();
+    let header = ChunkStreamCodec::encode_header(&session_id, 7, 1024).expect("encode header");
+    let decoded = ChunkStreamCodec::decode_header_bytes(&header).expect("decode header");
+    assert_eq!(decoded.session_id, session_id);
+    assert_eq!(decoded.chunk_index, 7);
+    assert_eq!(decoded.data_len, 1024);
+}
+
+#[test]
+fn chunk_stream_header_rejects_bad_magic_without_transport() {
+    let session_id = TransferSessionId::new();
+    let mut header = ChunkStreamCodec::encode_header(&session_id, 0, 1).expect("encode header");
+    header[0] ^= 1;
+    assert!(ChunkStreamCodec::decode_header_bytes(&header).is_err());
+}
+
 fn build_configs() -> (ServerConfig, ClientConfig) {
     let cert = generate_simple_self_signed(["localhost".to_string()]).expect("cert");
     let cert_der = cert.serialize_der().expect("cert der");

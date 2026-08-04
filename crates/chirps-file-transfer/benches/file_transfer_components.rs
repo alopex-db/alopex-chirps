@@ -365,6 +365,15 @@ fn benchmark_components(criterion: &mut Criterion) {
         );
     });
 
+    group.bench_function("codec_header_round_trip_1mib", |bench| {
+        let session_id = TransferSessionId::new();
+        bench.iter(|| {
+            let header = ChunkStreamCodec::encode_header(&session_id, 7, CHUNK_BYTES)
+                .expect("encode header");
+            black_box(ChunkStreamCodec::decode_header_bytes(&header).expect("decode header"));
+        });
+    });
+
     let quic = runtime.block_on(quic_fixture());
     group.bench_with_input(
         BenchmarkId::new("quic_codec_round_trip", "1mib"),

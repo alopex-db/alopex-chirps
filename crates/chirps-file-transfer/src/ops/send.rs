@@ -1,10 +1,10 @@
 use crate::TransferSessionId;
 use crate::bandwidth::BandwidthThrottle;
 use crate::chunk::ChunkManager;
-use crate::compression::compress_owned_bytes;
+use crate::compression::compress_bytes;
 use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
-use crate::integrity::IntegrityVerifier;
+use crate::integrity::{IncrementalFileHasher, IntegrityVerifier};
 use crate::manifest::{FileMetadata, FileType, TransferManifest};
 use crate::metrics::PrometheusMetrics;
 use crate::ops::conversions::to_wire_manifest;
@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs;
+use tokio::io::AsyncReadExt;
 use tokio::sync::{RwLock, mpsc};
 use tokio::time::sleep;
 
@@ -294,12 +295,6 @@ pub(crate) async fn send_file_with_context(
         .await);
     }
 
-    let hash_path = source_path.to_path_buf();
-    let hash_algorithm = options.hash_algorithm;
-    let file_hash_task = tokio::spawn(async move {
-        IntegrityVerifier::compute_file_hash(&hash_path, hash_algorithm).await
-    });
-
     let mut skip_chunks: HashSet<u32> = response.existing_chunks.into_iter().collect();
     skip_chunks.extend(manifest_ack.skip_chunks);
     for index in &skip_chunks {
@@ -320,14 +315,32 @@ pub(crate) async fn send_file_with_context(
     }
 
     let throttle = build_throttle(&config, &options);
-    let mut pending: VecDeque<u32> = (0..chunk_count)
-        .filter(|index| !skip_chunks.contains(index))
-        .collect();
+    let mut pending = VecDeque::new();
+    let mut prepared_chunks: HashMap<u32, Arc<PreparedChunk>> = HashMap::new();
     let mut in_flight: HashMap<u32, Instant> = HashMap::new();
     let mut retry_counts: HashMap<u32, u8> = HashMap::new();
     let mut scheduled_retries = 0usize;
     let concurrency = options.concurrency.max(1).min(config.max_concurrency);
     let mut max_in_flight = 0usize;
+
+    let (prepared_tx, mut prepared_rx) = mpsc::channel(concurrency.saturating_mul(2));
+    let producer_path = source_path.to_path_buf();
+    let producer_chunks = session.manifest.chunks.clone();
+    let producer_skips = skip_chunks.clone();
+    let producer_algorithm = session.manifest.hash_algorithm;
+    let producer_metrics = metrics.clone();
+    let file_hash_task = tokio::spawn(async move {
+        prepare_chunks_single_pass(
+            producer_path,
+            producer_chunks,
+            producer_skips,
+            producer_algorithm,
+            producer_metrics,
+            prepared_tx,
+        )
+        .await
+    });
+    let mut producer_done = false;
 
     let (send_tx, mut send_rx) =
         mpsc::channel::<(u32, Result<(), FileTransferError>)>(concurrency.saturating_mul(2));
@@ -335,7 +348,7 @@ pub(crate) async fn send_file_with_context(
 
     let start_time = Instant::now();
 
-    while !pending.is_empty() || !in_flight.is_empty() || scheduled_retries != 0 {
+    while !producer_done || !pending.is_empty() || !in_flight.is_empty() || scheduled_retries != 0 {
         loop {
             let state = *control_rx.borrow();
             match state {
@@ -367,26 +380,27 @@ pub(crate) async fn send_file_with_context(
 
         while in_flight.len() < concurrency && !pending.is_empty() {
             let index = pending.pop_front().expect("pending checked");
+            let prepared = prepared_chunks
+                .get(&index)
+                .cloned()
+                .expect("pending chunk is prepared");
             in_flight.insert(index, Instant::now());
             max_in_flight = max_in_flight.max(in_flight.len());
             update_chunks_in_flight(&metrics, in_flight.len());
             let send_tx = send_tx.clone();
             let opener = Arc::clone(&stream_opener);
             let throttle = throttle.clone();
-            let source_path = source_path.to_path_buf();
             let session_id = session.id;
-            let chunk_size = chunk_manager.chunk_size();
             let compression = options.compression;
             let trailing_integrity = session.manifest.uses_trailing_integrity();
             let metrics = metrics.clone();
             tokio::spawn(async move {
-                let result = send_chunk(
+                let result = send_prepared_chunk(
                     opener,
                     target,
-                    source_path,
                     session_id,
                     index,
-                    chunk_size,
+                    prepared,
                     compression,
                     trailing_integrity,
                     throttle,
@@ -398,6 +412,16 @@ pub(crate) async fn send_file_with_context(
         }
 
         tokio::select! {
+            prepared = prepared_rx.recv(), if !producer_done => {
+                match prepared {
+                    Some(prepared) => {
+                        let index = prepared.index;
+                        prepared_chunks.insert(index, Arc::new(prepared));
+                        pending.push_back(index);
+                    }
+                    None => producer_done = true,
+                }
+            }
             _ = control_rx.changed() => {
                 if matches!(*control_rx.borrow(), TransferControlState::Cancelled) {
                     return Err(cancel_session(
@@ -478,6 +502,7 @@ pub(crate) async fn send_file_with_context(
                         }
                         if verified {
                             session.chunk_tracker.mark_completed(index);
+                            prepared_chunks.remove(&index);
                             let meta = session.manifest.chunks.get(index as usize);
                             if let Some(meta) = meta {
                                 handle.update_progress(meta.size as u64, 1).await;
@@ -855,38 +880,68 @@ fn resolve_transfer_options(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn send_chunk(
+struct PreparedChunk {
+    index: u32,
+    data: Vec<u8>,
+    checksum: u64,
+}
+
+async fn prepare_chunks_single_pass(
+    source_path: PathBuf,
+    chunks: Vec<crate::ChunkMeta>,
+    skip_chunks: HashSet<u32>,
+    hash_algorithm: crate::options::HashAlgorithm,
+    metrics: Option<Arc<PrometheusMetrics>>,
+    prepared_tx: mpsc::Sender<PreparedChunk>,
+) -> Result<Vec<u8>, FileTransferError> {
+    let mut file = fs::File::open(source_path).await?;
+    let mut hasher = IncrementalFileHasher::new(hash_algorithm);
+    for meta in chunks {
+        let read_started = Instant::now();
+        let mut data = vec![0u8; meta.size as usize];
+        file.read_exact(&mut data).await?;
+        hasher.update(&data);
+        let checksum = IntegrityVerifier::compute_chunk_checksum(&data);
+        if let Some(metrics) = &metrics {
+            metrics.observe_phase(
+                "sender_chunk_read",
+                read_started.elapsed(),
+                data.len() as u64,
+            );
+        }
+        if !skip_chunks.contains(&meta.index)
+            && prepared_tx
+                .send(PreparedChunk {
+                    index: meta.index,
+                    data,
+                    checksum,
+                })
+                .await
+                .is_err()
+        {
+            return Err(FileTransferError::Cancelled);
+        }
+    }
+    Ok(hasher.finalize())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_prepared_chunk(
     opener: Arc<dyn ChunkStreamOpener>,
     target: NodeId,
-    source_path: PathBuf,
     session_id: TransferSessionId,
     index: u32,
-    chunk_size: usize,
+    prepared: Arc<PreparedChunk>,
     compression: CompressionAlgorithm,
     trailing_integrity: bool,
     throttle: Option<Arc<BandwidthThrottle>>,
     metrics: Option<Arc<PrometheusMetrics>>,
 ) -> Result<(), FileTransferError> {
-    let read_started = Instant::now();
-    let mut file = fs::File::open(&source_path).await?;
-    let chunk_manager = ChunkManager::new(chunk_size);
-    let chunk = chunk_manager
-        .read_chunk(&mut file, index)
-        .await
-        .map_err(FileTransferError::Io)?;
-    if let Some(metrics) = &metrics {
-        metrics.observe_phase(
-            "sender_chunk_read",
-            read_started.elapsed(),
-            chunk.data.len() as u64,
-        );
-    }
-
     let compression_started = Instant::now();
-    // Chunk reads already return an owned buffer. Passing it through avoids a
-    // full-payload allocation and copy for the uncompressed profile.
-    let checksum = IntegrityVerifier::compute_chunk_checksum(&chunk.data);
-    let payload = compress_owned_bytes(chunk.data, compression)?;
+    let compressed = (!matches!(compression, CompressionAlgorithm::None))
+        .then(|| compress_bytes(&prepared.data, compression))
+        .transpose()?;
+    let payload = compressed.as_deref().unwrap_or(&prepared.data);
     if let Some(metrics) = &metrics {
         metrics.observe_phase(
             "sender_chunk_compress",
@@ -906,12 +961,12 @@ async fn send_chunk(
             &mut stream,
             &session_id,
             index,
-            &payload,
-            checksum,
+            payload,
+            prepared.checksum,
         )
         .await?;
     } else {
-        crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, &payload).await?;
+        crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, payload).await?;
     }
     stream
         .finish()
@@ -1093,8 +1148,9 @@ fn to_wire_file_metadata(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_transfer_options, send_chunk};
+    use super::{PreparedChunk, resolve_transfer_options, send_prepared_chunk};
     use crate::compression::decompress_bytes;
+    use crate::integrity::IntegrityVerifier;
     use crate::ops::ChunkStreamOpener;
     use crate::{
         CHUNK_STREAM_MAGIC, CompressionAlgorithm, FileTransferConfig, FileTransferError,
@@ -1191,12 +1247,7 @@ mod tests {
 
     #[tokio::test]
     async fn zstd_compresses_chunk_payload_on_the_wire() {
-        let source = tempfile::tempdir().expect("source directory");
-        let source_path = source.path().join("compressible.bin");
         let source_data = vec![b'x'; 64 * 1024];
-        tokio::fs::write(&source_path, &source_data)
-            .await
-            .expect("source file");
 
         let (server_config, client_config) = build_tls_configs();
         let receiver = Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
@@ -1230,13 +1281,17 @@ mod tests {
             target_addr: receiver_addr,
             connection: Arc::new(Mutex::new(None)),
         });
-        send_chunk(
+        let prepared = Arc::new(PreparedChunk {
+            index: 0,
+            checksum: IntegrityVerifier::compute_chunk_checksum(&source_data),
+            data: source_data.clone(),
+        });
+        send_prepared_chunk(
             opener.clone(),
             NodeId::new(),
-            source_path,
             TransferSessionId::new(),
             0,
-            64 * 1024,
+            prepared,
             CompressionAlgorithm::Zstd,
             false,
             None,

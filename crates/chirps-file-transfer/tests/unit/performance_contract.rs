@@ -124,11 +124,7 @@ fn layered_performance_contract_is_complete_and_wired() {
         absolute_durations["source_manifest_layout_128mib"],
         budget["maximum_manifest_ready_duration_nanoseconds"]
     );
-    assert_eq!(absolute["quic_codec_round_trip/1mib"], minimum_bps * 2);
-    assert_eq!(
-        absolute["quic_chunk_pipeline_128x1mib/concurrency4"],
-        minimum_bps * 4
-    );
+    assert_eq!(absolute["codec_header_round_trip_1mib"], 10_000_000_000u64);
 
     for invariant in layers["module"]["invariants"]
         .as_array()

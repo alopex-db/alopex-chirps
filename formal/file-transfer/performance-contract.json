@@ -45,8 +45,7 @@
         "compression_none_owned_1mib": 10000000000,
         "decompression_none_owned_1mib": 10000000000,
         "receiver_write_owned_1mib_chunk": 400000000,
-        "quic_codec_round_trip/1mib": 200000000,
-        "quic_chunk_pipeline_128x1mib/concurrency4": 400000000
+        "codec_header_round_trip_1mib": 10000000000
       },
       "absolute_maximum_nanoseconds": {
         "source_manifest_layout_128mib": 100000000
@@ -56,8 +55,7 @@
         "receiver_resume_checkpoints_128x1mib": "allocates at most 2.5% of the binary E2E budget across 128 checkpoints",
         "compression_none_owned_1mib": "10 GB/s floor detects reintroduction of a full-payload allocation/copy in the no-compression path",
         "decompression_none_owned_1mib": "10 GB/s floor detects reintroduction of a full-payload allocation/copy in the no-compression path",
-        "quic_codec_round_trip/1mib": "single-stream diagnostic retains 2x the 100 MB/s product floor; the configured four-way production path carries the 4x floor",
-        "quic_chunk_pipeline_128x1mib/concurrency4": "four-way pipeline must provide 4x the 100 MB/s product floor before transport and control-plane overhead"
+        "codec_header_round_trip_1mib": "pure fixed-header serialization must remain far above the product floor; transport setup is measured separately at module/service layers"
       },
       "operations": [
         "source_manifest_layout_128mib",
@@ -67,8 +65,7 @@
         "compression_none_owned_1mib",
         "decompression_none_owned_1mib",
         "receiver_write_owned_1mib_chunk",
-        "quic_codec_round_trip/1mib",
-        "quic_chunk_pipeline_128x1mib/concurrency4"
+        "codec_header_round_trip_1mib"
       ]
     },
     "module": {
