@@ -1,0 +1,68 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-multi-raft-v0-6
+  language: TLA+
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 10
+    constants:
+      MaxInFlight: 1
+    scope: "Two groups, one route and one tick concurrently in flight per group, lifecycle/storage/routing/tick failure transitions."
+    exclusions:
+      - "Unbounded liveness and fairness"
+      - "Raft consensus correctness inside each RaftNode"
+      - "Physical network, performance, and operating-system behavior"
+requirements:
+  - id: MR-LIFECYCLE-PUBLISH
+    classification: stateful
+    failure_mode: "A group becomes routable before storage commit, node initialization, and transport registration all succeed."
+    properties: [PublishedOnlyAfterCommit, RollbackLeavesNoPartialGroup]
+    refinement:
+      - crates/alopex-chirps/src/multi_raft/manager.rs
+      - crates/alopex-chirps/src/multi_raft/storage.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/multi_raft_lifecycle.rs::create_failure_rolls_back_before_publish
+      - crates/alopex-chirps/tests/multi_raft_lifecycle.rs::duplicate_create_has_no_storage_side_effect
+  - id: MR-STORAGE-ISOLATION
+    classification: stateful
+    failure_mode: "Two group IDs share or escape a storage namespace."
+    properties: [StorageIsolation]
+    refinement:
+      - crates/alopex-chirps/src/multi_raft/id.rs
+      - crates/alopex-chirps/src/multi_raft/storage.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/multi_raft_storage.rs::group_namespaces_are_canonical_and_isolated
+  - id: MR-ROUTING-ISOLATION
+    classification: concurrent/distributed
+    failure_mode: "An unknown or mismatched route mutates a managed group."
+    properties: [RejectedRouteHasNoMutation, InactiveGroupsRejectNewWork]
+    refinement:
+      - crates/alopex-chirps/src/multi_raft/manager.rs
+      - crates/alopex-chirps/src/multi_raft/transport.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/multi_raft_lifecycle.rs::unknown_route_does_not_mutate_other_groups
+      - crates/alopex-chirps/tests/multi_raft_transport.rs::route_correlation_targets_one_group
+  - id: MR-REMOVE-DRAIN
+    classification: concurrent/distributed
+    failure_mode: "Removal shuts down or drops a group while route/tick work remains in flight."
+    properties: [RemovalDrainsBeforeShutdown, InactiveGroupsRejectNewWork]
+    refinement:
+      - crates/alopex-chirps/src/multi_raft/group.rs
+      - crates/alopex-chirps/src/multi_raft/manager.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/multi_raft_lifecycle.rs::remove_drains_in_flight_route_and_tick
+  - id: MR-TICK-INDEPENDENCE
+    classification: concurrent/distributed
+    failure_mode: "One group's tick failure prevents an unrelated active group from progressing."
+    properties: [TickFailureDoesNotCancelPeers, RemovalDrainsBeforeShutdown]
+    refinement:
+      - crates/alopex-chirps/src/multi_raft/manager.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/multi_raft_lifecycle.rs::tick_failure_does_not_cancel_other_groups
+  - id: MR-PERFORMANCE-PROFILE
+    classification: performance/deployment-evidence
+    property: not_applicable
+    reason: "Throughput and overhead require the separately documented controlled measurement profile."
+    evidence: docs/perf/v0_6_multi_raft.md
