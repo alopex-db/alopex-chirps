@@ -373,7 +373,20 @@ run_transfer() {
     --expected-bytes "$FILE_BYTES" \
     --compression "$compression" \
     --resumable true >"$sender_log" 2>&1
-  wait "$receiver_exec_pid"
+  # The receiver is a long-lived service and may keep its QUIC listener open
+  # after writing the completion report. Do not wait for process exit here;
+  # wait for the product completion contract, then terminate the exec task.
+  for attempt in $(seq 1 100); do
+    if docker exec "$receiver_name" sh -ceu \
+      'test -s "$1" && grep -q "^completed=true$" "$1"' sh "$receiver_dir/receiver-result.env"; then
+      break
+    fi
+    sleep 0.05
+  done
+  docker exec "$receiver_name" sh -ceu \
+    'test -s "$1" && grep -q "^completed=true$" "$1"' sh "$receiver_dir/receiver-result.env"
+  kill "$receiver_exec_pid" 2>/dev/null || true
+  wait "$receiver_exec_pid" 2>/dev/null || true
   receiver_exec_pid=""
   docker exec "$sender_name" cat "$sender_dir/sender-result.env" >"$sample_dir/sender-result.env"
   docker exec "$receiver_name" cat "$receiver_dir/receiver-result.env" >"$sample_dir/receiver-result.env"
