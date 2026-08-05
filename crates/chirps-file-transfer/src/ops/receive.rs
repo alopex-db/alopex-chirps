@@ -692,7 +692,6 @@ impl ReceiveHandler {
             ) {
                 return Err(FileTransferError::Cancelled);
             }
-            session.chunk_tracker.mark_completed(chunk_index);
             session.updated_at = SystemTime::now();
             session.options.resumable
         };
@@ -702,7 +701,6 @@ impl ReceiveHandler {
             if let Err(error) = persistence.checkpoint_chunk(session_id, chunk_index).await {
                 let mut sessions = self.sessions.write().await;
                 if let Some(session) = sessions.get_mut(&session_id) {
-                    session.chunk_tracker.completed.remove(&chunk_index);
                     session.chunk_tracker.mark_failed(chunk_index);
                     session.updated_at = SystemTime::now();
                 }
@@ -744,6 +742,10 @@ impl ReceiveHandler {
             ) {
                 return Err(FileTransferError::Cancelled);
             }
+            // Publish completion only after the durable checkpoint succeeds.
+            // This prevents another stream from observing a complete tracker
+            // and finalizing the file while resume state is still in flight.
+            session.chunk_tracker.mark_completed(chunk_index);
             let hash_started = Instant::now();
             let bytes_hashed = self
                 .incremental_hashes
