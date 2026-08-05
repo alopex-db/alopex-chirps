@@ -33,6 +33,46 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --all-features -- -D warnings
 
+  feature-matrix:
+    name: Feature Matrix (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            args: ''
+          - name: no-default
+            args: '--no-default-features'
+          - name: multi-raft
+            args: '--no-default-features --features multi-raft'
+          - name: all
+            args: '--all-features'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check alopex-chirps feature combination
+        run: cargo check -p alopex-chirps ${{ matrix.args }}
+
+      - name: Verify storage-v2 is absent when Multi-Raft is disabled
+        if: matrix.name == 'no-default'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cargo tree -p alopex-chirps --no-default-features -e features -i openraft | grep -F 'openraft feature "storage-v2"'; then
+            echo 'openraft/storage-v2 leaked into the feature-off dependency graph'
+            exit 1
+          fi
+
+      - name: Verify storage-v2 is present when Multi-Raft is enabled
+        if: matrix.name == 'multi-raft'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo tree -p alopex-chirps --no-default-features --features multi-raft -e features -i openraft \
+            | grep -F 'openraft feature "storage-v2"'
+
   test:
     name: Test Suite (${{ matrix.os }}, ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
@@ -114,7 +154,7 @@ jobs:
 
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, test, coverage, security-audit, workflow-lint]
+    needs: [fmt, clippy, feature-matrix, test, coverage, security-audit, workflow-lint]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -122,6 +162,7 @@ jobs:
         run: |
           if [[ "${{ needs.fmt.result }}" != "success" ]] || \
              [[ "${{ needs.clippy.result }}" != "success" ]] || \
+             [[ "${{ needs.feature-matrix.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
              [[ "${{ needs.coverage.result }}" != "success" ]] || \
              [[ "${{ needs.security-audit.result }}" != "success" ]] || \
