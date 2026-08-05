@@ -26,7 +26,10 @@ usage() {
   cat <<'USAGE'
 Usage:
   run-controlled-container-file-transfer.sh --output DIR
-    [--image IMAGE] [--sender-cpus CPUSET] [--receiver-cpus CPUSET]
+  [--image IMAGE] [--sender-cpus CPUSET] [--receiver-cpus CPUSET]
+    [--compression none|zstd|zstd-level:N] [--payload-profile PROFILE]
+    [--detailed-metrics]
+    [--skip-lower-validation]
 
 First runs containerized FileTransfer/QUIC tests and component Criterion for the
 same source SHA. It then builds (unless --image is supplied) a source-SHA-labelled
@@ -48,6 +51,10 @@ image=""
 # contention while preserving disjoint sender/receiver CPU sets.
 sender_cpus="0-3"
 receiver_cpus="4-7"
+compression="none"
+payload_profile="mixed"
+detailed_metrics=false
+skip_lower_validation=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,10 +62,17 @@ while [[ $# -gt 0 ]]; do
     --image) image="${2:?missing value for --image}"; shift 2 ;;
     --sender-cpus) sender_cpus="${2:?missing value for --sender-cpus}"; shift 2 ;;
     --receiver-cpus) receiver_cpus="${2:?missing value for --receiver-cpus}"; shift 2 ;;
+    --compression) compression="${2:?missing value for --compression}"; shift 2 ;;
+    --payload-profile) payload_profile="${2:?missing value for --payload-profile}"; shift 2 ;;
+    --detailed-metrics) detailed_metrics=true; shift ;;
+    --skip-lower-validation) skip_lower_validation=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+detailed_metrics_env=1
+[[ "$detailed_metrics" == true ]] && detailed_metrics_env=0
 
 [[ -n "$output" ]] || { printf '%s\n' '--output is required' >&2; exit 2; }
 [[ -n "$sender_cpus" && -n "$receiver_cpus" && "$sender_cpus" != "$receiver_cpus" ]] || {
@@ -131,10 +145,12 @@ mkdir -p "$output/samples" "$output/host" "$output/containers"
 # Lower-layer validation is deliberately mandatory and precedes creation of
 # the product measurement containers. A host-only test pass is not sufficient
 # evidence for the containerized binary path.
-bash scripts/perf/run-container-file-transfer-validation.sh \
-  --output "$output/container-validation"
-container_validation_result="$output/container-validation/evidence/result.json"
-python3 - "$container_validation_result" "$source_sha" <<'PY'
+container_validation_image_digest="skipped"
+if [[ "$skip_lower_validation" != true ]]; then
+  bash scripts/perf/run-container-file-transfer-validation.sh \
+    --output "$output/container-validation"
+  container_validation_result="$output/container-validation/evidence/result.json"
+  python3 - "$container_validation_result" "$source_sha" <<'PY'
 import json
 import pathlib
 import sys
@@ -145,7 +161,8 @@ if result.get("source_sha") != sys.argv[2]:
 if result.get("passed") is not True:
     raise SystemExit("container lower-layer validation did not pass")
 PY
-container_validation_image_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image_digest"])' "$container_validation_result")"
+  container_validation_image_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image_digest"])' "$container_validation_result")"
+fi
 
 if [[ -z "$image" ]]; then
   image="chirps-ft-1g:${source_sha}"
@@ -188,6 +205,8 @@ image_source_sha="$(docker image inspect --format '{{ index .Config.Labels "org.
   printf 'container_memory=%s\n' "$CONTAINER_MEMORY"
   printf 'sender_cpus=%s\n' "$sender_cpus"
   printf 'receiver_cpus=%s\n' "$receiver_cpus"
+  printf 'compression=%s\n' "$compression"
+  printf 'payload_profile=%s\n' "$payload_profile"
   printf 'started_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"$output/run.env"
 
@@ -219,6 +238,7 @@ launch_container() {
     --cap-add NET_ADMIN \
     --tmpfs "/work:rw,size=$TMPFS_BYTES,mode=700" \
     --tmpfs "/run/chirps:rw,size=$TLS_TMPFS_BYTES,mode=700" \
+    --env "CHIRPS_DISABLE_DETAILED_METRICS=$detailed_metrics_env" \
     "$image" sleep infinity >/dev/null
   docker exec --user root "$name" sh -ceu '
     chown chirps:chirps /work /run/chirps
@@ -266,6 +286,37 @@ wait_for_receiver() {
   return 1
 }
 
+generate_payload() {
+  python3 - "$FILE_BYTES" "$payload_profile" <<'PY'
+import sys
+
+size = int(sys.argv[1])
+profile = sys.argv[2]
+if profile not in {"mixed", "incompressible", "highly-compressible"}:
+    raise SystemExit("payload profile must be mixed, incompressible, or highly-compressible")
+state = 0x9E3779B9
+remaining = size
+block = 1024 * 1024
+while remaining:
+    n = min(block, remaining)
+    data = bytearray(n)
+    for i in range(n):
+        state = (1664525 * state + 1013904223) & 0xFFFFFFFF
+        random_byte = (state >> 24) & 0xFF
+        if profile == "highly-compressible":
+            data[i] = 0 if (i % 64) else ord("A")
+        elif profile == "incompressible":
+            data[i] = random_byte
+        else:
+            # Approximate application files: repeated structured text, sparse
+            # zero regions, and incompressible binary regions in each chunk.
+            region = (i * 100) // n
+            data[i] = 0 if region < 35 else (ord("{" if i % 2 else "\n") if region < 60 else random_byte)
+    sys.stdout.buffer.write(data)
+    remaining -= n
+PY
+}
+
 run_transfer() {
   local label="$1"
   local sample_dir="$output/samples/$label"
@@ -275,11 +326,8 @@ run_transfer() {
   local sender_log="$sample_dir/sender.log"
 
   mkdir -p "$sample_dir"
-  docker exec "$sender_name" sh -ceu '
-    mkdir -p -- "$1"
-    dd if=/dev/zero of="$1/throughput-source.bin" bs=1048576 count=128 status=none
-    sync
-  ' sh "$sender_dir"
+  docker exec "$sender_name" sh -ceu 'mkdir -p -- "$1"' sh "$sender_dir"
+  generate_payload | docker exec -i "$sender_name" sh -ceu 'cat > "$1/throughput-source.bin" && sync' sh "$sender_dir"
   docker exec "$receiver_name" /usr/local/bin/two_node_transfer \
     --role receiver \
     --node-id 00000000000000000000000000000002 \
@@ -297,7 +345,8 @@ run_transfer() {
     --profile-id "$PROFILE_ID" \
     --image-digest "$image_digest" \
     --destination throughput-dest.bin \
-    --expected-bytes "$FILE_BYTES" >"$receiver_log" 2>&1 &
+    --expected-bytes "$FILE_BYTES" \
+    --compression "$compression" >"$receiver_log" 2>&1 &
   receiver_exec_pid=$!
   wait_for_receiver || {
     printf 'receiver did not bind expected QUIC ports\n' >&2
@@ -322,8 +371,24 @@ run_transfer() {
     --source throughput-source.bin \
     --destination throughput-dest.bin \
     --expected-bytes "$FILE_BYTES" \
+    --compression "$compression" \
     --resumable true >"$sender_log" 2>&1
-  wait "$receiver_exec_pid"
+  # The receiver is a long-lived service and may keep its QUIC listener open
+  # after writing the completion report. Do not wait for process exit here;
+  # wait for the product completion contract, then terminate the exec task.
+  for attempt in $(seq 1 100); do
+    if docker exec "$receiver_name" sh -ceu \
+      'test -s "$1" && grep -q "^completed=true$" "$1"' sh "$receiver_dir/receiver-result.env"; then
+      break
+    fi
+    sleep 0.05
+  done
+  docker exec "$receiver_name" sh -ceu \
+    'test -s "$1" && grep -q "^completed=true$" "$1"' sh "$receiver_dir/receiver-result.env"
+  # docker exec may retain the child process while the service keeps its
+  # listener alive. The report is the completion contract; terminate only the
+  # host-side exec wrapper and do not block the next sample on process exit.
+  kill -KILL "$receiver_exec_pid" 2>/dev/null || true
   receiver_exec_pid=""
   docker exec "$sender_name" cat "$sender_dir/sender-result.env" >"$sample_dir/sender-result.env"
   docker exec "$receiver_name" cat "$receiver_dir/receiver-result.env" >"$sample_dir/receiver-result.env"
@@ -332,12 +397,16 @@ run_transfer() {
   # `memory.peak` is the authoritative container cgroup peak when supported;
   # docker stats alone reports only an instantaneous value.
   for name in "$sender_name" "$receiver_name"; do
+    docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/cpu.stat' >"$sample_dir/$name.cpu.before" 2>&1 || true
+  done
+  for name in "$sender_name" "$receiver_name"; do
     docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.current' >"$sample_dir/$name.memory.current" 2>&1 || true
     docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.peak' >"$sample_dir/$name.memory.peak" 2>&1 || true
   done
   docker exec "$sender_name" rm -rf -- "$sender_dir"
   docker exec "$receiver_name" rm -rf -- "$receiver_dir"
   for name in "$sender_name" "$receiver_name"; do
+    docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/cpu.stat' >"$sample_dir/$name.cpu.after" 2>&1 || true
     docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.current' >"$sample_dir/$name.memory.post_cleanup" 2>&1 || true
   done
 }
@@ -354,7 +423,7 @@ for name in "$sender_name" "$receiver_name"; do
   docker stats --no-stream --format '{{json .}}' "$name" >"$output/containers/$name.stats.json"
 done
 
-python3 - "$output" "$source_sha" "$image_digest" "$host_platform" "$host_platform_eligible" "$swap_limit_enforced" "$profile_environment_eligible" "$container_validation_image_digest" <<'PY'
+python3 - "$output" "$source_sha" "$image_digest" "$host_platform" "$host_platform_eligible" "$swap_limit_enforced" "$profile_environment_eligible" "$container_validation_image_digest" "$compression" "$payload_profile" "$detailed_metrics" <<'PY'
 import json
 import pathlib
 import statistics
@@ -368,6 +437,9 @@ host_platform_eligible = sys.argv[5] == "true"
 swap_limit_enforced = sys.argv[6] == "true"
 profile_environment_eligible = sys.argv[7] == "true"
 container_validation_image_digest = sys.argv[8]
+compression = sys.argv[9]
+payload_profile = sys.argv[10]
+detailed_metrics_enabled = sys.argv[11] == "true"
 
 def env(path):
     values = {}
@@ -383,6 +455,24 @@ def phase_metrics(report):
 def cgroup_value(directory, suffix, role):
     paths = sorted(directory.glob(f"*{role}*.memory.{suffix}"))
     if not paths:
+        return None
+
+def cpu_delta(directory, role, key):
+    matches = sorted(directory.glob(f"*{role}*.cpu.*"))
+    before = next((p for p in matches if p.name.endswith("cpu.before")), None)
+    after = next((p for p in matches if p.name.endswith("cpu.after")), None)
+    if not before or not after:
+        return None
+    def read(path):
+        values = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 2:
+                values[parts[0]] = int(parts[1])
+        return values
+    try:
+        return read(after).get(key, 0) - read(before).get(key, 0)
+    except (OSError, ValueError):
         return None
     try:
         return int(paths[0].read_text(encoding="utf-8").strip())
@@ -433,6 +523,12 @@ for number in range(1, 6):
             "receiver_memory_peak_bytes": cgroup_value(directory, "peak", "receiver"),
             "sender_memory_post_cleanup_bytes": cgroup_value(directory, "post_cleanup", "sender"),
             "receiver_memory_post_cleanup_bytes": cgroup_value(directory, "post_cleanup", "receiver"),
+            "sender_cpu_usage_usec": cpu_delta(directory, "sender", "usage_usec"),
+            "sender_cpu_user_usec": cpu_delta(directory, "sender", "user_usec"),
+            "sender_cpu_system_usec": cpu_delta(directory, "sender", "system_usec"),
+            "receiver_cpu_usage_usec": cpu_delta(directory, "receiver", "usage_usec"),
+            "receiver_cpu_user_usec": cpu_delta(directory, "receiver", "user_usec"),
+            "receiver_cpu_system_usec": cpu_delta(directory, "receiver", "system_usec"),
         }
     )
 
@@ -471,6 +567,9 @@ result = {
     "container_validation_passed": True,
     "container_validation_image_digest": container_validation_image_digest,
     "file_bytes": 134217728,
+    "compression": compression,
+    "payload_profile": payload_profile,
+    "detailed_metrics_enabled": detailed_metrics_enabled,
     "sample_count": len(samples),
     "minimum_end_to_end_goodput_bytes_per_second": threshold,
     "samples": samples,

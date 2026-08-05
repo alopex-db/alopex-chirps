@@ -9,8 +9,9 @@ use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
 use alopex_chirps_file_transfer::ops::ChunkStreamOpener;
 use alopex_chirps_file_transfer::{
-    CHUNK_STREAM_MAGIC, FileTransferConfig, FileTransferError, FileTransferService,
-    FileTransferServiceImpl, HashAlgorithm, IntegrityVerifier, TransferOptions,
+    CHUNK_STREAM_MAGIC, CompressionAlgorithm, FileTransferConfig, FileTransferError,
+    FileTransferService, FileTransferServiceImpl, HashAlgorithm, IntegrityVerifier,
+    TransferOptions,
 };
 use alopex_chirps_transport_quic::{LogFormat, QuicBackend, TelemetryConfig, init_tracing};
 use alopex_chirps_wire::node_id::NodeId;
@@ -57,6 +58,7 @@ struct Arguments {
     destination: PathBuf,
     expected_bytes: u64,
     resumable: bool,
+    compression: CompressionAlgorithm,
 }
 
 #[derive(Clone)]
@@ -109,7 +111,7 @@ fn usage() -> ! {
         "  --report RESULT.ENV --source-sha GIT_SHA --scope SCOPE --destination RELATIVE_PATH"
     );
     eprintln!(
-        "  [--profile-id ID --image-digest DIGEST] [--source RELATIVE_PATH] [--expected-bytes BYTES] [--resumable true|false]"
+        "  [--profile-id ID --image-digest DIGEST] [--source RELATIVE_PATH] [--expected-bytes BYTES] [--resumable true|false] [--compression none|zstd|zstd-level:N]"
     );
     std::process::exit(2);
 }
@@ -191,6 +193,23 @@ fn parse_arguments() -> Result<Arguments, DynError> {
         "false" => false,
         _ => return Err(input_error("--resumable must be true or false")),
     };
+    let compression = match values
+        .get("compression")
+        .map(String::as_str)
+        .unwrap_or("none")
+    {
+        "none" => CompressionAlgorithm::None,
+        "zstd" => CompressionAlgorithm::Zstd,
+        value if value.starts_with("zstd-level:") => value[11..]
+            .parse::<i32>()
+            .map(CompressionAlgorithm::ZstdLevel)
+            .map_err(|_| input_error("--compression zstd-level:N requires an integer level"))?,
+        _ => {
+            return Err(input_error(
+                "--compression must be none, zstd, or zstd-level:N",
+            ));
+        }
+    };
     let source = values
         .get("source")
         .map(|value| parse_relative_path(value, "source"))
@@ -251,6 +270,7 @@ fn parse_arguments() -> Result<Arguments, DynError> {
         destination: parse_relative_path(&required(&values, "destination")?, "destination")?,
         expected_bytes,
         resumable,
+        compression,
     })
 }
 
@@ -497,6 +517,7 @@ async fn run_sender(
             TransferOptions::default()
                 .with_chunk_size(1024 * 1024)
                 .with_concurrency(4)
+                .with_compression(args.compression)
                 .with_resumable(args.resumable),
         )
         .await?;
@@ -528,8 +549,11 @@ async fn run_sender(
             ("source_sha", args.source_sha.clone()),
             ("control_plane", "chirps-quic".to_string()),
             ("data_plane", "quic-chunk-stream".to_string()),
-            ("compression", "none".to_string()),
             ("resumable", args.resumable.to_string()),
+            (
+                "compression",
+                format!("{:?}", args.compression).to_lowercase(),
+            ),
             ("file_bytes", metadata.len().to_string()),
             ("elapsed_seconds", format!("{elapsed_seconds:.9}")),
             (
@@ -553,12 +577,15 @@ async fn run_receiver(
     service: &FileTransferServiceImpl,
     backend: &QuicBackend,
 ) -> Result<(), DynError> {
+    let detailed_metrics = std::env::var("CHIRPS_DISABLE_DETAILED_METRICS")
+        .map(|value| value != "1" && !value.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
     let destination = args.base_path.join(&args.destination);
     timeout(Duration::from_secs(180), async {
         loop {
             if let Ok(metadata) = tokio::fs::metadata(&destination).await
                 && metadata.len() == args.expected_bytes
-                && has_phase_observation(service, "receiver_finalize")
+                && (!detailed_metrics || has_phase_observation(service, "receiver_finalize"))
             {
                 let sha256 = hex(&IntegrityVerifier::compute_file_hash(
                     &destination,
@@ -641,7 +668,11 @@ async fn main() -> Result<(), DynError> {
     };
     let backend = Arc::new(QuicBackend::new(args.node_id, Arc::new(node_config)).await?);
     let backend_for_service: Arc<dyn MessageBackend> = backend.clone();
+    let detailed_metrics = std::env::var("CHIRPS_DISABLE_DETAILED_METRICS")
+        .map(|value| value != "1" && !value.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
     let transfer_config = FileTransferConfig::default()
+        .with_detailed_metrics(detailed_metrics)
         .with_base_path(args.base_path.clone())
         .with_temp_dir(Some(args.base_path.join("tmp")))
         .with_session_dir(Some(args.base_path.join("sessions")));

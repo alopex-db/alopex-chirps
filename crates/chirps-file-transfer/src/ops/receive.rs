@@ -676,7 +676,11 @@ impl ReceiveHandler {
         // This keeps hash verification and rename single-shot even when streams
         // arrive concurrently and out of order.
         let data_len = data.len() as u64;
-        let finalization = {
+        // Update in-memory progress under the session lock, but perform the
+        // durable checkpoint without holding it.  Checkpoint I/O is serialized
+        // by SessionPersistence's own guard and must not block unrelated
+        // receive streams from validating/writing their chunks.
+        let resumable = {
             let mut sessions = self.sessions.write().await;
             let session = match sessions.get_mut(&session_id) {
                 Some(session) => session,
@@ -688,16 +692,18 @@ impl ReceiveHandler {
             ) {
                 return Err(FileTransferError::Cancelled);
             }
-            session.chunk_tracker.mark_completed(chunk_index);
             session.updated_at = SystemTime::now();
+            session.options.resumable
+        };
+
+        if resumable && let Some(persistence) = &self.persistence {
             let checkpoint_started = Instant::now();
-            if session.options.resumable
-                && let Some(persistence) = &self.persistence
-                && let Err(error) = persistence.checkpoint_chunk(session_id, chunk_index).await
-            {
-                session.chunk_tracker.completed.remove(&chunk_index);
-                session.chunk_tracker.mark_failed(chunk_index);
-                session.updated_at = SystemTime::now();
+            if let Err(error) = persistence.checkpoint_chunk(session_id, chunk_index).await {
+                let mut sessions = self.sessions.write().await;
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.chunk_tracker.mark_failed(chunk_index);
+                    session.updated_at = SystemTime::now();
+                }
                 drop(sessions);
                 send_chunk_ack(
                     control,
@@ -715,15 +721,31 @@ impl ReceiveHandler {
                     completed: false,
                 });
             }
-            if session.options.resumable
-                && let Some(metrics) = &self.metrics
-            {
+            if let Some(metrics) = &self.metrics {
                 metrics.observe_phase(
                     "receiver_checkpoint",
                     checkpoint_started.elapsed(),
                     data_len,
                 );
             }
+        }
+
+        let finalization = {
+            let mut sessions = self.sessions.write().await;
+            let session = match sessions.get_mut(&session_id) {
+                Some(session) => session,
+                None => return Err(FileTransferError::SessionNotFound(session_id)),
+            };
+            if matches!(
+                session.state,
+                TransferState::Cancelled | TransferState::Failed
+            ) {
+                return Err(FileTransferError::Cancelled);
+            }
+            // Publish completion only after the durable checkpoint succeeds.
+            // This prevents another stream from observing a complete tracker
+            // and finalizing the file while resume state is still in flight.
+            session.chunk_tracker.mark_completed(chunk_index);
             let hash_started = Instant::now();
             let bytes_hashed = self
                 .incremental_hashes
@@ -1191,6 +1213,99 @@ mod tests {
     use crate::manifest::TransferManifest;
     use crate::options::{HashAlgorithm, TransferMode, TransferOptions};
     use sha2::{Digest, Sha256};
+    use std::sync::Arc;
+    use tokio::sync::{Mutex, Notify};
+    use tokio::time::{Duration, sleep};
+
+    // Component-level contract used by the receive path: completion is
+    // published only after the injected durable checkpoint future resolves.
+    async fn checkpoint_then_publish(
+        completed: Arc<Mutex<bool>>,
+        checkpoint: impl std::future::Future<Output = Result<(), ()>>,
+    ) -> Result<(), ()> {
+        checkpoint.await?;
+        *completed.lock().await = true;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn completion_is_not_visible_before_checkpoint() {
+        let completed = Arc::new(Mutex::new(false));
+        let gate = Arc::new(Notify::new());
+        let gate2 = gate.clone();
+        let task = tokio::spawn(checkpoint_then_publish(completed.clone(), async move {
+            gate2.notified().await;
+            Ok(())
+        }));
+        sleep(Duration::from_millis(5)).await;
+        assert!(!*completed.lock().await);
+        gate.notify_one();
+        task.await.expect("task").expect("checkpoint");
+        assert!(*completed.lock().await);
+    }
+
+    #[tokio::test]
+    async fn failed_checkpoint_does_not_publish_completion() {
+        let completed = Arc::new(Mutex::new(false));
+        let result = checkpoint_then_publish(completed.clone(), async { Err(()) }).await;
+        assert!(result.is_err());
+        assert!(!*completed.lock().await);
+    }
+
+    #[derive(Default)]
+    struct CheckpointModel {
+        completed: std::collections::BTreeSet<u32>,
+        checkpointed: std::collections::BTreeSet<u32>,
+        finalized: bool,
+        cancelled: bool,
+    }
+
+    impl CheckpointModel {
+        fn ack(&mut self, index: u32) {
+            if self.cancelled || !self.checkpointed.insert(index) {
+                return;
+            }
+            self.completed.insert(index);
+            if self.completed == [0, 1].into_iter().collect() {
+                self.finalized = true;
+            }
+        }
+    }
+
+    #[test]
+    fn reversed_two_chunk_completion_finalizes_once() {
+        let mut model = CheckpointModel::default();
+        model.ack(1);
+        assert!(!model.finalized);
+        model.ack(0);
+        assert!(model.finalized);
+        model.ack(0);
+        model.ack(1);
+        assert_eq!(model.checkpointed.len(), 2);
+        assert!(model.finalized);
+    }
+
+    #[test]
+    fn cancellation_during_checkpoint_publishes_nothing() {
+        let mut model = CheckpointModel {
+            cancelled: true,
+            ..Default::default()
+        };
+        model.ack(0);
+        model.ack(1);
+        assert!(model.completed.is_empty());
+        assert!(model.checkpointed.is_empty());
+        assert!(!model.finalized);
+    }
+
+    #[test]
+    fn duplicate_retransmit_is_idempotent() {
+        let mut model = CheckpointModel::default();
+        model.ack(0);
+        model.ack(0);
+        assert_eq!(model.checkpointed.len(), 1);
+        assert_eq!(model.completed.len(), 1);
+    }
 
     #[test]
     fn incremental_receive_hash_reorders_chunks_and_ignores_duplicates() {

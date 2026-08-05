@@ -385,11 +385,15 @@ impl FileTransferServiceImpl {
         let path_validator = PathValidator::new(config.base_path.clone(), false);
         let persistence = Arc::new(SessionPersistence::new(&config));
         let metrics_registry = Registry::new();
-        let metrics = Some(Arc::new(
-            PrometheusMetrics::register(&metrics_registry).map_err(|error| {
-                FileTransferError::Internal(format!("metrics registration failed: {error}"))
-            })?,
-        ));
+        let metrics = if config.detailed_metrics {
+            Some(Arc::new(
+                PrometheusMetrics::register(&metrics_registry).map_err(|error| {
+                    FileTransferError::Internal(format!("metrics registration failed: {error}"))
+                })?,
+            ))
+        } else {
+            None
+        };
         let transfer_slots = Arc::new(Semaphore::new(config.max_concurrent_transfers));
         let sync_sessions = Arc::new(RwLock::new(HashSet::new()));
         let receive_handler = Arc::new(ReceiveHandler::new(
