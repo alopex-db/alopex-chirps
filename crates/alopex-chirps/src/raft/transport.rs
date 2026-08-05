@@ -39,6 +39,12 @@ pub struct RaftFramePayload {
     pub message: RaftMessage,
 }
 
+struct PendingRpc {
+    target: ChirpsNodeId,
+    group_id: GroupId,
+    response: oneshot::Sender<RaftMessage>,
+}
+
 /// Raftネットワークのファクトリ。openraftのRaftNetworkFactoryを実装する。
 ///
 /// # 例
@@ -55,7 +61,7 @@ pub struct ChirpsRaftTransport {
     group_id: GroupId,
     node_id: ChirpsNodeId,
     next_corr: AtomicU64,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<RaftMessage>>>>,
+    pending: Arc<Mutex<HashMap<u64, PendingRpc>>>,
 }
 
 impl ChirpsRaftTransport {
@@ -87,25 +93,70 @@ impl ChirpsRaftTransport {
         ChirpsRaftNetworkFactory { inner }
     }
 
-    /// Raftフレームをデコードする。対象グループ以外はNoneを返す。
+    /// Raftフレームをデコードし、外側とpayloadのgroup一致も検証する。
     pub fn decode_frame(frame: Frame) -> Option<RaftFramePayload> {
-        match frame {
-            Frame::Raft(data) | Frame::RaftSnapshot(data) => {
-                bincode::deserialize::<RaftFramePayload>(&data.payload).ok()
-            }
-            _ => None,
+        let data = match frame {
+            Frame::Raft(data) | Frame::RaftSnapshot(data) => data,
+            _ => return None,
+        };
+        let payload = bincode::deserialize::<RaftFramePayload>(&data.payload).ok()?;
+        if payload.message.group_id().0 != data.group_id {
+            return None;
         }
+        Some(payload)
     }
 
     /// レスポンス用に送信待ちマップを確認する。マッチした場合は待ち受けに届け、リクエストの場合はSomeを返す。
     pub async fn consume_incoming(&self, payload: RaftFramePayload) -> Option<RaftFramePayload> {
+        if payload.message.group_id() != self.group_id {
+            return None;
+        }
         let mut guard = self.pending.lock().await;
-        if let Some(tx) = guard.remove(&payload.correlation_id) {
-            let _ = tx.send(payload.message);
+        if is_response(&payload.message)
+            && let Some(pending) = guard.remove(&payload.correlation_id)
+        {
+            let _ = pending.response.send(payload.message);
             None
         } else {
             Some(payload)
         }
+    }
+
+    /// Validates source, group, correlation and response shape before waking an RPC waiter.
+    pub async fn consume_incoming_from(
+        &self,
+        source: ChirpsNodeId,
+        payload: RaftFramePayload,
+    ) -> Result<Option<RaftFramePayload>, TransportError> {
+        let group_id = payload.message.group_id();
+        if group_id != self.group_id {
+            return Err(TransportError::Connection(format!(
+                "Raft group mismatch: expected {}, got {}",
+                self.group_id.0, group_id.0
+            )));
+        }
+        if !is_response(&payload.message) {
+            return Ok(Some(payload));
+        }
+
+        let mut guard = self.pending.lock().await;
+        let Some(pending) = guard.get(&payload.correlation_id) else {
+            return Err(TransportError::Connection(format!(
+                "unknown Raft response correlation {}",
+                payload.correlation_id
+            )));
+        };
+        if pending.target != source || pending.group_id != group_id {
+            return Err(TransportError::Connection(format!(
+                "Raft response route mismatch for correlation {}",
+                payload.correlation_id
+            )));
+        }
+        let pending = guard
+            .remove(&payload.correlation_id)
+            .expect("validated pending response must remain present");
+        let _ = pending.response.send(payload.message);
+        Ok(None)
     }
 
     /// 受信サイドからレスポンスを送る際に使用する。
@@ -150,7 +201,14 @@ impl ChirpsRaftTransport {
         let (tx, rx) = oneshot::channel();
         {
             let mut guard = self.pending.lock().await;
-            guard.insert(correlation_id, tx);
+            guard.insert(
+                correlation_id,
+                PendingRpc {
+                    target,
+                    group_id: self.group_id,
+                    response: tx,
+                },
+            );
         }
 
         let send_res = self
@@ -190,6 +248,13 @@ impl ChirpsRaftTransport {
     }
 
     fn encode_frame(&self, payload: RaftFramePayload) -> Result<Frame, bincode::Error> {
+        if payload.message.group_id() != self.group_id {
+            return Err(Box::new(bincode::ErrorKind::Custom(format!(
+                "Raft group mismatch: expected {}, got {}",
+                self.group_id.0,
+                payload.message.group_id().0
+            ))));
+        }
         let bytes = bincode::serialize(&payload)?;
         let raft_frame = RaftFrame {
             group_id: self.group_id.0,
@@ -203,6 +268,15 @@ impl ChirpsRaftTransport {
         };
         Ok(frame)
     }
+}
+
+fn is_response(message: &RaftMessage) -> bool {
+    matches!(
+        message,
+        RaftMessage::AppendEntriesResponse { .. }
+            | RaftMessage::VoteResponse { .. }
+            | RaftMessage::InstallSnapshotResponse { .. }
+    )
 }
 
 /// RaftNetworkFactory実装用のラッパー。
@@ -340,5 +414,64 @@ where
             RPCError::Network(NetworkError::new(&err))
         }
         _ => RPCError::Network(NetworkError::new(&err)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alopex_chirps_mock::{MockBackend, MockNetwork};
+    use alopex_chirps_raft_storage::types::Vote;
+
+    #[tokio::test]
+    async fn response_requires_matching_source_group_and_correlation() {
+        let network = MockNetwork::new();
+        let backend = network
+            .add_node(NodeId::from([0; 16]), MockBackend::ephemeral_addr())
+            .await;
+        let backend: Arc<dyn MessageBackend> = Arc::new(backend);
+        let transport = ChirpsRaftTransport::new(backend, GroupId(4), 1);
+        let (tx, rx) = oneshot::channel();
+        transport.pending.lock().await.insert(
+            9,
+            PendingRpc {
+                target: 2,
+                group_id: GroupId(4),
+                response: tx,
+            },
+        );
+        let response = || RaftFramePayload {
+            correlation_id: 9,
+            message: RaftMessage::VoteResponse {
+                group_id: GroupId(4),
+                response: VoteResponse {
+                    vote: Vote::new(1, 2),
+                    vote_granted: true,
+                    last_log_id: None,
+                },
+            },
+        };
+
+        assert!(
+            transport
+                .consume_incoming_from(3, response())
+                .await
+                .is_err()
+        );
+        assert_eq!(transport.pending.lock().await.len(), 1);
+        assert!(
+            transport
+                .consume_incoming_from(2, response())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(
+            rx.await.unwrap(),
+            RaftMessage::VoteResponse {
+                group_id: GroupId(4),
+                ..
+            }
+        ));
     }
 }

@@ -6,14 +6,15 @@ use tracing_test::traced_test;
 
 #[traced_test]
 #[test]
-fn v0_4_to_v0_4_connects_with_capabilities() {
+fn v0_6_to_v0_6_connects_with_capabilities() {
     let local = HandshakeMessage::new(NodeId::new());
     let remote = HandshakeMessage::new(NodeId::new());
 
-    let negotiated = negotiate(&local, &remote).expect("v0.4 should be compatible");
+    let negotiated = negotiate(&local, &remote).expect("v0.6 should be compatible");
     assert!(negotiated.priority_streams);
     assert!(negotiated.retransmission);
     assert!(negotiated.qos);
+    assert!(negotiated.multi_raft);
     assert!(
         !logs_contain("version_mismatch"),
         "should not emit version_mismatch for compatible peers"
@@ -22,10 +23,10 @@ fn v0_4_to_v0_4_connects_with_capabilities() {
 
 #[traced_test]
 #[test]
-fn v0_3_rejected_with_version_mismatch_log() {
+fn v0_5_rejected_with_version_mismatch_log() {
     let local = HandshakeMessage::new(NodeId::new());
     let mut remote = HandshakeMessage::new(NodeId::new());
-    remote.version = MIN_COMPATIBLE_VERSION - 1; // v0.3
+    remote.version = MIN_COMPATIBLE_VERSION - 1;
 
     let res = negotiate(&local, &remote);
     match res {

@@ -5,7 +5,7 @@
 //! - [`QosController`] applies backpressure and bandwidth throttling (e.g., snapshot token bucket).
 //! - [`RetransmissionBuffer`] retains in-flight frames for reconnect replay with sequence/ack handling.
 //! - [`ExtendedTransportMetrics`] exposes counters and latency histograms.
-//! - [`HandshakeMessage`] enforces protocol versions (v0.4) and negotiates capabilities.
+//! - [`HandshakeMessage`] enforces protocol versions and negotiates capabilities.
 //!
 //! Use [`QuicBackend`] via the `MessageBackend` trait to send/broadcast frames and subscribe to incoming messages.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]

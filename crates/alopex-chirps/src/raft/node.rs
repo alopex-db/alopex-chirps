@@ -580,6 +580,12 @@ mod tests {
         let decoded = ChirpsRaftTransport::decode_frame(frame).expect("decode");
         assert_eq!(decoded.correlation_id, 7);
         assert_eq!(decoded.message.group_id(), GroupId(1));
+
+        let mismatched = Frame::Raft(RaftFrame {
+            group_id: 2,
+            payload: bincode::serialize(&payload).expect("serialize mismatch payload"),
+        });
+        assert!(ChirpsRaftTransport::decode_frame(mismatched).is_none());
     }
 
     #[test]

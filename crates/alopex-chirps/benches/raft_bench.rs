@@ -531,7 +531,8 @@ fn spawn_pump(
                 let Some(payload) = ChirpsRaftTransport::decode_frame(frame) else {
                     continue;
                 };
-                let Some(request) = transport.consume_incoming(payload).await else {
+                let Ok(Some(request)) = transport.consume_incoming_from(sender, payload).await
+                else {
                     continue;
                 };
                 let correlation_id = request.correlation_id;

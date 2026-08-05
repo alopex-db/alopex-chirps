@@ -1,5 +1,5 @@
 use super::{GroupHandle, GroupId, MultiRaftError, RaftStorageFactory};
-use crate::raft::{ChirpsRaftTransport, RaftConfig, RaftNode};
+use crate::raft::{ChirpsRaftTransport, RaftConfig, RaftFramePayload, RaftMessage, RaftNode};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
@@ -11,6 +11,20 @@ pub struct MultiRaftManager<F> {
     raft_config: RaftConfig,
     lifecycle: Mutex<()>,
     groups: RwLock<HashMap<GroupId, Arc<GroupHandle>>>,
+}
+
+#[derive(Debug)]
+pub struct RoutedRaftResponse {
+    pub source: u64,
+    pub destination: u64,
+    pub correlation_id: u64,
+    pub message: RaftMessage,
+}
+
+#[derive(Debug)]
+pub struct GroupTickResult {
+    pub group_id: GroupId,
+    pub result: Result<(), MultiRaftError>,
 }
 
 impl<F> MultiRaftManager<F>
@@ -122,6 +136,66 @@ where
         group.shutdown().await?;
         self.groups_write().remove(&group_id);
         Ok(true)
+    }
+
+    pub async fn route_message(
+        &self,
+        source: u64,
+        destination: u64,
+        payload: RaftFramePayload,
+    ) -> Result<RoutedRaftResponse, MultiRaftError> {
+        let group_id = payload.message.group_id();
+        if destination != self.transport.node_id() {
+            return Err(MultiRaftError::Routing {
+                group_id,
+                reason: format!(
+                    "destination mismatch: expected {}, got {destination}",
+                    self.transport.node_id()
+                ),
+            });
+        }
+        let group = self
+            .get_group(group_id)
+            .ok_or(MultiRaftError::UnknownGroup { group_id })?;
+        let correlation_id = payload.correlation_id;
+        let message = group.handle_message(payload).await?;
+        if message.group_id() != group_id {
+            return Err(MultiRaftError::Routing {
+                group_id,
+                reason: "Raft response group mismatch".to_owned(),
+            });
+        }
+        Ok(RoutedRaftResponse {
+            source: destination,
+            destination: source,
+            correlation_id,
+            message,
+        })
+    }
+
+    pub async fn tick_all(&self) -> Vec<GroupTickResult> {
+        let groups = self
+            .groups_read()
+            .iter()
+            .map(|(group_id, group)| (*group_id, Arc::clone(group)))
+            .collect::<Vec<_>>();
+        let mut tasks = groups
+            .into_iter()
+            .map(|(group_id, group)| (group_id, tokio::spawn(async move { group.tick().await })))
+            .collect::<Vec<_>>();
+        let mut results = Vec::with_capacity(tasks.len());
+        for (group_id, task) in tasks.drain(..) {
+            let result = match task.await {
+                Ok(result) => result,
+                Err(error) => Err(MultiRaftError::Routing {
+                    group_id,
+                    reason: format!("tick task failed: {error}"),
+                }),
+            };
+            results.push(GroupTickResult { group_id, result });
+        }
+        results.sort_unstable_by_key(|result| result.group_id.0);
+        results
     }
 
     pub async fn shutdown_all(&self) -> Result<(), MultiRaftError> {

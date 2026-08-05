@@ -4,11 +4,12 @@ use alopex_chirps::multi_raft::{
     GroupId, MultiRaftError, MultiRaftManager, RaftStorageFactory, WalRaftStorageFactory,
     group_namespace, parse_group_namespace,
 };
-use alopex_chirps::{ChirpsRaftTransport, RaftConfig};
+use alopex_chirps::raft::RaftFramePayload;
+use alopex_chirps::{ChirpsRaftTransport, RaftConfig, RaftMessage};
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_mock::{MockBackend, MockNetwork};
 use alopex_chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
-use alopex_chirps_raft_storage::types::LogId;
+use alopex_chirps_raft_storage::types::{LogId, Vote, VoteRequest};
 use alopex_chirps_raft_storage::wal_storage::WalStorageConfig;
 use async_trait::async_trait;
 use std::collections::BTreeSet;
@@ -179,5 +180,49 @@ async fn manager_create_list_get_and_remove_are_consistent_and_idempotent() {
     assert!(!manager.remove_group(GroupId(1)).await.unwrap());
     assert!(manager.get_group(GroupId(1)).is_none());
     assert_eq!(manager.list_groups(), vec![GroupId(2)]);
+
+    let routed = manager
+        .route_message(
+            9,
+            1,
+            RaftFramePayload {
+                correlation_id: 77,
+                message: RaftMessage::Vote {
+                    group_id: GroupId(2),
+                    request: VoteRequest {
+                        vote: Vote::new(2, 9),
+                        last_log_id: None,
+                    },
+                },
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(routed.source, 1);
+    assert_eq!(routed.destination, 9);
+    assert_eq!(routed.correlation_id, 77);
+    assert_eq!(routed.message.group_id(), GroupId(2));
+
+    assert!(matches!(
+        manager
+            .route_message(
+                9,
+                1,
+                RaftFramePayload {
+                    correlation_id: 78,
+                    message: RaftMessage::Vote {
+                        group_id: GroupId(3),
+                        request: VoteRequest {
+                            vote: Vote::new(2, 9),
+                            last_log_id: None,
+                        },
+                    },
+                },
+            )
+            .await,
+        Err(MultiRaftError::UnknownGroup {
+            group_id: GroupId(3)
+        })
+    ));
     manager.shutdown_all().await.unwrap();
 }
