@@ -10,6 +10,10 @@ categories.workspace = true
 keywords = ["raft", "consensus", "distributed", "cluster", "alopex"]
 documentation = "https://docs.rs/alopex-chirps"
 
+[features]
+default = []
+multi-raft = ["openraft/storage-v2"]
+
 [dependencies]
 alopex-chirps-core.workspace = true
 alopex-chirps-file-transfer.workspace = true

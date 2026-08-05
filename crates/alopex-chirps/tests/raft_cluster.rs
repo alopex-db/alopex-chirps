@@ -7,10 +7,10 @@ use alopex_chirps_raft_storage::types::{
 };
 use alopex_chirps_wire::node_id::NodeId;
 use anyhow::{Result, bail};
-use openraft::storage::{Adaptor, RaftSnapshotBuilder};
+use openraft::storage::{LogFlushed, RaftLogStorage, RaftSnapshotBuilder, RaftStateMachine};
 use openraft::{
-    CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader,
-    RaftStorage as OpenRaftStorage, StorageError, StorageIOError,
+    CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader, StorageError,
+    StorageIOError,
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Debug;
@@ -113,9 +113,8 @@ impl RaftLogReader<ChirpsTypeConfig> for MemoryStore {
     }
 }
 
-impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
+impl RaftLogStorage<ChirpsTypeConfig> for MemoryStore {
     type LogReader = MemoryStore;
-    type SnapshotBuilder = MemorySnapshotBuilder;
 
     async fn save_vote(
         &mut self,
@@ -163,22 +162,27 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         self.clone()
     }
 
-    async fn append_to_log<I>(&mut self, entries: I) -> Result<(), StorageError<ChirpsNodeId>>
+    async fn append<I>(
+        &mut self,
+        entries: I,
+        callback: LogFlushed<ChirpsTypeConfig>,
+    ) -> Result<(), StorageError<ChirpsNodeId>>
     where
         I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + OptionalSend,
+        I::IntoIter: OptionalSend,
     {
         let mut guard = self.inner.lock().await;
         let new_entries: Vec<_> = entries.into_iter().collect();
-        if new_entries.is_empty() {
-            return Ok(());
+        if let Some(first) = new_entries.first() {
+            guard.logs.retain(|e| e.log_id.index < first.log_id.index);
+            guard.logs.extend(new_entries);
         }
-        let first = new_entries.first().unwrap().log_id.index;
-        guard.logs.retain(|e| e.log_id.index < first);
-        guard.logs.extend(new_entries);
+        drop(guard);
+        callback.log_io_completed(Ok(()));
         Ok(())
     }
 
-    async fn delete_conflict_logs_since(
+    async fn truncate(
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
@@ -187,7 +191,7 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         Ok(())
     }
 
-    async fn purge_logs_upto(
+    async fn purge(
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
@@ -196,8 +200,12 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         guard.last_purged = Some(log_id);
         Ok(())
     }
+}
 
-    async fn last_applied_state(
+impl RaftStateMachine<ChirpsTypeConfig> for MemoryStore {
+    type SnapshotBuilder = MemorySnapshotBuilder;
+
+    async fn applied_state(
         &mut self,
     ) -> Result<
         (
@@ -210,10 +218,11 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         Ok((guard.last_applied, guard.last_membership.clone()))
     }
 
-    async fn apply_to_state_machine(
-        &mut self,
-        entries: &[Entry<ChirpsTypeConfig>],
-    ) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>> {
+    async fn apply<I>(&mut self, entries: I) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>>
+    where
+        I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + OptionalSend,
+        I::IntoIter: OptionalSend,
+    {
         let mut guard = self.inner.lock().await;
         let mut responses = Vec::new();
         for entry in entries {
@@ -402,7 +411,6 @@ impl TestCluster {
             data: Arc::new(Mutex::new(Vec::new())),
         };
         let store = MemoryStore::new(state_handle.clone());
-        let (log_store, state_machine) = Adaptor::new(store.clone());
 
         let cfg = RaftConfig {
             group_id: self.group_id,
@@ -417,8 +425,8 @@ impl TestCluster {
         let mut node = RaftNode::new(
             cfg,
             ChirpsRaftTransport::factory(transport.clone()),
-            log_store,
-            state_machine,
+            store.clone(),
+            store,
             transport.clone(),
         )
         .await?;

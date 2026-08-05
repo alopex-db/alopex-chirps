@@ -4,6 +4,8 @@ pub mod backend;
 pub mod config;
 pub mod error;
 pub mod mesh;
+#[cfg(feature = "multi-raft")]
+pub mod multi_raft;
 pub mod node_id;
 pub mod profile;
 pub mod raft;
