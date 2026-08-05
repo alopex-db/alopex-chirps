@@ -51,6 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cancel_after_ms = std::env::var("POC_CANCEL_AFTER_MS")
         .ok()
         .and_then(|v| v.parse().ok());
+    let drop_index = std::env::var("POC_DROP_INDEX")
+        .ok()
+        .and_then(|v| v.parse().ok());
+    let reorder = std::env::var("POC_REORDER").is_ok();
     let (cancel_tx, cancel_rx) = watch::channel(false);
     if let Some(delay) = cancel_after_ms {
         let tx = cancel_tx.clone();
@@ -114,11 +118,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let transport_cancel = cancel_rx.clone();
     let transport = tokio::spawn(async move {
         let mut stats = StageStats::default();
+        let mut dropped = false;
+        let mut retries = 0usize;
         while let Some(chunk) = wire_rx.recv().await {
             if *transport_cancel.borrow() {
                 return Err("cancelled".into());
             }
             let stage = Instant::now();
+            if reorder && chunk.index % 2 == 0 {
+                tokio::time::sleep(Duration::from_micros(500)).await;
+            }
+            if drop_index == Some(chunk.index) && !dropped {
+                dropped = true;
+                retries += 1;
+                // Retry coordinator immediately requeues the same owned chunk.
+                // Production will replace this with an ACK/NACK-driven path.
+            }
             tokio::time::sleep(Duration::from_micros(150)).await;
             decoded_tx
                 .send(DecodedChunk {
@@ -131,7 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             stats.bytes += chunk.original_len;
             stats.elapsed += stage.elapsed();
         }
-        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(stats)
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>((stats, retries))
     });
 
     let sink_cancel = cancel_rx;
@@ -164,7 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let producer_stats = producer.await??;
     let compressor_stats = compressor.await??;
-    let transport_stats = transport.await??;
+    let (transport_stats, retries) = transport.await??;
     let (sink_stats, written, digest) = sink.await??;
     assert_eq!(written, CHUNKS * CHUNK_BYTES);
     assert_eq!(sink_stats.items, CHUNKS);
@@ -172,6 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("pipeline=bounded-chunk-poc");
     println!("chunks={CHUNKS} chunk_bytes={CHUNK_BYTES} queue_capacity={QUEUE_CAPACITY}");
     println!("written_bytes={written} sha256={:x}", digest);
+    println!("retries={retries} reordered={reorder}");
     println!("elapsed_ms={:.2}", started.elapsed().as_secs_f64() * 1000.0);
     for (name, stats) in [
         ("read", producer_stats),
