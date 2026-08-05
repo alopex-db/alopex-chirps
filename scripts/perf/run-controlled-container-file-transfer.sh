@@ -27,7 +27,7 @@ usage() {
 Usage:
   run-controlled-container-file-transfer.sh --output DIR
   [--image IMAGE] [--sender-cpus CPUSET] [--receiver-cpus CPUSET]
-    [--compression none|zstd|zstd-level:N]
+    [--compression none|zstd|zstd-level:N] [--payload-profile PROFILE]
 
 First runs containerized FileTransfer/QUIC tests and component Criterion for the
 same source SHA. It then builds (unless --image is supplied) a source-SHA-labelled
@@ -50,6 +50,7 @@ image=""
 sender_cpus="0-3"
 receiver_cpus="4-7"
 compression="none"
+payload_profile="mixed"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +59,7 @@ while [[ $# -gt 0 ]]; do
     --sender-cpus) sender_cpus="${2:?missing value for --sender-cpus}"; shift 2 ;;
     --receiver-cpus) receiver_cpus="${2:?missing value for --receiver-cpus}"; shift 2 ;;
     --compression) compression="${2:?missing value for --compression}"; shift 2 ;;
+    --payload-profile) payload_profile="${2:?missing value for --payload-profile}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -192,6 +194,7 @@ image_source_sha="$(docker image inspect --format '{{ index .Config.Labels "org.
   printf 'sender_cpus=%s\n' "$sender_cpus"
   printf 'receiver_cpus=%s\n' "$receiver_cpus"
   printf 'compression=%s\n' "$compression"
+  printf 'payload_profile=%s\n' "$payload_profile"
   printf 'started_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"$output/run.env"
 
@@ -271,6 +274,37 @@ wait_for_receiver() {
   return 1
 }
 
+generate_payload() {
+  python3 - "$FILE_BYTES" "$payload_profile" <<'PY'
+import sys
+
+size = int(sys.argv[1])
+profile = sys.argv[2]
+if profile not in {"mixed", "incompressible", "highly-compressible"}:
+    raise SystemExit("payload profile must be mixed, incompressible, or highly-compressible")
+state = 0x9E3779B9
+remaining = size
+block = 1024 * 1024
+while remaining:
+    n = min(block, remaining)
+    data = bytearray(n)
+    for i in range(n):
+        state = (1664525 * state + 1013904223) & 0xFFFFFFFF
+        random_byte = (state >> 24) & 0xFF
+        if profile == "highly-compressible":
+            data[i] = 0 if (i % 64) else ord("A")
+        elif profile == "incompressible":
+            data[i] = random_byte
+        else:
+            # Approximate application files: repeated structured text, sparse
+            # zero regions, and incompressible binary regions in each chunk.
+            region = (i * 100) // n
+            data[i] = 0 if region < 35 else (ord("{" if i % 2 else "\n") if region < 60 else random_byte)
+    sys.stdout.buffer.write(data)
+    remaining -= n
+PY
+}
+
 run_transfer() {
   local label="$1"
   local sample_dir="$output/samples/$label"
@@ -280,11 +314,8 @@ run_transfer() {
   local sender_log="$sample_dir/sender.log"
 
   mkdir -p "$sample_dir"
-  docker exec "$sender_name" sh -ceu '
-    mkdir -p -- "$1"
-    dd if=/dev/zero of="$1/throughput-source.bin" bs=1048576 count=128 status=none
-    sync
-  ' sh "$sender_dir"
+  docker exec "$sender_name" sh -ceu 'mkdir -p -- "$1"' sh "$sender_dir"
+  generate_payload | docker exec -i "$sender_name" sh -ceu 'cat > "$1/throughput-source.bin" && sync' sh "$sender_dir"
   docker exec "$receiver_name" /usr/local/bin/two_node_transfer \
     --role receiver \
     --node-id 00000000000000000000000000000002 \
