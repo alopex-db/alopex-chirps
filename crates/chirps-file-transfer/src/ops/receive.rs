@@ -1252,6 +1252,61 @@ mod tests {
         assert!(!*completed.lock().await);
     }
 
+    #[derive(Default)]
+    struct CheckpointModel {
+        completed: std::collections::BTreeSet<u32>,
+        checkpointed: std::collections::BTreeSet<u32>,
+        finalized: bool,
+        cancelled: bool,
+    }
+
+    impl CheckpointModel {
+        fn ack(&mut self, index: u32) {
+            if self.cancelled || !self.checkpointed.insert(index) {
+                return;
+            }
+            self.completed.insert(index);
+            if self.completed == [0, 1].into_iter().collect() {
+                self.finalized = true;
+            }
+        }
+    }
+
+    #[test]
+    fn reversed_two_chunk_completion_finalizes_once() {
+        let mut model = CheckpointModel::default();
+        model.ack(1);
+        assert!(!model.finalized);
+        model.ack(0);
+        assert!(model.finalized);
+        model.ack(0);
+        model.ack(1);
+        assert_eq!(model.checkpointed.len(), 2);
+        assert!(model.finalized);
+    }
+
+    #[test]
+    fn cancellation_during_checkpoint_publishes_nothing() {
+        let mut model = CheckpointModel {
+            cancelled: true,
+            ..Default::default()
+        };
+        model.ack(0);
+        model.ack(1);
+        assert!(model.completed.is_empty());
+        assert!(model.checkpointed.is_empty());
+        assert!(!model.finalized);
+    }
+
+    #[test]
+    fn duplicate_retransmit_is_idempotent() {
+        let mut model = CheckpointModel::default();
+        model.ack(0);
+        model.ack(0);
+        assert_eq!(model.checkpointed.len(), 1);
+        assert_eq!(model.completed.len(), 1);
+    }
+
     #[test]
     fn incremental_receive_hash_reorders_chunks_and_ignores_duplicates() {
         let chunks = [b"first".to_vec(), b"second".to_vec(), b"third".to_vec()];
