@@ -1148,7 +1148,7 @@ fn to_wire_file_metadata(
 
 #[cfg(test)]
 mod tests {
-    use super::{PreparedChunk, resolve_transfer_options, send_prepared_chunk};
+    use super::{PreparedChunk, resolve_transfer_options, send_prepared_chunk, should_retry};
     use crate::compression::decompress_bytes;
     use crate::integrity::IntegrityVerifier;
     use crate::ops::ChunkStreamOpener;
@@ -1167,6 +1167,15 @@ mod tests {
     use tokio::sync::Mutex;
 
     const SERVER_NAME: &str = "localhost";
+
+    #[test]
+    fn retry_coordinator_is_bounded_per_chunk() {
+        let mut retries = std::collections::HashMap::new();
+        assert_eq!(should_retry(&mut retries, 7, 2), Some(1));
+        assert_eq!(should_retry(&mut retries, 7, 2), Some(2));
+        assert_eq!(should_retry(&mut retries, 7, 2), None);
+        assert_eq!(should_retry(&mut retries, 8, 2), Some(1));
+    }
 
     #[test]
     fn config_defaults_are_applied_to_default_transfer_options() {
