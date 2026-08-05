@@ -106,6 +106,23 @@ impl ChirpsRaftTransport {
         Some(payload)
     }
 
+    /// Encodes a group-consistent Raft payload for an external receive-loop or
+    /// deterministic transport harness.
+    pub fn encode_group_frame(payload: RaftFramePayload) -> Result<Frame, bincode::Error> {
+        let group_id = payload.message.group_id();
+        let bytes = bincode::serialize(&payload)?;
+        let raft_frame = RaftFrame {
+            group_id: group_id.0,
+            payload: bytes,
+        };
+        Ok(match payload.message {
+            RaftMessage::InstallSnapshot { .. } | RaftMessage::InstallSnapshotResponse { .. } => {
+                Frame::RaftSnapshot(raft_frame)
+            }
+            _ => Frame::Raft(raft_frame),
+        })
+    }
+
     /// レスポンス用に送信待ちマップを確認する。マッチした場合は待ち受けに届け、リクエストの場合はSomeを返す。
     pub async fn consume_incoming(&self, payload: RaftFramePayload) -> Option<RaftFramePayload> {
         if payload.message.group_id() != self.group_id {
@@ -255,18 +272,7 @@ impl ChirpsRaftTransport {
                 payload.message.group_id().0
             ))));
         }
-        let bytes = bincode::serialize(&payload)?;
-        let raft_frame = RaftFrame {
-            group_id: self.group_id.0,
-            payload: bytes,
-        };
-        let frame = match payload.message {
-            RaftMessage::InstallSnapshot { .. } | RaftMessage::InstallSnapshotResponse { .. } => {
-                Frame::RaftSnapshot(raft_frame)
-            }
-            _ => Frame::Raft(raft_frame),
-        };
-        Ok(frame)
+        Self::encode_group_frame(payload)
     }
 }
 

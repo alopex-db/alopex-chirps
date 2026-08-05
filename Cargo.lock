@@ -112,6 +112,8 @@ dependencies = [
  "alopex-chirps-wire",
  "anyhow",
  "async-trait",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -486,6 +488,25 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "chirps-deterministic-harness"
+version = "0.6.0"
+dependencies = [
+ "alopex-chirps",
+ "alopex-chirps-core",
+ "alopex-chirps-mock",
+ "alopex-chirps-raft-storage",
+ "alopex-chirps-transport-quic",
+ "alopex-chirps-wire",
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

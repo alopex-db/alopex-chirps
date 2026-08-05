@@ -680,8 +680,9 @@ where
                 }
                 EntryPayload::Membership(m) => {
                     self.last_membership = StoredMembership::new(Some(log_id), m);
+                    responses.push(Vec::new());
                 }
-                EntryPayload::Blank => {}
+                EntryPayload::Blank => responses.push(Vec::new()),
             }
         }
         Ok(responses)
@@ -1367,6 +1368,26 @@ mod tests {
             log_id: LogId::new(openraft::CommittedLeaderId::new(2, 1), index),
             payload: EntryPayload::Membership(Membership::new(vec![voters], nodes)),
         }
+    }
+
+    #[tokio::test]
+    async fn apply_returns_one_response_for_every_entry_kind() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let mut storage = WalRaftStorage::new(cfg, GroupId(12), 1, MockStateMachine).unwrap();
+        let blank = Entry {
+            log_id: LogId::new(openraft::CommittedLeaderId::new(2, 1), 1),
+            payload: EntryPayload::Blank,
+        };
+        let normal = sample_entry(2);
+        let membership = membership_entry(3);
+
+        let responses = storage
+            .apply(vec![blank, normal, membership])
+            .await
+            .unwrap();
+
+        assert_eq!(responses, vec![Vec::new(), b"e2".to_vec(), Vec::new()]);
     }
 
     #[tokio::test]

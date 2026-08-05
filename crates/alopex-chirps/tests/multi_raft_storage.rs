@@ -11,6 +11,8 @@ use alopex_chirps_mock::{MockBackend, MockNetwork};
 use alopex_chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
 use alopex_chirps_raft_storage::types::{LogId, Vote, VoteRequest};
 use alopex_chirps_raft_storage::wal_storage::WalStorageConfig;
+use alopex_chirps_wire::frame::{Frame, RaftFrame};
+use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use std::collections::BTreeSet;
 use std::io::Cursor;
@@ -203,6 +205,31 @@ async fn manager_create_list_get_and_remove_are_consistent_and_idempotent() {
     assert_eq!(routed.correlation_id, 77);
     assert_eq!(routed.message.group_id(), GroupId(2));
 
+    let wire_payload = RaftFramePayload {
+        correlation_id: 79,
+        message: RaftMessage::Vote {
+            group_id: GroupId(2),
+            request: VoteRequest {
+                vote: Vote::new(3, 9),
+                last_log_id: None,
+            },
+        },
+    };
+    let wire_routed = manager
+        .route_frame(
+            wire_node_id(9),
+            wire_node_id(1),
+            Frame::Raft(RaftFrame {
+                group_id: 2,
+                payload: bincode::serialize(&wire_payload).unwrap(),
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wire_routed.destination, 9);
+    assert_eq!(wire_routed.correlation_id, 79);
+    assert_eq!(wire_routed.message.group_id(), GroupId(2));
+
     assert!(matches!(
         manager
             .route_message(
@@ -225,4 +252,10 @@ async fn manager_create_list_get_and_remove_are_consistent_and_idempotent() {
         })
     ));
     manager.shutdown_all().await.unwrap();
+}
+
+fn wire_node_id(node_id: u64) -> NodeId {
+    let mut bytes = [0u8; 16];
+    bytes[8..].copy_from_slice(&node_id.to_be_bytes());
+    NodeId::from(bytes)
 }

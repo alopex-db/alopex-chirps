@@ -1,5 +1,7 @@
 use super::{GroupId, MultiRaftError};
+use crate::raft::{BasicNode, ChirpsNodeId};
 use crate::raft::{RaftFramePayload, RaftMessage, RaftNode};
+use openraft::metrics::RaftMetrics;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,6 +32,12 @@ impl GroupHandle {
 
     pub fn is_accepting(&self) -> bool {
         self.lifecycle.is_accepting()
+    }
+
+    /// Returns a clone of OpenRaft's latest observation for local diagnostics
+    /// and cross-group isolation checks.
+    pub fn metrics(&self) -> RaftMetrics<ChirpsNodeId, BasicNode> {
+        self.node.metrics()
     }
 
     pub async fn propose(&self, command: Vec<u8>) -> Result<Vec<u8>, MultiRaftError> {

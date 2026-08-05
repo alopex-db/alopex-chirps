@@ -1,5 +1,7 @@
 use super::{GroupHandle, GroupId, MultiRaftError, RaftStorageFactory};
 use crate::raft::{ChirpsRaftTransport, RaftConfig, RaftFramePayload, RaftMessage, RaftNode};
+use alopex_chirps_wire::frame::Frame;
+use alopex_chirps_wire::node_id::NodeId;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
@@ -173,6 +175,35 @@ where
         })
     }
 
+    /// Decodes and routes one Raft frame received from the Chirps backend.
+    ///
+    /// Wire node IDs are accepted only in the canonical representation used by
+    /// `ChirpsRaftTransport`: eight zero bytes followed by the big-endian Raft
+    /// node ID. Non-Raft frames, malformed payloads, and non-canonical node IDs
+    /// are rejected before any group is looked up or mutated.
+    pub async fn route_frame(
+        &self,
+        source: NodeId,
+        destination: NodeId,
+        frame: Frame,
+    ) -> Result<RoutedRaftResponse, MultiRaftError> {
+        let source =
+            decode_wire_node_id(source).ok_or_else(|| MultiRaftError::InvalidTransportRoute {
+                reason: "source NodeId is not a canonical Raft node ID".to_owned(),
+            })?;
+        let destination = decode_wire_node_id(destination).ok_or_else(|| {
+            MultiRaftError::InvalidTransportRoute {
+                reason: "destination NodeId is not a canonical Raft node ID".to_owned(),
+            }
+        })?;
+        let payload = ChirpsRaftTransport::decode_frame(frame).ok_or_else(|| {
+            MultiRaftError::InvalidTransportRoute {
+                reason: "frame is not a valid group-consistent Raft frame".to_owned(),
+            }
+        })?;
+        self.route_message(source, destination, payload).await
+    }
+
     pub async fn tick_all(&self) -> Vec<GroupTickResult> {
         let groups = self
             .groups_read()
@@ -216,6 +247,14 @@ where
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+fn decode_wire_node_id(node_id: NodeId) -> Option<u64> {
+    let bytes = node_id.as_bytes();
+    if bytes[..8] != [0; 8] {
+        return None;
+    }
+    Some(u64::from_be_bytes(bytes[8..].try_into().ok()?))
 }
 
 fn node_initialization_error(

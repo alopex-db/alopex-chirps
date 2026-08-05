@@ -1,0 +1,20 @@
+[package]
+name = "chirps-deterministic-harness"
+version.workspace = true
+edition = "2024"
+publish = false
+
+[dependencies]
+alopex-chirps = { workspace = true, features = ["multi-raft"] }
+alopex-chirps-core.workspace = true
+alopex-chirps-mock.workspace = true
+alopex-chirps-raft-storage.workspace = true
+alopex-chirps-transport-quic.workspace = true
+alopex-chirps-wire.workspace = true
+anyhow.workspace = true
+async-trait = "0.1"
+serde.workspace = true
+serde_json = "1.0"
+sha2 = "0.10"
+tempfile = "3"
+tokio.workspace = true

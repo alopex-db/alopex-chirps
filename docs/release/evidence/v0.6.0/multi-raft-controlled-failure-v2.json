@@ -1,0 +1,5774 @@
+{
+  "schema": "chirps.deterministic-fault/v2",
+  "scenario": "multi-raft-v0.6",
+  "seed": "0x0000000000000603",
+  "generator_version": 1,
+  "initial_state_digest": "a4b539683f017eab109b644a00dd00eac6b0dfe460f0b8bdb631fdbb8300c724",
+  "expanded_schedule": [
+    {
+      "action": "create_all",
+      "group_id": 257
+    },
+    {
+      "action": "create_all",
+      "group_id": 514
+    },
+    {
+      "action": "propose_all",
+      "group_id": 257,
+      "command": [
+        115,
+        101,
+        110,
+        116,
+        105,
+        110,
+        101,
+        108,
+        45,
+        103,
+        114,
+        111,
+        117,
+        112,
+        45,
+        97
+      ]
+    },
+    {
+      "action": "propose_all",
+      "group_id": 514,
+      "command": [
+        115,
+        101,
+        110,
+        116,
+        105,
+        110,
+        101,
+        108,
+        45,
+        103,
+        114,
+        111,
+        117,
+        112,
+        45,
+        98
+      ]
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 100,
+      "term": 110
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 101,
+      "term": 111
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 102,
+      "term": 112
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 103,
+      "term": 113
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 104,
+      "term": 114
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 105,
+      "term": 115
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 106,
+      "term": 116
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 107,
+      "term": 117
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 108,
+      "term": 118
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 109,
+      "term": 119
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 110,
+      "term": 120
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 111,
+      "term": 121
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 112,
+      "term": 122
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 113,
+      "term": 123
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 114,
+      "term": 124
+    },
+    {
+      "action": "emit_vote",
+      "source": 1,
+      "target": 2,
+      "group_id": 257,
+      "correlation_id": 115,
+      "term": 125
+    },
+    {
+      "action": "deliver_one"
+    },
+    {
+      "action": "partition",
+      "source": 1,
+      "target": 2
+    },
+    {
+      "action": "remove",
+      "node_id": 2,
+      "group_id": 257
+    },
+    {
+      "action": "heal",
+      "source": 1,
+      "target": 2
+    },
+    {
+      "action": "drain"
+    },
+    {
+      "action": "tick_all"
+    },
+    {
+      "action": "shutdown"
+    }
+  ],
+  "fault_schedule": {
+    "schema": "chirps.deterministic-network-schedule/v1",
+    "seed": 1539,
+    "generator_version": 1,
+    "rules": [
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 0,
+        "effects": [
+          {
+            "kind": "duplicate",
+            "copies": 2
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 4,
+        "effects": [
+          {
+            "kind": "delay",
+            "ticks": 1
+          },
+          {
+            "kind": "duplicate",
+            "copies": 2
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 5,
+        "effects": [
+          {
+            "kind": "drop"
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 6,
+        "effects": [
+          {
+            "kind": "reorder",
+            "extra_ticks": 4
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 7,
+        "effects": [
+          {
+            "kind": "reorder",
+            "extra_ticks": 1
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 9,
+        "effects": [
+          {
+            "kind": "delay",
+            "ticks": 1
+          },
+          {
+            "kind": "duplicate",
+            "copies": 2
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 10,
+        "effects": [
+          {
+            "kind": "duplicate",
+            "copies": 2
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 11,
+        "effects": [
+          {
+            "kind": "reorder",
+            "extra_ticks": 4
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 12,
+        "effects": [
+          {
+            "kind": "duplicate",
+            "copies": 2
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 13,
+        "effects": [
+          {
+            "kind": "delay",
+            "ticks": 2
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 14,
+        "effects": [
+          {
+            "kind": "drop"
+          }
+        ]
+      },
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 15,
+        "effects": [
+          {
+            "kind": "delay",
+            "ticks": 3
+          }
+        ]
+      }
+    ]
+  },
+  "minimized_schedule": null,
+  "minimized_fault_schedule": {
+    "schema": "chirps.deterministic-network-schedule/v1",
+    "seed": 1539,
+    "generator_version": 1,
+    "rules": [
+      {
+        "link": {
+          "source": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        },
+        "occurrence": 12,
+        "effects": [
+          {
+            "kind": "duplicate",
+            "copies": 2
+          }
+        ]
+      }
+    ]
+  },
+  "minimized_reproduction_digest": "f374b9bf78f7db0ba47b8120a1301e785f083be2c3765220269a1c28facbe4bc",
+  "events": [
+    {
+      "ordinal": 0,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "create",
+      "group_id": 257,
+      "outcome": "node_1"
+    },
+    {
+      "ordinal": 1,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "create",
+      "group_id": 514,
+      "outcome": "node_1"
+    },
+    {
+      "ordinal": 2,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "create",
+      "group_id": 257,
+      "outcome": "node_2"
+    },
+    {
+      "ordinal": 3,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "create",
+      "group_id": 514,
+      "outcome": "node_2"
+    },
+    {
+      "ordinal": 4,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "create",
+      "group_id": 257,
+      "outcome": "node_3"
+    },
+    {
+      "ordinal": 5,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "create",
+      "group_id": 514,
+      "outcome": "node_3"
+    },
+    {
+      "ordinal": 6,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "propose_sentinel",
+      "group_id": 257,
+      "outcome": "node_1"
+    },
+    {
+      "ordinal": 7,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "propose_sentinel",
+      "group_id": 514,
+      "outcome": "node_1"
+    },
+    {
+      "ordinal": 8,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "propose_sentinel",
+      "group_id": 257,
+      "outcome": "node_2"
+    },
+    {
+      "ordinal": 9,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "propose_sentinel",
+      "group_id": 514,
+      "outcome": "node_2"
+    },
+    {
+      "ordinal": 10,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "propose_sentinel",
+      "group_id": 257,
+      "outcome": "node_3"
+    },
+    {
+      "ordinal": 11,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "propose_sentinel",
+      "group_id": 514,
+      "outcome": "node_3"
+    },
+    {
+      "ordinal": 12,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_100"
+    },
+    {
+      "ordinal": 13,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_101"
+    },
+    {
+      "ordinal": 14,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_102"
+    },
+    {
+      "ordinal": 15,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_103"
+    },
+    {
+      "ordinal": 16,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_104"
+    },
+    {
+      "ordinal": 17,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_105"
+    },
+    {
+      "ordinal": 18,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_106"
+    },
+    {
+      "ordinal": 19,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_107"
+    },
+    {
+      "ordinal": 20,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_108"
+    },
+    {
+      "ordinal": 21,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_109"
+    },
+    {
+      "ordinal": 22,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_110"
+    },
+    {
+      "ordinal": 23,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_111"
+    },
+    {
+      "ordinal": 24,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_112"
+    },
+    {
+      "ordinal": 25,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_113"
+    },
+    {
+      "ordinal": 26,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_114"
+    },
+    {
+      "ordinal": 27,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "emit_raft_vote",
+      "group_id": 257,
+      "outcome": "correlation_115"
+    },
+    {
+      "ordinal": 28,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_raft_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_21_accepted"
+    },
+    {
+      "ordinal": 29,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "remove",
+      "group_id": 257,
+      "outcome": "node_2"
+    },
+    {
+      "ordinal": 30,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_24_unknown_group"
+    },
+    {
+      "ordinal": 31,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_25_unknown_group"
+    },
+    {
+      "ordinal": 32,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_26_unknown_group"
+    },
+    {
+      "ordinal": 33,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_27_unknown_group"
+    },
+    {
+      "ordinal": 34,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_28_unknown_group"
+    },
+    {
+      "ordinal": 35,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_29_unknown_group"
+    },
+    {
+      "ordinal": 36,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_30_unknown_group"
+    },
+    {
+      "ordinal": 37,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_31_unknown_group"
+    },
+    {
+      "ordinal": 38,
+      "virtual_time": 0,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_32_unknown_group"
+    },
+    {
+      "ordinal": 39,
+      "virtual_time": 1,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_33_unknown_group"
+    },
+    {
+      "ordinal": 40,
+      "virtual_time": 1,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_34_unknown_group"
+    },
+    {
+      "ordinal": 41,
+      "virtual_time": 1,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_35_unknown_group"
+    },
+    {
+      "ordinal": 42,
+      "virtual_time": 1,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_36_unknown_group"
+    },
+    {
+      "ordinal": 43,
+      "virtual_time": 1,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_37_unknown_group"
+    },
+    {
+      "ordinal": 44,
+      "virtual_time": 2,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_38_unknown_group"
+    },
+    {
+      "ordinal": 45,
+      "virtual_time": 3,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_39_unknown_group"
+    },
+    {
+      "ordinal": 46,
+      "virtual_time": 4,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_40_unknown_group"
+    },
+    {
+      "ordinal": 47,
+      "virtual_time": 4,
+      "component": "multi_process",
+      "action": "deliver_removed_group_frame",
+      "group_id": 257,
+      "outcome": "network_sequence_41_unknown_group"
+    },
+    {
+      "ordinal": 48,
+      "virtual_time": 4,
+      "component": "multi_process",
+      "action": "tick_all",
+      "group_id": null,
+      "outcome": "node_1"
+    },
+    {
+      "ordinal": 49,
+      "virtual_time": 4,
+      "component": "multi_process",
+      "action": "tick_all",
+      "group_id": null,
+      "outcome": "node_2"
+    },
+    {
+      "ordinal": 50,
+      "virtual_time": 4,
+      "component": "multi_process",
+      "action": "tick_all",
+      "group_id": null,
+      "outcome": "node_3"
+    }
+  ],
+  "network_events": [
+    {
+      "sequence": 0,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 0,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:01f5893ff23ad4db"
+    },
+    {
+      "sequence": 1,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 0,
+      "parent_packet_id": 0,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:01f5893ff23ad4db"
+    },
+    {
+      "sequence": 2,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 1,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:a2880f486e11e20f"
+    },
+    {
+      "sequence": 3,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 2,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:3d5c3b3c17a96cb7"
+    },
+    {
+      "sequence": 4,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 3,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:4bb985b55e06663b"
+    },
+    {
+      "sequence": 5,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 4,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:681081477c1b54fb"
+    },
+    {
+      "sequence": 6,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 4,
+      "parent_packet_id": 4,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:681081477c1b54fb"
+    },
+    {
+      "sequence": 7,
+      "time": 0,
+      "kind": "dropped",
+      "packet_id": 5,
+      "parent_packet_id": null,
+      "copy": null,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:a7e6a4a23d7a60e7"
+    },
+    {
+      "sequence": 8,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 6,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:04649ae236f54f8f"
+    },
+    {
+      "sequence": 9,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 7,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:a1774379bd2a957b"
+    },
+    {
+      "sequence": 10,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 8,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:f36e777a21ebad0b"
+    },
+    {
+      "sequence": 11,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 9,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:b5f827b1544bbe8f"
+    },
+    {
+      "sequence": 12,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 9,
+      "parent_packet_id": 9,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:b5f827b1544bbe8f"
+    },
+    {
+      "sequence": 13,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 10,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:2052931216e29239"
+    },
+    {
+      "sequence": 14,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 10,
+      "parent_packet_id": 10,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:2052931216e29239"
+    },
+    {
+      "sequence": 15,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 11,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:793cf26704b16045"
+    },
+    {
+      "sequence": 16,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 12,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:523725dac91f1201"
+    },
+    {
+      "sequence": 17,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 12,
+      "parent_packet_id": 12,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:523725dac91f1201"
+    },
+    {
+      "sequence": 18,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 13,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:452a2c84e50f0795"
+    },
+    {
+      "sequence": 19,
+      "time": 0,
+      "kind": "dropped",
+      "packet_id": 14,
+      "parent_packet_id": null,
+      "copy": null,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:eaefbdfb32d8b979"
+    },
+    {
+      "sequence": 20,
+      "time": 0,
+      "kind": "scheduled",
+      "packet_id": 15,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:f043fd66eb6bc2dd"
+    },
+    {
+      "sequence": 21,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 0,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:01f5893ff23ad4db"
+    },
+    {
+      "sequence": 22,
+      "time": 0,
+      "kind": "partitioned",
+      "packet_id": null,
+      "parent_packet_id": null,
+      "copy": null,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": null
+    },
+    {
+      "sequence": 23,
+      "time": 0,
+      "kind": "healed",
+      "packet_id": null,
+      "parent_packet_id": null,
+      "copy": null,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": null
+    },
+    {
+      "sequence": 24,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 0,
+      "parent_packet_id": 0,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:01f5893ff23ad4db"
+    },
+    {
+      "sequence": 25,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 1,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:a2880f486e11e20f"
+    },
+    {
+      "sequence": 26,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 2,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:3d5c3b3c17a96cb7"
+    },
+    {
+      "sequence": 27,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 3,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:4bb985b55e06663b"
+    },
+    {
+      "sequence": 28,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 8,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:f36e777a21ebad0b"
+    },
+    {
+      "sequence": 29,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 10,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:2052931216e29239"
+    },
+    {
+      "sequence": 30,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 10,
+      "parent_packet_id": 10,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:2052931216e29239"
+    },
+    {
+      "sequence": 31,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 12,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:523725dac91f1201"
+    },
+    {
+      "sequence": 32,
+      "time": 0,
+      "kind": "delivered",
+      "packet_id": 12,
+      "parent_packet_id": 12,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:523725dac91f1201"
+    },
+    {
+      "sequence": 33,
+      "time": 1,
+      "kind": "delivered",
+      "packet_id": 4,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:681081477c1b54fb"
+    },
+    {
+      "sequence": 34,
+      "time": 1,
+      "kind": "delivered",
+      "packet_id": 4,
+      "parent_packet_id": 4,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:681081477c1b54fb"
+    },
+    {
+      "sequence": 35,
+      "time": 1,
+      "kind": "delivered",
+      "packet_id": 7,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:a1774379bd2a957b"
+    },
+    {
+      "sequence": 36,
+      "time": 1,
+      "kind": "delivered",
+      "packet_id": 9,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:b5f827b1544bbe8f"
+    },
+    {
+      "sequence": 37,
+      "time": 1,
+      "kind": "delivered",
+      "packet_id": 9,
+      "parent_packet_id": 9,
+      "copy": 1,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:b5f827b1544bbe8f"
+    },
+    {
+      "sequence": 38,
+      "time": 2,
+      "kind": "delivered",
+      "packet_id": 13,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:452a2c84e50f0795"
+    },
+    {
+      "sequence": 39,
+      "time": 3,
+      "kind": "delivered",
+      "packet_id": 15,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:f043fd66eb6bc2dd"
+    },
+    {
+      "sequence": 40,
+      "time": 4,
+      "kind": "delivered",
+      "packet_id": 6,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:04649ae236f54f8f"
+    },
+    {
+      "sequence": 41,
+      "time": 4,
+      "kind": "delivered",
+      "packet_id": 11,
+      "parent_packet_id": null,
+      "copy": 0,
+      "link": {
+        "source": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "target": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ]
+      },
+      "node": null,
+      "generation": null,
+      "frame_fingerprint": "fnv1a64:793cf26704b16045"
+    }
+  ],
+  "network_trace": [
+    "0|0|scheduled|0|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:01f5893ff23ad4db",
+    "1|0|scheduled|0|1|00000000000000000000000000000001>00000000000000000000000000000002|0|-|-|fnv1a64:01f5893ff23ad4db",
+    "2|0|scheduled|1|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:a2880f486e11e20f",
+    "3|0|scheduled|2|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:3d5c3b3c17a96cb7",
+    "4|0|scheduled|3|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:4bb985b55e06663b",
+    "5|0|scheduled|4|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:681081477c1b54fb",
+    "6|0|scheduled|4|1|00000000000000000000000000000001>00000000000000000000000000000002|4|-|-|fnv1a64:681081477c1b54fb",
+    "7|0|dropped|5|-|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:a7e6a4a23d7a60e7",
+    "8|0|scheduled|6|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:04649ae236f54f8f",
+    "9|0|scheduled|7|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:a1774379bd2a957b",
+    "10|0|scheduled|8|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:f36e777a21ebad0b",
+    "11|0|scheduled|9|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:b5f827b1544bbe8f",
+    "12|0|scheduled|9|1|00000000000000000000000000000001>00000000000000000000000000000002|9|-|-|fnv1a64:b5f827b1544bbe8f",
+    "13|0|scheduled|10|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:2052931216e29239",
+    "14|0|scheduled|10|1|00000000000000000000000000000001>00000000000000000000000000000002|10|-|-|fnv1a64:2052931216e29239",
+    "15|0|scheduled|11|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:793cf26704b16045",
+    "16|0|scheduled|12|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:523725dac91f1201",
+    "17|0|scheduled|12|1|00000000000000000000000000000001>00000000000000000000000000000002|12|-|-|fnv1a64:523725dac91f1201",
+    "18|0|scheduled|13|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:452a2c84e50f0795",
+    "19|0|dropped|14|-|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:eaefbdfb32d8b979",
+    "20|0|scheduled|15|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:f043fd66eb6bc2dd",
+    "21|0|delivered|0|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:01f5893ff23ad4db",
+    "22|0|partitioned|-|-|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|-",
+    "23|0|healed|-|-|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|-",
+    "24|0|delivered|0|1|00000000000000000000000000000001>00000000000000000000000000000002|0|-|-|fnv1a64:01f5893ff23ad4db",
+    "25|0|delivered|1|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:a2880f486e11e20f",
+    "26|0|delivered|2|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:3d5c3b3c17a96cb7",
+    "27|0|delivered|3|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:4bb985b55e06663b",
+    "28|0|delivered|8|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:f36e777a21ebad0b",
+    "29|0|delivered|10|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:2052931216e29239",
+    "30|0|delivered|10|1|00000000000000000000000000000001>00000000000000000000000000000002|10|-|-|fnv1a64:2052931216e29239",
+    "31|0|delivered|12|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:523725dac91f1201",
+    "32|0|delivered|12|1|00000000000000000000000000000001>00000000000000000000000000000002|12|-|-|fnv1a64:523725dac91f1201",
+    "33|1|delivered|4|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:681081477c1b54fb",
+    "34|1|delivered|4|1|00000000000000000000000000000001>00000000000000000000000000000002|4|-|-|fnv1a64:681081477c1b54fb",
+    "35|1|delivered|7|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:a1774379bd2a957b",
+    "36|1|delivered|9|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:b5f827b1544bbe8f",
+    "37|1|delivered|9|1|00000000000000000000000000000001>00000000000000000000000000000002|9|-|-|fnv1a64:b5f827b1544bbe8f",
+    "38|2|delivered|13|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:452a2c84e50f0795",
+    "39|3|delivered|15|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:f043fd66eb6bc2dd",
+    "40|4|delivered|6|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:04649ae236f54f8f",
+    "41|4|delivered|11|0|00000000000000000000000000000001>00000000000000000000000000000002|-|-|-|fnv1a64:793cf26704b16045"
+  ],
+  "trace_digest": "a327d10969ad3d8d09943b2ab23d38c1f8d2501c60ec6221acbd3d9848b16953",
+  "final_state": {
+    "active_groups": [
+      257,
+      514,
+      514,
+      257,
+      514
+    ],
+    "storage_namespaces": [
+      "groups/0000000000000101",
+      "groups/0000000000000202",
+      "groups/0000000000000202",
+      "groups/0000000000000101",
+      "groups/0000000000000202"
+    ],
+    "storage_isolated": true,
+    "virtual_time": 4
+  },
+  "oracles": [
+    {
+      "event_ordinal": 0,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 0,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 0,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 0,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 1,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 1,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 1,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 1,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 2,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 2,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 2,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 2,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 3,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 3,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 3,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 3,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 4,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 4,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 4,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 4,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 5,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 5,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 5,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 5,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 6,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 6,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 6,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 6,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 7,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 7,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 7,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 7,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 8,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 8,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 8,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 8,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 9,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 9,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 9,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 9,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 10,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 10,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 10,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 10,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 11,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 11,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 11,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 11,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 12,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 12,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 12,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 12,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 13,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 13,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 13,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 13,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 14,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 14,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 14,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 14,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 15,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 15,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 15,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 15,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 16,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 16,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 16,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 16,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 17,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 17,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 17,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 17,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 18,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 18,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 18,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 18,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 19,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 19,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 19,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 19,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 20,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 20,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 20,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 20,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 21,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 21,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 21,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 21,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 22,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 22,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 22,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 22,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 23,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 23,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 23,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 23,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 24,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 24,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 24,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 24,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 25,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 25,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 25,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 25,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 26,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 26,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 26,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 26,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 27,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 27,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 27,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 27,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 28,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 28,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 28,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 28,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 29,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 29,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 29,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 29,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 30,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 30,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 30,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 30,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 31,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 31,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 31,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 31,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 32,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 32,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 32,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 32,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 33,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 33,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 33,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 33,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 34,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 34,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 34,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 34,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 35,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 35,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 35,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 35,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 36,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 36,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 36,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 36,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 37,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 37,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 37,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 37,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 38,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 38,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 38,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 38,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 39,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 39,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 39,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 39,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 40,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 40,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 40,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 40,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 41,
+      "subsystem": "process",
+      "oracle": "all_workers_alive",
+      "passed": true
+    },
+    {
+      "event_ordinal": 41,
+      "subsystem": "raft",
+      "oracle": "group_b_semantic_state_isolated",
+      "passed": true
+    },
+    {
+      "event_ordinal": 41,
+      "subsystem": "network",
+      "oracle": "frame_semantic_identity_recorded",
+      "passed": true
+    },
+    {
+      "event_ordinal": 41,
+      "subsystem": "raft",
+      "oracle": "delivered_frame_routed_or_typed_rejected",
+      "passed": true
+    },
+    {
+      "event_ordinal": 24,
+      "subsystem": "network",
+      "oracle": "injected_duplicate_delivery_oracle",
+      "passed": false
+    }
+  ],
+  "oracle_batches": [
+    {
+      "network_event_sequence": 0,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 0,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 0,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 0,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 0,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 1,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 1,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 1,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 1,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 1,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 2,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 2,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 2,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 2,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 2,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 3,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 3,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 3,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 3,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 3,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 4,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 4,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 4,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 4,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 4,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 5,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 5,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 5,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 5,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 5,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 6,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 6,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 6,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 6,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 6,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 7,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 7,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 7,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 7,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 7,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 8,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 8,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 8,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 8,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 8,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 9,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 9,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 9,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 9,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 9,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 10,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 10,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 10,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 10,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 10,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 11,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 11,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 11,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 11,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 11,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 12,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 12,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 12,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 12,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 12,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 13,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 13,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 13,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 13,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 13,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 14,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 14,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 14,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 14,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 14,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 15,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 15,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 15,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 15,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 15,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 16,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 16,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 16,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 16,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 16,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 17,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 17,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 17,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 17,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 17,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 18,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 18,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 18,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 18,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 18,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 19,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 19,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 19,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 19,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 19,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 20,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 20,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 20,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 20,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 20,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 21,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 21,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 21,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 21,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 21,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 22,
+      "worker_observation_digest": "b6333091918d43e9168d265e604c204ac1dc0f6ceacfd9be81646ab63a72af32",
+      "checks": [
+        {
+          "event_ordinal": 22,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 22,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 22,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 22,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 23,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 23,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 23,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 23,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 23,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 24,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 24,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 24,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 24,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 24,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        },
+        {
+          "event_ordinal": 24,
+          "subsystem": "network",
+          "oracle": "injected_duplicate_delivery_oracle",
+          "passed": false
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 25,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 25,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 25,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 25,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 25,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 26,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 26,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 26,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 26,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 26,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 27,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 27,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 27,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 27,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 27,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 28,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 28,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 28,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 28,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 28,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 29,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 29,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 29,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 29,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 29,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 30,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 30,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 30,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 30,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 30,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 31,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 31,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 31,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 31,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 31,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 32,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 32,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 32,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 32,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 32,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 33,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 33,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 33,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 33,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 33,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 34,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 34,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 34,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 34,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 34,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 35,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 35,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 35,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 35,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 35,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 36,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 36,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 36,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 36,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 36,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 37,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 37,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 37,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 37,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 37,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 38,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 38,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 38,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 38,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 38,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 39,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 39,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 39,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 39,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 39,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 40,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 40,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 40,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 40,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 40,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "network_event_sequence": 41,
+      "worker_observation_digest": "123d0ad8743199d7255a7b181bf34d22ce5c88e3f6d004e305ca1cfb5436dc29",
+      "checks": [
+        {
+          "event_ordinal": 41,
+          "subsystem": "process",
+          "oracle": "all_workers_alive",
+          "passed": true
+        },
+        {
+          "event_ordinal": 41,
+          "subsystem": "raft",
+          "oracle": "group_b_semantic_state_isolated",
+          "passed": true
+        },
+        {
+          "event_ordinal": 41,
+          "subsystem": "network",
+          "oracle": "frame_semantic_identity_recorded",
+          "passed": true
+        },
+        {
+          "event_ordinal": 41,
+          "subsystem": "raft",
+          "oracle": "delivered_frame_routed_or_typed_rejected",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "process_topology": [
+    {
+      "node_id": 1,
+      "pid": 3551618
+    },
+    {
+      "node_id": 2,
+      "pid": 3551623
+    },
+    {
+      "node_id": 3,
+      "pid": 3551628
+    }
+  ],
+  "worker_final_states": [
+    {
+      "node_id": 1,
+      "active_groups": [
+        257,
+        514
+      ],
+      "groups": {
+        "257": {
+          "group_id": 257,
+          "namespace": "groups/0000000000000101",
+          "accepting": true,
+          "state_machine_applies": 1,
+          "state_machine_digest": "8d011ca3a537e8c46e4a54adfb7a467abeb134576fcb16c3c49b5b21a7d190f3",
+          "wal_path": "wal/groups/0000000000000101",
+          "snapshot_path": "snapshot/groups/0000000000000101",
+          "wal_exists": true,
+          "snapshot_exists": true
+        },
+        "514": {
+          "group_id": 514,
+          "namespace": "groups/0000000000000202",
+          "accepting": true,
+          "state_machine_applies": 1,
+          "state_machine_digest": "3a0460a73604afe2bb5de5211bdad179fe932fa30029de1a94981648c099ec62",
+          "wal_path": "wal/groups/0000000000000202",
+          "snapshot_path": "snapshot/groups/0000000000000202",
+          "wal_exists": true,
+          "snapshot_exists": true
+        }
+      }
+    },
+    {
+      "node_id": 2,
+      "active_groups": [
+        514
+      ],
+      "groups": {
+        "514": {
+          "group_id": 514,
+          "namespace": "groups/0000000000000202",
+          "accepting": true,
+          "state_machine_applies": 1,
+          "state_machine_digest": "3a0460a73604afe2bb5de5211bdad179fe932fa30029de1a94981648c099ec62",
+          "wal_path": "wal/groups/0000000000000202",
+          "snapshot_path": "snapshot/groups/0000000000000202",
+          "wal_exists": true,
+          "snapshot_exists": true
+        }
+      }
+    },
+    {
+      "node_id": 3,
+      "active_groups": [
+        257,
+        514
+      ],
+      "groups": {
+        "257": {
+          "group_id": 257,
+          "namespace": "groups/0000000000000101",
+          "accepting": true,
+          "state_machine_applies": 1,
+          "state_machine_digest": "8d011ca3a537e8c46e4a54adfb7a467abeb134576fcb16c3c49b5b21a7d190f3",
+          "wal_path": "wal/groups/0000000000000101",
+          "snapshot_path": "snapshot/groups/0000000000000101",
+          "wal_exists": true,
+          "snapshot_exists": true
+        },
+        "514": {
+          "group_id": 514,
+          "namespace": "groups/0000000000000202",
+          "accepting": true,
+          "state_machine_applies": 1,
+          "state_machine_digest": "3a0460a73604afe2bb5de5211bdad179fe932fa30029de1a94981648c099ec62",
+          "wal_path": "wal/groups/0000000000000202",
+          "snapshot_path": "snapshot/groups/0000000000000202",
+          "wal_exists": true,
+          "snapshot_exists": true
+        }
+      }
+    }
+  ],
+  "scope": [
+    "three real OS worker processes",
+    "two single-member Raft groups per worker",
+    "seed-expanded application-frame faults",
+    "does not prove three-node Raft consensus or real QUIC packet loss"
+  ],
+  "failure": {
+    "signature": "injected_duplicate_delivery_oracle",
+    "event_ordinal": 24
+  },
+  "replay_command": "rtk cargo run --locked -p chirps-deterministic-harness -- replay --artifact docs/release/evidence/v0.6.0/multi-raft-controlled-failure-v2.json"
+}
