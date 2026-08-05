@@ -191,6 +191,9 @@ pub enum FileTransferMessage {
     /// Requests that the peer initiate the reverse direction of a sync using
     /// this frame's session id.
     SyncRequest(SyncRequest),
+    /// Supplies the final whole-file hash after all chunk acknowledgements.
+    /// Appended for manifest v2 so existing bincode variant indices stay stable.
+    FinalizeRequest(TransferComplete),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

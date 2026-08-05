@@ -385,11 +385,15 @@ impl FileTransferServiceImpl {
         let path_validator = PathValidator::new(config.base_path.clone(), false);
         let persistence = Arc::new(SessionPersistence::new(&config));
         let metrics_registry = Registry::new();
-        let metrics = Some(Arc::new(
-            PrometheusMetrics::register(&metrics_registry).map_err(|error| {
-                FileTransferError::Internal(format!("metrics registration failed: {error}"))
-            })?,
-        ));
+        let metrics = if config.detailed_metrics {
+            Some(Arc::new(
+                PrometheusMetrics::register(&metrics_registry).map_err(|error| {
+                    FileTransferError::Internal(format!("metrics registration failed: {error}"))
+                })?,
+            ))
+        } else {
+            None
+        };
         let transfer_slots = Arc::new(Semaphore::new(config.max_concurrent_transfers));
         let sync_sessions = Arc::new(RwLock::new(HashSet::new()));
         let receive_handler = Arc::new(ReceiveHandler::new(
@@ -405,6 +409,7 @@ impl FileTransferServiceImpl {
         let cancel_sessions = Arc::clone(&sessions);
         let cancel_persistence = Arc::clone(&persistence);
         let cancel_metrics = metrics.clone();
+        let cancel_receive_handler = Arc::clone(&receive_handler);
         let cancel_wait = config.idle_timeout;
         tokio::spawn(async move {
             loop {
@@ -445,6 +450,10 @@ impl FileTransferServiceImpl {
                         }
                     }
                 }
+                drop(sessions);
+                cancel_receive_handler
+                    .discard_incremental_hash(session_id)
+                    .await;
             }
         });
 
@@ -621,6 +630,7 @@ fn spawn_control_plane(
                         message,
                         FileTransferMessage::TransferRequest(_)
                             | FileTransferMessage::Manifest(_)
+                            | FileTransferMessage::FinalizeRequest(_)
                             | FileTransferMessage::ExistsRequest(_)
                             | FileTransferMessage::RemoveRequest(_)
                             | FileTransferMessage::MetadataRequest(_)
@@ -669,6 +679,14 @@ fn spawn_control_plane(
                     let _ = control
                         .send_message(sender, session_id, FileTransferMessage::ManifestAck(ack))
                         .await;
+                }
+                FileTransferMessage::FinalizeRequest(completion) => {
+                    if let Err(error) = receive_handler
+                        .handle_finalize_request(sender, &control, session_id, completion)
+                        .await
+                    {
+                        send_control_error(&control, sender, session_id, error).await;
+                    }
                 }
                 FileTransferMessage::ExistsRequest(request) => {
                     match handle_exists_request(&path_validator, request).await {

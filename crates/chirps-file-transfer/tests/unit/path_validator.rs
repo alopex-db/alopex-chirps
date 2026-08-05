@@ -9,7 +9,8 @@ fn path_validator_allows_within_base() {
     let resolved = validator
         .validate(Path::new("nested/file.txt"))
         .expect("validate path");
-    assert!(resolved.starts_with(dir.path()));
+    let canonical_base = std::fs::canonicalize(dir.path()).expect("canonical base");
+    assert!(resolved.starts_with(canonical_base));
 }
 
 #[test]
@@ -47,7 +48,36 @@ fn path_validator_rejects_symlink_components() {
     let resolved = follow
         .validate(Path::new("link/file.txt"))
         .expect("validate symlink");
-    assert!(resolved.starts_with(&target));
+    let canonical_target = std::fs::canonicalize(&target).expect("canonical target");
+    assert!(resolved.starts_with(canonical_target));
+}
+
+#[cfg(unix)]
+#[test]
+fn path_validator_accepts_configured_base_path_alias_but_rejects_child_escape() {
+    use std::os::unix::fs as unix_fs;
+
+    let root = tempdir().expect("tempdir");
+    let physical_base = root.path().join("physical-base");
+    std::fs::create_dir_all(&physical_base).expect("create base");
+    let base_alias = root.path().join("base-alias");
+    unix_fs::symlink(&physical_base, &base_alias).expect("create base alias");
+
+    let validator = PathValidator::new(base_alias.clone(), false);
+    let accepted = validator
+        .validate(&base_alias.join("nested/destination.bin"))
+        .expect("configured base alias is trusted");
+    let canonical_physical_base = std::fs::canonicalize(&physical_base).expect("canonical base");
+    assert_eq!(
+        accepted,
+        canonical_physical_base.join("nested/destination.bin")
+    );
+
+    let outside = tempdir().expect("outside tempdir");
+    unix_fs::symlink(outside.path(), physical_base.join("escape"))
+        .expect("create child escape symlink");
+    let rejected = validator.validate(&base_alias.join("escape/destination.bin"));
+    assert!(matches!(rejected, Err(FileTransferError::PathTraversal(_))));
 }
 
 #[cfg(unix)]

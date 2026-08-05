@@ -17,12 +17,13 @@ use alopex_chirps_wire::node_id::NodeId;
 use alopex_chirps_wire::{envelope::FrameEnvelopeV2, frame::Frame};
 use async_trait::async_trait;
 use bincode::{deserialize, serialize, serialized_size};
-use quinn::{ClientConfig, Connection, Endpoint, RecvStream, ServerConfig};
-use rcgen::generate_simple_self_signed;
-use rustls::{
-    Certificate, ClientConfig as RustlsClientConfig, PrivateKey, RootCertStore,
-    ServerConfig as RustlsServerConfig,
+use quinn::{
+    ClientConfig, Connection, Endpoint, RecvStream, ServerConfig,
+    crypto::rustls::{QuicClientConfig, QuicServerConfig},
 };
+use rcgen::generate_simple_self_signed;
+use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -68,6 +69,7 @@ pub use telemetry::{LogFormat, TelemetryConfig, init_metrics, init_test_tracing,
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
+const MAX_CONCURRENT_SENDS: usize = 64;
 const SEND_RETRY_ATTEMPTS: usize = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -145,6 +147,8 @@ struct TransportCounters {
     received: AtomicU64,
     dropped: AtomicU64,
     retried: AtomicU64,
+    concurrent_sends: AtomicU64,
+    max_concurrent_sends: AtomicU64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -153,6 +157,32 @@ pub struct TransportMetricsSnapshot {
     pub received: u64,
     pub dropped: u64,
     pub retried: u64,
+    /// Number of QUIC sends currently executing in the transport worker.
+    pub concurrent_sends: u64,
+    /// High-water mark of concurrently executing QUIC sends.
+    pub max_concurrent_sends: u64,
+}
+
+struct SendConcurrencyGuard {
+    metrics: Arc<TransportCounters>,
+}
+
+impl SendConcurrencyGuard {
+    fn enter(metrics: Arc<TransportCounters>) -> Self {
+        let active = metrics.concurrent_sends.fetch_add(1, Ordering::Relaxed) + 1;
+        metrics
+            .max_concurrent_sends
+            .fetch_max(active, Ordering::Relaxed);
+        Self { metrics }
+    }
+}
+
+impl Drop for SendConcurrencyGuard {
+    fn drop(&mut self) {
+        self.metrics
+            .concurrent_sends
+            .fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 enum SendCommand {
@@ -220,7 +250,7 @@ impl QuicBackend {
         }
         let (server_config, client_config) = build_tls_configs(&config)?;
         let mut endpoint = Endpoint::server(server_config, config.bind_addr)?;
-        endpoint.set_default_client_config(ClientConfig::new(client_config.clone()));
+        endpoint.set_default_client_config(client_config.clone());
 
         let (incoming_tx, incoming_rx) = mpsc::channel(1024);
         let (send_tx, send_rx) = mpsc::channel(transport_config.send_queue_capacity);
@@ -364,6 +394,8 @@ impl QuicBackend {
             received: self.metrics.received.load(Ordering::Relaxed),
             dropped: self.metrics.dropped.load(Ordering::Relaxed),
             retried: self.metrics.retried.load(Ordering::Relaxed),
+            concurrent_sends: self.metrics.concurrent_sends.load(Ordering::Relaxed),
+            max_concurrent_sends: self.metrics.max_concurrent_sends.load(Ordering::Relaxed),
         }
     }
 }
@@ -653,8 +685,17 @@ async fn send_wire_message(
         .map_err(|e| TransportError::Send(e.to_string()))?;
     stream
         .finish()
+        .map_err(|e| TransportError::Send(e.to_string()))?;
+    match stream
+        .stopped()
         .await
-        .map_err(|e| TransportError::Send(e.to_string()))
+        .map_err(|e| TransportError::Send(e.to_string()))?
+    {
+        Some(error_code) => Err(TransportError::Send(format!(
+            "wire stream stopped by peer with code {error_code}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 async fn send_envelope(
@@ -672,8 +713,17 @@ async fn send_envelope(
         .map_err(|e| TransportError::Send(e.to_string()))?;
     stream
         .finish()
+        .map_err(|e| TransportError::Send(e.to_string()))?;
+    match stream
+        .stopped()
         .await
-        .map_err(|e| TransportError::Send(e.to_string()))
+        .map_err(|e| TransportError::Send(e.to_string()))?
+    {
+        Some(error_code) => Err(TransportError::Send(format!(
+            "frame stream stopped by peer with code {error_code}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 async fn read_wire_message(
@@ -763,56 +813,81 @@ fn spawn_send_loop(
             weights: priority_config.weights,
             quantum_bytes: MAX_FRAME_SIZE,
         });
+        let mut in_flight = tokio::task::JoinSet::new();
         loop {
-            if let Some(command) = scheduler.dequeue() {
-                match command.payload {
-                    SendCommand::Unicast {
-                        target,
-                        frame,
-                        respond_to,
-                        ..
-                    } => {
-                        let send_res = send_with_retry(
-                            &connections,
-                            &peer_capabilities,
-                            &metrics,
-                            &retransmit_buffer,
-                            &metrics_ext,
-                            &receive_handler,
-                            node_id,
+            while in_flight.len() < MAX_CONCURRENT_SENDS
+                && let Some(command) = scheduler.dequeue()
+            {
+                let connections = Arc::clone(&connections);
+                let peer_capabilities = Arc::clone(&peer_capabilities);
+                let metrics = Arc::clone(&metrics);
+                let retransmit_buffer = Arc::clone(&retransmit_buffer);
+                let metrics_ext = Arc::clone(&metrics_ext);
+                let receive_handler = Arc::clone(&receive_handler);
+                in_flight.spawn(async move {
+                    let _concurrency = SendConcurrencyGuard::enter(Arc::clone(&metrics));
+                    match command.payload {
+                        SendCommand::Unicast {
                             target,
                             frame,
-                            timeout,
-                        )
-                        .await;
-                        let _ = respond_to.send(send_res);
+                            respond_to,
+                            ..
+                        } => {
+                            let send_res = send_with_retry(
+                                &connections,
+                                &peer_capabilities,
+                                &metrics,
+                                &retransmit_buffer,
+                                &metrics_ext,
+                                &receive_handler,
+                                node_id,
+                                target,
+                                frame,
+                                timeout,
+                            )
+                            .await;
+                            let _ = respond_to.send(send_res);
+                        }
+                        SendCommand::Broadcast {
+                            frame, respond_to, ..
+                        } => {
+                            let send_res = broadcast_with_retry(
+                                &connections,
+                                &peer_capabilities,
+                                &metrics,
+                                &retransmit_buffer,
+                                &metrics_ext,
+                                &receive_handler,
+                                node_id,
+                                frame,
+                                timeout,
+                            )
+                            .await;
+                            let _ = respond_to.send(send_res);
+                        }
                     }
-                    SendCommand::Broadcast {
-                        frame, respond_to, ..
-                    } => {
-                        let send_res = broadcast_with_retry(
-                            &connections,
-                            &peer_capabilities,
-                            &metrics,
-                            &retransmit_buffer,
-                            &metrics_ext,
-                            &receive_handler,
-                            node_id,
-                            frame,
-                            timeout,
-                        )
-                        .await;
-                        let _ = respond_to.send(send_res);
-                    }
-                }
-                continue;
+                });
             }
 
             let command = select! {
-                _ = shutdown_rx.recv() => break,
+                _ = shutdown_rx.recv() => {
+                    in_flight.shutdown().await;
+                    break;
+                },
+                result = in_flight.join_next(), if !in_flight.is_empty() => {
+                    if let Some(Err(err)) = result {
+                        warn!("send task failed: {err}");
+                    }
+                    continue;
+                },
                 command = rx.recv() => command,
             };
             let Some(command) = command else {
+                while let Some(result) = in_flight.join_next().await {
+                    if let Err(err) = result {
+                        warn!("send task failed while draining: {err}");
+                    }
+                }
                 break;
             };
             enqueue_send_command(&mut scheduler, command, priority_config.enabled);
@@ -1061,9 +1136,7 @@ async fn broadcast_to_peers(
     Ok(sent)
 }
 
-fn build_tls_configs(
-    config: &NodeConfig,
-) -> anyhow::Result<(ServerConfig, Arc<RustlsClientConfig>)> {
+fn build_tls_configs(config: &NodeConfig) -> anyhow::Result<(ServerConfig, ClientConfig)> {
     let (cert_der, key_der) = if let (Some(cert_path), Some(key_path)) =
         (config.cert_path.as_ref(), config.key_path.as_ref())
     {
@@ -1073,31 +1146,31 @@ fn build_tls_configs(
         (cert.serialize_der()?, cert.serialize_private_key_der())
     };
 
-    let cert_chain = vec![Certificate(cert_der.clone())];
-    let priv_key = PrivateKey(key_der);
-    let mut server_crypto = RustlsServerConfig::builder()
-        .with_safe_defaults()
+    let cert_chain = vec![CertificateDer::from(cert_der.clone())];
+    let priv_key = PrivatePkcs8KeyDer::from(key_der).into();
+    let mut server_crypto = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert_chain, priv_key)?;
     server_crypto.alpn_protocols = vec![b"alopex".to_vec()];
-    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+    let server_config =
+        ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
 
     let mut roots = RootCertStore::empty();
     roots
-        .add(&Certificate(cert_der))
+        .add(CertificateDer::from(cert_der))
         .map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
     for cert_path in &config.trusted_cert_paths {
         let trusted_cert = fs::read(cert_path)?;
         roots
-            .add(&Certificate(trusted_cert))
+            .add(CertificateDer::from(trusted_cert))
             .map_err(|_| anyhow::anyhow!("failed to add trusted root cert"))?;
     }
 
-    let mut client_crypto = RustlsClientConfig::builder()
-        .with_safe_defaults()
+    let mut client_crypto = rustls::ClientConfig::builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
     client_crypto.alpn_protocols = vec![b"alopex".to_vec()];
 
-    Ok((server_config, Arc::new(client_crypto)))
+    let client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
+    Ok((server_config, client_config))
 }

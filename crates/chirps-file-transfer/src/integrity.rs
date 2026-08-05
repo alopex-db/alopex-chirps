@@ -5,10 +5,45 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use xxhash_rust::xxh64::Xxh64;
 
+const FILE_HASH_BUFFER_BYTES: usize = 1024 * 1024;
+const SOURCE_SCAN_BATCH_BYTES: usize = 8 * 1024 * 1024;
+
 /// Utilities for computing and verifying checksums and hashes.
 pub struct IntegrityVerifier;
 
 impl IntegrityVerifier {
+    /// Builds fixed-size chunk layout metadata without reading file contents.
+    /// Checksums are zero because manifest v2 carries them with each chunk.
+    pub fn build_chunk_layout(
+        file_size: u64,
+        chunk_size: usize,
+    ) -> std::io::Result<Vec<ChunkMeta>> {
+        if chunk_size == 0 || chunk_size > u32::MAX as usize {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "chunk_size must be between 1 and u32::MAX",
+            ));
+        }
+        let count = file_size.div_ceil(chunk_size as u64);
+        if count > u32::MAX as u64 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "chunk count exceeds u32::MAX",
+            ));
+        }
+        Ok((0..count)
+            .map(|index| {
+                let offset = index * chunk_size as u64;
+                ChunkMeta {
+                    index: index as u32,
+                    offset,
+                    size: (file_size - offset).min(chunk_size as u64) as u32,
+                    checksum: 0,
+                }
+            })
+            .collect())
+    }
+
     /// Computes an XXHash64 checksum for a chunk payload.
     ///
     /// # Panics
@@ -37,7 +72,7 @@ impl IntegrityVerifier {
         algorithm: HashAlgorithm,
     ) -> std::io::Result<Vec<u8>> {
         let mut file = File::open(path).await?;
-        let mut buffer = vec![0u8; 64 * 1024];
+        let mut buffer = vec![0u8; FILE_HASH_BUFFER_BYTES];
 
         let mut hasher = FileHasher::new(algorithm);
         loop {
@@ -75,22 +110,36 @@ impl IntegrityVerifier {
         let file_size = file.metadata().await?.len();
         let mut hasher = FileHasher::new(algorithm);
         let mut chunks = Vec::with_capacity(file_size.div_ceil(chunk_size as u64) as usize);
+        let chunks_per_batch = (SOURCE_SCAN_BATCH_BYTES / chunk_size).max(1);
+        let batch_bytes = chunk_size.checked_mul(chunks_per_batch).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "source scan buffer overflow",
+            )
+        })?;
+        let mut buffer = vec![0u8; batch_bytes];
         let mut offset = 0u64;
         let mut index = 0u32;
 
         while offset < file_size {
-            let size = (file_size - offset).min(chunk_size as u64) as usize;
-            let mut data = vec![0u8; size];
-            file.read_exact(&mut data).await?;
-            hasher.update(&data);
-            chunks.push(ChunkMeta {
-                index,
-                offset,
-                size: size as u32,
-                checksum: Self::compute_chunk_checksum(&data),
-            });
-            offset = offset.saturating_add(size as u64);
-            index = index.saturating_add(1);
+            let bytes_read = (file_size - offset).min(batch_bytes as u64) as usize;
+            file.read_exact(&mut buffer[..bytes_read]).await?;
+            hasher.update(&buffer[..bytes_read]);
+
+            let mut batch_offset = 0usize;
+            while batch_offset < bytes_read {
+                let size = (bytes_read - batch_offset).min(chunk_size);
+                let data = &buffer[batch_offset..batch_offset + size];
+                chunks.push(ChunkMeta {
+                    index,
+                    offset: offset + batch_offset as u64,
+                    size: size as u32,
+                    checksum: Self::compute_chunk_checksum(data),
+                });
+                batch_offset += size;
+                index = index.saturating_add(1);
+            }
+            offset = offset.saturating_add(bytes_read as u64);
         }
 
         Ok((hasher.finalize(), chunks))
@@ -117,6 +166,24 @@ enum FileHasher {
     Sha256(Sha256),
     Blake3(Box<blake3::Hasher>),
     XxHash64(Xxh64),
+}
+
+/// Incremental file hasher used when verified chunks can be reconstructed in
+/// file order while a transfer is still in progress.
+pub(crate) struct IncrementalFileHasher(FileHasher);
+
+impl IncrementalFileHasher {
+    pub(crate) fn new(algorithm: HashAlgorithm) -> Self {
+        Self(FileHasher::new(algorithm))
+    }
+
+    pub(crate) fn update(&mut self, data: &[u8]) {
+        self.0.update(data);
+    }
+
+    pub(crate) fn finalize(self) -> Vec<u8> {
+        self.0.finalize()
+    }
 }
 
 impl FileHasher {

@@ -18,6 +18,8 @@
 - E2E で初めて検出した不具合には、対応する unit/component test と、該当すればモデル上の失敗遷移を追加する。
 - 設定・wire 変換は、設定値が実際の送受信経路まで伝播し復元される local test を必須にする。
 - mock、loopback、二プロセス、物理 host の結果を区別する。弱い環境の成功を実機の成功として扱わない。
+- 性能 requirement は、先に profile ID・container/process 境界・CPU/memory/disk・network shaping・payload・sample 集計・測定区間・artifact schema を固定する。`iperf3` は経路の到達性/上限を観測する preflight であり、アプリケーション throughput の代理値にしない。
+- 製品 throughput は固定した隔離 container profile で local-first に測る。二物理 host は QUIC 配備互換性を確認する別 evidence とし、家庭内 LAN、VPN、WSL、NIC の値を製品 SLO の合否へ混ぜない。
 
 実行順は model check（該当時）→ unit → crate component → integration → CI/OS → 物理 evidence である。前の段階で失敗したとき、後段だけを再試行して原因を曖昧にしない。
 

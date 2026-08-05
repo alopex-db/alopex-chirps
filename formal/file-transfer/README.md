@@ -25,3 +25,7 @@ docker compose run --rm apalache check --config=FileTransfer.cfg --length=12 Fil
 
 実装変更では、まずこのmodel/propertyと対応するcomponent testをローカルで実行する。物理二ノード性能と実ネットワーク
 payload改竄は別evidenceであり、このmodelの成功から満たされたと主張してはならない。
+
+## 性能契約
+
+`performance-contract.json` は `FT-THROUGHPUT-100MBPS` を function、module、service、binary の四層へ refinement する。TLA+ の安全性モデルとは役割が異なり、workload、必須 benchmark、構造的不変条件、phase accounting、最終 `ft-1g-v1` SLO を検証可能なデータとして固定する。`performance_contract` UT が参照切れと条件の不一致を検出し、Criterion comparator と local two-process runner が同じ contract を読む。

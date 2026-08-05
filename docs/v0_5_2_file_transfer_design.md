@@ -48,42 +48,67 @@ not success.
    parallel. Session metadata is locked only to snapshot/commit a chunk; the
    task that changes the session to `Verifying` is the only task allowed to
    hash, apply metadata, rename, and emit `Complete`.
+9. A fresh receiver incrementally hashes only chunks whose checksum and
+   resumable checkpoint have succeeded, buffering out-of-order chunks until
+   their predecessors arrive. Resume or incomplete incremental state falls
+   back to hashing the completed temporary file before atomic placement.
 
 ## Verification
 
 The integration suite covers final placement before return, stream-error and
 checksum-NACK retries, standalone Pull and remote-newer Bidirectional sync,
 configuration defaults and transfer limits, remove/symlink option propagation,
-metadata preservation, and multiple service metric exposition.  The dedicated
-1 Gbps performance runner records the 100 MB/s gate separately from normal CI.
+metadata preservation, and multiple service metric exposition. The 100 MB/s
+goal is verified only by the controlled two-container `ft-1g-v1` profile
+defined in `v0_5_2_two_node_performance.md`; normal CI and physical-LAN
+diagnostics do not define that product-performance result.
 
-## 1 Gbps performance-gate transport profile
+## Controlled product-performance transport profile
 
-The performance test's `TestChunkNetwork` is the QUIC `ChunkStreamOpener` used
-by that gate.  Quinn 0.10.6 documents its default transport configuration as
+Quinn 0.10.6 documents its default transport configuration as
 being tuned for a 100 Mbps, 100 ms path and defines a 1.25 MB per-stream
 receive window.  That default is not the transport contract of this release
-gate.  For the dedicated `chirps-1gbps` runner, both client and server now use
+profile. For `ft-1g-v1`, both client and server use
 16 MiB per-stream and 64 MiB connection flow-control/send windows, with 256
 incoming uni-streams.  This bounds the benchmark's advertised receive memory
 while providing at least 1 Gbps bandwidth-delay product capacity.
 
-The test opener also coalesces concurrent first chunk requests into one QUIC
-connection per peer.  This removes duplicate handshakes from a transfer that
-starts multiple chunk tasks while keeping every chunk on a separate
-unidirectional stream.  The dedicated profile keeps the public default of four
-concurrent chunks; raising it to the 16-stream ceiling reduced local QUIC
-throughput during release preparation. The performance assertion remains
+The direct two-process opener coalesces concurrent first chunk requests into
+one QUIC connection per peer. This removes duplicate handshakes from a transfer
+that starts multiple chunk tasks while keeping every chunk on a separate
+unidirectional stream. The profile keeps the public default of four concurrent
+chunks. A fixed 128 MiB application-acknowledged QUIC pipeline measured
+96.4--99.6 MiB/s at concurrency 4 and 77.8--86.1 MiB/s at concurrency 8 on the
+same WSL calibration host, so increasing the window is rejected as a
+regression rather than used as a release workaround. The performance assertion remains
 end-to-end: source metadata/hash creation, chunk transfer, receiver
 verification, metadata application, atomic placement, and `Complete`
 acknowledgement are all within the measured interval.
 
-This fixture places both QUIC endpoints in the same test process. It verifies
-the complete QUIC transfer path, but it is not evidence for a two-host physical
-1 Gbps link or for recovery from wire corruption in such a link. The release
-gate remains blocked until its measured result is recorded on the dedicated
-runner; deterministic and multi-host fault coverage is tracked separately in
-the v0.6 network-resilience work.
+Source preparation reuses an 8 MiB scan buffer and derives the 1 MiB chunk
+checksums from each batch while feeding the same bytes to SHA-256. This keeps
+the required final SHA-256 and chunk boundaries while reducing the fixed
+workload from 128 reads/allocations to 16 reads/one allocation. The component
+benchmark improved from about 151.42 ms to 135.90 ms on the same WSL host;
+boundary tests cover partial final chunks, multiple batches, and chunks larger
+than the scan batch. The host-specific timing is diagnostic evidence, not the
+release SLO.
+
+Resumable receive progress uses a full session snapshot at manifest acceptance
+and a fixed-size append journal for each verified chunk before its positive
+acknowledgement. Each record contains the chunk index and its bitwise
+complement; replay ignores an incomplete/corrupt trailing record and duplicate
+indices are idempotent. Completion writes one full snapshot and removes the
+journal. This preserves the ACK-before-persistence recovery invariant without
+serializing and atomically replacing the complete manifest 128 times. The
+128-checkpoint component benchmark improved from about 61.85 ms to 16.56 ms.
+
+The current ignored fixture places both QUIC endpoints in the same test
+process. It remains useful for local component diagnosis, but is not
+`ft-1g-v1` evidence and cannot satisfy the 100 MB/s product SLO. The release
+contract remains blocked until the controlled two-container harness records
+the profile/image/source/integrity evidence. Deterministic and multi-host fault
+coverage is tracked separately from performance.
 
 On the receive path the temporary destination is preallocated once when the
 manifest is accepted.  On Linux, each independent chunk then uses a completed

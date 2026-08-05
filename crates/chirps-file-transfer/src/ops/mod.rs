@@ -168,6 +168,13 @@ impl ControlDispatcher {
     {
         let deadline = Instant::now() + wait;
         loop {
+            // Register before checking the inbox. `notify_waiters` does not
+            // retain a permit for a future waiter, so creating this after the
+            // check can lose a response that arrives in between.
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+
             if let Some(message) = self.pop_matching_any(&matcher).await {
                 return Ok(message);
             }
@@ -183,10 +190,7 @@ impl ControlDispatcher {
                 return Err(FileTransferError::Timeout);
             }
             let remaining = deadline - now;
-            if tokio::time::timeout(remaining, self.notify.notified())
-                .await
-                .is_err()
-            {
+            if tokio::time::timeout(remaining, notified).await.is_err() {
                 return Err(FileTransferError::Timeout);
             }
         }
@@ -211,6 +215,13 @@ impl ControlDispatcher {
     {
         let deadline = Instant::now() + wait;
         loop {
+            // Register before checking the inbox. `notify_waiters` does not
+            // retain a permit for a future waiter, so creating this after the
+            // check can lose a response that arrives in between.
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+
             if let Some(message) = self.pop_matching(session_id, &matcher).await {
                 return Ok(message);
             }
@@ -226,10 +237,7 @@ impl ControlDispatcher {
                 return Err(FileTransferError::Timeout);
             }
             let remaining = deadline - now;
-            if tokio::time::timeout(remaining, self.notify.notified())
-                .await
-                .is_err()
-            {
+            if tokio::time::timeout(remaining, notified).await.is_err() {
                 return Err(FileTransferError::Timeout);
             }
         }

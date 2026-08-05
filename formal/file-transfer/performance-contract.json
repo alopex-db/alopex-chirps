@@ -1,0 +1,142 @@
+{
+  "schema": "alopex-performance-contract/v1",
+  "requirement_id": "FT-THROUGHPUT-100MBPS",
+  "release": "v0.5.2",
+  "workload": {
+    "file_bytes": 134217728,
+    "chunk_bytes": 1048576,
+    "chunk_count": 128,
+    "concurrency": 4,
+    "compression": "none",
+    "resumable": true
+  },
+  "critical_path_budget": {
+    "maximum_end_to_end_duration_nanoseconds": 1342177280,
+    "maximum_manifest_ready_duration_nanoseconds": 100000000,
+    "minimum_payload_bytes_per_second": 110000000,
+    "rationale": {
+      "end_to_end": "128 MiB / 100,000,000 B/s",
+      "manifest_ready": "roadmap session and manifest exchange budget",
+      "payload": "10% headroom above the binary throughput objective"
+    }
+  },
+  "container_validation": {
+    "harness": "scripts/perf/run-container-file-transfer-validation.sh",
+    "required_before_binary": true,
+    "requires_same_source_sha": true,
+    "network_mode": "none",
+    "stages": [
+      "file_transfer_unit_and_integration_tests",
+      "transport_quic_integration_tests",
+      "file_transfer_component_criterion"
+    ]
+  },
+  "layers": {
+    "function": {
+      "harness": "crates/chirps-file-transfer/benches/file_transfer_components.rs",
+      "comparison": {
+        "method": "criterion_same_host_baseline",
+        "maximum_regression_ratio": 0.1
+      },
+      "absolute_minimum_bytes_per_second": {
+        "receiver_finalize_hash_128mib": 100000000,
+        "receiver_resume_checkpoints_128x1mib": 4000000000,
+        "source_open_and_read_1mib_chunk": 400000000,
+        "compression_none_owned_1mib": 10000000000,
+        "decompression_none_owned_1mib": 10000000000,
+        "receiver_write_owned_1mib_chunk": 400000000,
+        "codec_header_round_trip_1mib": 10000000000
+      },
+      "absolute_maximum_nanoseconds": {
+        "source_manifest_layout_128mib": 100000000
+      },
+      "absolute_budget_rationale": {
+        "source_manifest_layout_128mib": "must fit entirely inside the 100 ms manifest-ready budget without reading source contents",
+        "receiver_resume_checkpoints_128x1mib": "allocates at most 2.5% of the binary E2E budget across 128 checkpoints",
+        "compression_none_owned_1mib": "10 GB/s floor detects reintroduction of a full-payload allocation/copy in the no-compression path",
+        "decompression_none_owned_1mib": "10 GB/s floor detects reintroduction of a full-payload allocation/copy in the no-compression path",
+        "codec_header_round_trip_1mib": "pure fixed-header serialization must remain far above the product floor; transport setup is measured separately at module/service layers"
+      },
+      "operations": [
+        "source_manifest_layout_128mib",
+        "receiver_finalize_hash_128mib",
+        "receiver_resume_checkpoints_128x1mib",
+        "source_open_and_read_1mib_chunk",
+        "compression_none_owned_1mib",
+        "decompression_none_owned_1mib",
+        "receiver_write_owned_1mib_chunk",
+        "codec_header_round_trip_1mib"
+      ]
+    },
+    "module": {
+      "invariants": [
+        {
+          "id": "FT-CONTROL-SENDS-OVERLAP",
+          "assertion": "Concurrent FileTransfer control submissions execute with max_concurrent_sends greater than one and are delivered exactly once.",
+          "test": "crates/chirps-transport-quic/tests/quic_integration.rs::close_after_send_preserves_file_transfer_control_frames"
+        },
+        {
+          "id": "FT-CHUNK-WINDOW-FILLED",
+          "assertion": "A multi-chunk transfer reaches its configured sender concurrency without exceeding it.",
+          "test": "crates/chirps-file-transfer/tests/integration/file_transfer.rs::successful_transfer_records_complete_phase_accounting"
+        },
+        {
+          "id": "FT-CORRUPTION-RETRY-ACCOUNTED",
+          "assertion": "A manifest-v2 chunk whose payload does not match its trailing XXHash64 is NACKed, retried, and counted before successful completion.",
+          "test": "crates/chirps-file-transfer/tests/integration/file_transfer.rs::send_file_retries_after_corrupted_chunk"
+        },
+        {
+          "id": "FT-MANIFEST-NO-SOURCE-SCAN",
+          "assertion": "Manifest-v2 layout is derived from file size and chunk size without reading source contents.",
+          "test": "crates/chirps-file-transfer/tests/unit/integrity.rs::manifest_v2_chunk_layout_requires_no_source_read"
+        },
+        {
+          "id": "FT-TRAILING-HASH-BEFORE-INSTALL",
+          "assertion": "A trailing whole-file hash mismatch removes the temporary file and never installs the destination.",
+          "test": "crates/chirps-file-transfer/src/ops/receive.rs::trailing_hash_mismatch_never_installs_destination"
+        },
+        {
+          "id": "FT-STREAM-ERROR-RETRY-ACCOUNTED",
+          "assertion": "A failed chunk stream is retried without losing in-flight accounting.",
+          "test": "crates/chirps-file-transfer/tests/integration/file_transfer.rs::send_file_retries_on_stream_failure"
+        }
+      ]
+    },
+    "service": {
+      "harness": "scripts/perf/run-local-v0_5_2-baseline.sh",
+      "scope": "local-two-process",
+      "control_plane": "chirps-quic",
+      "data_plane": "quic-chunk-stream",
+      "minimum_receiver_control_max_concurrent_sends": 2,
+      "maximum_sender_source_prepare_seconds": 0.1,
+      "minimum_payload_bytes_per_second": 110000000,
+      "maximum_projected_critical_path_seconds": 1.34217728,
+      "phases": {
+        "sender": {
+          "sender_source_prepare": { "count": 1, "bytes": 134217728 },
+          "sender_chunk_read": { "count": 128, "bytes": 134217728 },
+          "sender_chunk_compress": { "count": 128, "bytes": 134217728 },
+          "sender_chunk_stream": { "count": 128, "bytes": 134217728 }
+        },
+        "receiver": {
+          "receiver_chunk_verify": { "count": 128, "bytes": 134217728 },
+          "receiver_chunk_write": { "count": 128, "bytes": 134217728 },
+          "receiver_checkpoint": { "count": 128, "bytes": 134217728 },
+          "receiver_file_hash": { "minimum_count": 1, "bytes": 134217728 },
+          "receiver_finalize": { "count": 1, "bytes": 134217728 }
+        }
+      }
+    },
+    "binary": {
+      "harness": "scripts/perf/run-controlled-container-file-transfer.sh",
+      "profile_id": "ft-1g-v1",
+      "sample_count": 5,
+      "minimum_end_to_end_bytes_per_second": 100000000,
+      "aggregation": "all_samples",
+      "requires_controlled_linux_profile": true,
+      "accepted_host_platforms": ["linux", "wsl"],
+      "swap_limit_is_separate_evidence": true,
+      "requires_integrity_and_identity": true
+    }
+  }
+}

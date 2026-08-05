@@ -9,17 +9,20 @@ use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
 use alopex_chirps_file_transfer::ops::ChunkStreamOpener;
 use alopex_chirps_file_transfer::{
-    CHUNK_STREAM_MAGIC, FileTransferConfig, FileTransferError, FileTransferService,
-    FileTransferServiceImpl, HashAlgorithm, IntegrityVerifier, TransferOptions,
+    CHUNK_STREAM_MAGIC, CompressionAlgorithm, FileTransferConfig, FileTransferError,
+    FileTransferService, FileTransferServiceImpl, HashAlgorithm, IntegrityVerifier,
+    TransferOptions,
 };
 use alopex_chirps_transport_quic::{LogFormat, QuicBackend, TelemetryConfig, init_tracing};
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
-use rustls::{Certificate, PrivateKey, RootCertStore};
-use std::collections::HashMap;
+use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fs;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -49,9 +52,13 @@ struct Arguments {
     report: PathBuf,
     source_sha: String,
     scope: String,
+    profile_id: Option<String>,
+    image_digest: Option<String>,
     source: Option<PathBuf>,
     destination: PathBuf,
     expected_bytes: u64,
+    resumable: bool,
+    compression: CompressionAlgorithm,
 }
 
 #[derive(Clone)]
@@ -103,7 +110,9 @@ fn usage() -> ! {
     eprintln!(
         "  --report RESULT.ENV --source-sha GIT_SHA --scope SCOPE --destination RELATIVE_PATH"
     );
-    eprintln!("  [--source RELATIVE_PATH] [--expected-bytes BYTES]");
+    eprintln!(
+        "  [--profile-id ID --image-digest DIGEST] [--source RELATIVE_PATH] [--expected-bytes BYTES] [--resumable true|false] [--compression none|zstd|zstd-level:N]"
+    );
     std::process::exit(2);
 }
 
@@ -175,6 +184,32 @@ fn parse_arguments() -> Result<Arguments, DynError> {
     if expected_bytes == 0 {
         return Err(input_error("--expected-bytes must be positive"));
     }
+    let resumable = match values
+        .get("resumable")
+        .map(String::as_str)
+        .unwrap_or("true")
+    {
+        "true" => true,
+        "false" => false,
+        _ => return Err(input_error("--resumable must be true or false")),
+    };
+    let compression = match values
+        .get("compression")
+        .map(String::as_str)
+        .unwrap_or("none")
+    {
+        "none" => CompressionAlgorithm::None,
+        "zstd" => CompressionAlgorithm::Zstd,
+        value if value.starts_with("zstd-level:") => value[11..]
+            .parse::<i32>()
+            .map(CompressionAlgorithm::ZstdLevel)
+            .map_err(|_| input_error("--compression zstd-level:N requires an integer level"))?,
+        _ => {
+            return Err(input_error(
+                "--compression must be none, zstd, or zstd-level:N",
+            ));
+        }
+    };
     let source = values
         .get("source")
         .map(|value| parse_relative_path(value, "source"))
@@ -183,9 +218,36 @@ fn parse_arguments() -> Result<Arguments, DynError> {
         return Err(input_error("--source is required for sender"));
     }
     let scope = required(&values, "scope")?;
-    if scope != "two-host-physical-network" && scope != "local-two-process" {
+    if scope != "two-host-physical-network"
+        && scope != "local-two-process"
+        && scope != "two-container-controlled"
+    {
         return Err(input_error(
-            "--scope must be two-host-physical-network or local-two-process",
+            "--scope must be two-host-physical-network, local-two-process, or two-container-controlled",
+        ));
+    }
+    let profile_id = values.get("profile-id").cloned();
+    let image_digest = values.get("image-digest").cloned();
+    if scope == "two-container-controlled" {
+        let valid_profile = profile_id.as_deref().is_some_and(|value| {
+            !value.is_empty()
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        });
+        if !valid_profile {
+            return Err(input_error(
+                "two-container-controlled requires a non-empty --profile-id containing only alphanumeric characters, '-', '_', or '.'",
+            ));
+        }
+        if image_digest.as_deref().is_none_or(str::is_empty) {
+            return Err(input_error(
+                "two-container-controlled requires a non-empty --image-digest",
+            ));
+        }
+    } else if profile_id.is_some() || image_digest.is_some() {
+        return Err(input_error(
+            "--profile-id and --image-digest are only valid with --scope two-container-controlled",
         ));
     }
     Ok(Arguments {
@@ -202,9 +264,13 @@ fn parse_arguments() -> Result<Arguments, DynError> {
         report: PathBuf::from(required(&values, "report")?),
         source_sha: required(&values, "source-sha")?,
         scope,
+        profile_id,
+        image_digest,
         source,
         destination: parse_relative_path(&required(&values, "destination")?, "destination")?,
         expected_bytes,
+        resumable,
+        compression,
     })
 }
 
@@ -226,17 +292,13 @@ fn data_tls_config(
     let private_key_der = fs::read(private_key)?;
     let transport = performance_transport();
     let mut server = ServerConfig::with_single_cert(
-        vec![Certificate(certificate_der.clone())],
-        PrivateKey(private_key_der),
+        vec![CertificateDer::from(certificate_der.clone())],
+        PrivatePkcs8KeyDer::from(private_key_der).into(),
     )?;
     server.transport_config(Arc::clone(&transport));
     let mut roots = RootCertStore::empty();
-    roots.add(&Certificate(certificate_der))?;
-    let crypto = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    let mut client = ClientConfig::new(Arc::new(crypto));
+    roots.add(CertificateDer::from(certificate_der))?;
+    let mut client = ClientConfig::with_root_certificates(Arc::new(roots))?;
     client.transport_config(transport);
     Ok((server, client))
 }
@@ -317,6 +379,101 @@ fn write_report(path: &Path, values: &[(&str, String)]) -> Result<(), DynError> 
     Ok(())
 }
 
+fn phase_label(metric: &prometheus::proto::Metric) -> Option<&str> {
+    metric
+        .get_label()
+        .iter()
+        .find(|label| label.name() == "phase")
+        .map(|label| label.value())
+}
+
+fn has_phase_observation(service: &FileTransferServiceImpl, phase: &str) -> bool {
+    service.metrics_registry().gather().iter().any(|family| {
+        family.name() == "chirps_ft_phase_duration_seconds"
+            && family.get_metric().iter().any(|metric| {
+                phase_label(metric) == Some(phase) && metric.get_histogram().get_sample_count() > 0
+            })
+    })
+}
+
+fn append_phase_metrics(path: &Path, service: &FileTransferServiceImpl) -> Result<(), DynError> {
+    let mut values = BTreeMap::new();
+    for family in service.metrics_registry().gather() {
+        for metric in family.get_metric() {
+            let Some(phase) = phase_label(metric) else {
+                continue;
+            };
+            if !phase
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+            {
+                return Err(input_error(format!("unexpected phase label {phase:?}")));
+            }
+            match family.name() {
+                "chirps_ft_phase_duration_seconds" => {
+                    let histogram = metric.get_histogram();
+                    values.insert(
+                        format!("phase_{phase}_duration_seconds_count"),
+                        histogram.get_sample_count().to_string(),
+                    );
+                    values.insert(
+                        format!("phase_{phase}_duration_seconds_sum"),
+                        format!("{:.9}", histogram.get_sample_sum()),
+                    );
+                }
+                "chirps_ft_phase_bytes_total" => {
+                    values.insert(
+                        format!("phase_{phase}_bytes"),
+                        format!(
+                            "{:.0}",
+                            metric
+                                .get_counter()
+                                .as_ref()
+                                .map_or(0.0, |counter| counter.value())
+                        ),
+                    );
+                }
+                _ => {}
+            }
+        }
+        if family.name() == "chirps_ft_retries_total"
+            && let Some(metric) = family.get_metric().first()
+        {
+            values.insert(
+                "retry_count".to_string(),
+                format!(
+                    "{:.0}",
+                    metric
+                        .get_counter()
+                        .as_ref()
+                        .map_or(0.0, |counter| counter.value())
+                ),
+            );
+        }
+    }
+
+    let mut report = fs::OpenOptions::new().append(true).open(path)?;
+    for (key, value) in values {
+        writeln!(report, "{key}={value}")?;
+    }
+    Ok(())
+}
+
+fn append_transport_metrics(path: &Path, backend: &QuicBackend) -> Result<(), DynError> {
+    let metrics = backend.metrics();
+    let mut report = fs::OpenOptions::new().append(true).open(path)?;
+    writeln!(report, "transport_sent={}", metrics.sent)?;
+    writeln!(report, "transport_received={}", metrics.received)?;
+    writeln!(report, "transport_dropped={}", metrics.dropped)?;
+    writeln!(report, "transport_retried={}", metrics.retried)?;
+    writeln!(
+        report,
+        "transport_max_concurrent_sends={}",
+        metrics.max_concurrent_sends
+    )?;
+    Ok(())
+}
+
 async fn wait_for_peer(backend: &QuicBackend, peer_id: NodeId) -> Result<(), DynError> {
     timeout(Duration::from_secs(30), async {
         loop {
@@ -359,7 +516,9 @@ async fn run_sender(
             &args.destination,
             TransferOptions::default()
                 .with_chunk_size(1024 * 1024)
-                .with_concurrency(4),
+                .with_concurrency(4)
+                .with_compression(args.compression)
+                .with_resumable(args.resumable),
         )
         .await?;
     let elapsed_seconds = started.elapsed().as_secs_f64();
@@ -374,11 +533,27 @@ async fn run_sender(
             ("schema_version", "1".to_string()),
             ("kind", "chirps-file-transfer-two-node".to_string()),
             ("scope", args.scope.clone()),
+            (
+                "profile_id",
+                args.profile_id
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string()),
+            ),
+            (
+                "image_digest",
+                args.image_digest
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string()),
+            ),
             ("role", "sender".to_string()),
             ("source_sha", args.source_sha.clone()),
             ("control_plane", "chirps-quic".to_string()),
             ("data_plane", "quic-chunk-stream".to_string()),
-            ("compression", "none".to_string()),
+            ("resumable", args.resumable.to_string()),
+            (
+                "compression",
+                format!("{:?}", args.compression).to_lowercase(),
+            ),
             ("file_bytes", metadata.len().to_string()),
             ("elapsed_seconds", format!("{elapsed_seconds:.9}")),
             (
@@ -392,15 +567,25 @@ async fn run_sender(
             ("sha256", sha256),
             ("completed", "true".to_string()),
         ],
-    )
+    )?;
+    append_phase_metrics(&args.report, service)?;
+    append_transport_metrics(&args.report, backend)
 }
 
-async fn run_receiver(args: &Arguments) -> Result<(), DynError> {
+async fn run_receiver(
+    args: &Arguments,
+    service: &FileTransferServiceImpl,
+    backend: &QuicBackend,
+) -> Result<(), DynError> {
+    let detailed_metrics = std::env::var("CHIRPS_DISABLE_DETAILED_METRICS")
+        .map(|value| value != "1" && !value.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
     let destination = args.base_path.join(&args.destination);
     timeout(Duration::from_secs(180), async {
         loop {
             if let Ok(metadata) = tokio::fs::metadata(&destination).await
                 && metadata.len() == args.expected_bytes
+                && (!detailed_metrics || has_phase_observation(service, "receiver_finalize"))
             {
                 let sha256 = hex(&IntegrityVerifier::compute_file_hash(
                     &destination,
@@ -413,15 +598,30 @@ async fn run_receiver(args: &Arguments) -> Result<(), DynError> {
                         ("schema_version", "1".to_string()),
                         ("kind", "chirps-file-transfer-two-node".to_string()),
                         ("scope", args.scope.clone()),
+                        (
+                            "profile_id",
+                            args.profile_id
+                                .clone()
+                                .unwrap_or_else(|| "none".to_string()),
+                        ),
+                        (
+                            "image_digest",
+                            args.image_digest
+                                .clone()
+                                .unwrap_or_else(|| "none".to_string()),
+                        ),
                         ("role", "receiver".to_string()),
                         ("source_sha", args.source_sha.clone()),
                         ("control_plane", "chirps-quic".to_string()),
                         ("data_plane", "quic-chunk-stream".to_string()),
+                        ("resumable", args.resumable.to_string()),
                         ("file_bytes", metadata.len().to_string()),
                         ("sha256", sha256),
                         ("completed", "true".to_string()),
                     ],
                 )?;
+                append_phase_metrics(&args.report, service)?;
+                append_transport_metrics(&args.report, backend)?;
                 return Ok::<(), DynError>(());
             }
             sleep(Duration::from_millis(50)).await;
@@ -468,7 +668,11 @@ async fn main() -> Result<(), DynError> {
     };
     let backend = Arc::new(QuicBackend::new(args.node_id, Arc::new(node_config)).await?);
     let backend_for_service: Arc<dyn MessageBackend> = backend.clone();
+    let detailed_metrics = std::env::var("CHIRPS_DISABLE_DETAILED_METRICS")
+        .map(|value| value != "1" && !value.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
     let transfer_config = FileTransferConfig::default()
+        .with_detailed_metrics(detailed_metrics)
         .with_base_path(args.base_path.clone())
         .with_temp_dir(Some(args.base_path.join("tmp")))
         .with_session_dir(Some(args.base_path.join("sessions")));
@@ -486,7 +690,7 @@ async fn main() -> Result<(), DynError> {
     let result = if args.role == "sender" {
         run_sender(&args, &service, &backend).await
     } else {
-        run_receiver(&args).await
+        run_receiver(&args, &service, &backend).await
     };
     listener.abort();
     let _ = listener.await;

@@ -15,6 +15,14 @@ model:
       - "Real-network payload modification beyond the model's corrupt/drop actions"
       - "Unbounded liveness and fairness"
 requirements:
+  - id: FT-THROUGHPUT-100MBPS
+    failure_mode: "A function, module, or service regression is detected only by the final ft-1g-v1 binary gate."
+    performance_contract: formal/file-transfer/performance-contract.json
+    refinement:
+      - crates/chirps-transport-quic/src/lib.rs
+      - crates/chirps-file-transfer/src/ops/send.rs
+      - crates/chirps-file-transfer/src/ops/receive.rs
+    local_component_test: crates/chirps-file-transfer/tests/integration/file_transfer.rs::successful_transfer_records_complete_phase_accounting
   - id: FT-COMPRESSION-ROUND-TRIP
     failure_mode: "Compression metadata diverges from the sender payload or receiver decode path."
     properties:
