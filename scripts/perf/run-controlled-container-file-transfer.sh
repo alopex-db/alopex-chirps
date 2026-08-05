@@ -29,6 +29,7 @@ Usage:
   [--image IMAGE] [--sender-cpus CPUSET] [--receiver-cpus CPUSET]
     [--compression none|zstd|zstd-level:N] [--payload-profile PROFILE]
     [--detailed-metrics]
+    [--skip-lower-validation]
 
 First runs containerized FileTransfer/QUIC tests and component Criterion for the
 same source SHA. It then builds (unless --image is supplied) a source-SHA-labelled
@@ -53,6 +54,7 @@ receiver_cpus="4-7"
 compression="none"
 payload_profile="mixed"
 detailed_metrics=false
+skip_lower_validation=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --compression) compression="${2:?missing value for --compression}"; shift 2 ;;
     --payload-profile) payload_profile="${2:?missing value for --payload-profile}"; shift 2 ;;
     --detailed-metrics) detailed_metrics=true; shift ;;
+    --skip-lower-validation) skip_lower_validation=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -142,10 +145,12 @@ mkdir -p "$output/samples" "$output/host" "$output/containers"
 # Lower-layer validation is deliberately mandatory and precedes creation of
 # the product measurement containers. A host-only test pass is not sufficient
 # evidence for the containerized binary path.
-bash scripts/perf/run-container-file-transfer-validation.sh \
-  --output "$output/container-validation"
-container_validation_result="$output/container-validation/evidence/result.json"
-python3 - "$container_validation_result" "$source_sha" <<'PY'
+container_validation_image_digest="skipped"
+if [[ "$skip_lower_validation" != true ]]; then
+  bash scripts/perf/run-container-file-transfer-validation.sh \
+    --output "$output/container-validation"
+  container_validation_result="$output/container-validation/evidence/result.json"
+  python3 - "$container_validation_result" "$source_sha" <<'PY'
 import json
 import pathlib
 import sys
@@ -156,7 +161,8 @@ if result.get("source_sha") != sys.argv[2]:
 if result.get("passed") is not True:
     raise SystemExit("container lower-layer validation did not pass")
 PY
-container_validation_image_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image_digest"])' "$container_validation_result")"
+  container_validation_image_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image_digest"])' "$container_validation_result")"
+fi
 
 if [[ -z "$image" ]]; then
   image="chirps-ft-1g:${source_sha}"
