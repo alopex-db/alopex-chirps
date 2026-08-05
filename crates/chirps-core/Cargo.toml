@@ -14,3 +14,4 @@ alopex-chirps-wire.workspace = true
 async-trait = "0.1"
 tokio = { version = "1.35", features = ["sync"] }
 thiserror = "1.0"
+serde.workspace = true

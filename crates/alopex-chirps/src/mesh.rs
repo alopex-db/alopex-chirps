@@ -2,7 +2,7 @@ use crate::backend::MessageBackend;
 use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
 use crate::node_id::{NodeId, load_or_create_node_id};
-use crate::profile::{MessageProfile, enforce_profile};
+use crate::profile::{EnvelopeMetadata, MessageProfile, resolve_profile};
 use alopex_chirps_gossip_swim::engine::{
     GossipConfig, GossipEngine, Transport as GossipTransport,
     TransportError as GossipTransportError,
@@ -18,7 +18,7 @@ use std::sync::{
 };
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::info;
 
 /// メッシュへ外部から操作するためのハンドル。
 #[derive(Clone)]
@@ -40,11 +40,22 @@ impl MeshHandle {
         frame: Frame,
         profile: MessageProfile,
     ) -> Result<(), MeshError> {
-        let effective = enforce_profile(&frame, profile).map_err(MeshError::NotImplemented)?;
-        let frame = maybe_mark_control(frame, effective);
+        self.send_enveloped(target, frame, profile, EnvelopeMetadata::default())
+            .await
+    }
+
+    /// Profile-aware extension point carrying metadata reserved for Durable backends.
+    pub async fn send_enveloped(
+        &self,
+        target: NodeId,
+        frame: Frame,
+        profile: MessageProfile,
+        metadata: EnvelopeMetadata,
+    ) -> Result<(), MeshError> {
+        let effective = resolve_profile(&frame, profile, self.inner.backend.capabilities())?;
         self.inner
             .backend
-            .send(target, frame)
+            .send_with_profile(target, frame, effective, metadata)
             .await
             .map_err(MeshError::from)
     }
@@ -61,11 +72,21 @@ impl MeshHandle {
         frame: Frame,
         profile: MessageProfile,
     ) -> Result<usize, MeshError> {
-        let effective = enforce_profile(&frame, profile).map_err(MeshError::NotImplemented)?;
-        let frame = maybe_mark_control(frame, effective);
+        self.broadcast_enveloped(frame, profile, EnvelopeMetadata::default())
+            .await
+    }
+
+    /// Broadcast extension point carrying reserved acknowledgement/replay metadata.
+    pub async fn broadcast_enveloped(
+        &self,
+        frame: Frame,
+        profile: MessageProfile,
+        metadata: EnvelopeMetadata,
+    ) -> Result<usize, MeshError> {
+        let effective = resolve_profile(&frame, profile, self.inner.backend.capabilities())?;
         self.inner
             .backend
-            .broadcast(frame)
+            .broadcast_with_profile(frame, effective, metadata)
             .await
             .map_err(MeshError::from)
     }
@@ -262,17 +283,6 @@ impl Mesh {
             leaves: self.metrics.leaves.load(Ordering::Relaxed),
             status_events: self.metrics.status_events.load(Ordering::Relaxed),
             delivered_frames: self.metrics.delivered_frames.load(Ordering::Relaxed),
-        }
-    }
-}
-
-fn maybe_mark_control(frame: Frame, profile: MessageProfile) -> Frame {
-    // Control path implies reliable/retransmit; Ephemeral keeps as-is; Durable falls back.
-    match profile {
-        MessageProfile::Control | MessageProfile::Ephemeral => frame,
-        MessageProfile::Durable => {
-            warn!("Durable profile requested but not implemented; falling back to Control");
-            frame
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::profile::ProfileError;
 pub use alopex_chirps_core::error::{GossipError, TransportError};
 use alopex_chirps_wire::node_id::NodeId;
 use thiserror::Error;
@@ -19,6 +20,8 @@ pub enum MeshError {
     Timeout,
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),
+    #[error(transparent)]
+    Profile(#[from] ProfileError),
 }
 
 impl MeshError {

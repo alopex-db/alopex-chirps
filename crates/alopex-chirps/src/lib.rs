@@ -15,7 +15,10 @@ use crate::error::MeshError;
 use crate::mesh::Mesh;
 pub use crate::mesh::MeshHandle;
 pub use crate::node_id::NodeId;
-pub use crate::profile::{MessageProfile, enforce_profile};
+pub use crate::profile::{
+    BackendCapabilities, EnvelopeMetadata, MessageProfile, ProfileError, enforce_profile,
+    resolve_profile,
+};
 pub use crate::raft::{
     ChirpsRaftTransport, MetricsError, RaftConfig, RaftError, RaftMessage, RaftMetricsCollector,
     RaftMetricsUpdate, RaftNode, serve_metrics,
