@@ -28,6 +28,7 @@ Usage:
   run-controlled-container-file-transfer.sh --output DIR
   [--image IMAGE] [--sender-cpus CPUSET] [--receiver-cpus CPUSET]
     [--compression none|zstd|zstd-level:N] [--payload-profile PROFILE]
+    [--detailed-metrics]
 
 First runs containerized FileTransfer/QUIC tests and component Criterion for the
 same source SHA. It then builds (unless --image is supplied) a source-SHA-labelled
@@ -51,6 +52,7 @@ sender_cpus="0-3"
 receiver_cpus="4-7"
 compression="none"
 payload_profile="mixed"
+detailed_metrics=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -60,10 +62,14 @@ while [[ $# -gt 0 ]]; do
     --receiver-cpus) receiver_cpus="${2:?missing value for --receiver-cpus}"; shift 2 ;;
     --compression) compression="${2:?missing value for --compression}"; shift 2 ;;
     --payload-profile) payload_profile="${2:?missing value for --payload-profile}"; shift 2 ;;
+    --detailed-metrics) detailed_metrics=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+detailed_metrics_env=1
+[[ "$detailed_metrics" == true ]] && detailed_metrics_env=0
 
 [[ -n "$output" ]] || { printf '%s\n' '--output is required' >&2; exit 2; }
 [[ -n "$sender_cpus" && -n "$receiver_cpus" && "$sender_cpus" != "$receiver_cpus" ]] || {
@@ -226,7 +232,7 @@ launch_container() {
     --cap-add NET_ADMIN \
     --tmpfs "/work:rw,size=$TMPFS_BYTES,mode=700" \
     --tmpfs "/run/chirps:rw,size=$TLS_TMPFS_BYTES,mode=700" \
-    --env CHIRPS_DISABLE_DETAILED_METRICS=1 \
+    --env "CHIRPS_DISABLE_DETAILED_METRICS=$detailed_metrics_env" \
     "$image" sleep infinity >/dev/null
   docker exec --user root "$name" sh -ceu '
     chown chirps:chirps /work /run/chirps
@@ -370,12 +376,16 @@ run_transfer() {
   # `memory.peak` is the authoritative container cgroup peak when supported;
   # docker stats alone reports only an instantaneous value.
   for name in "$sender_name" "$receiver_name"; do
+    docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/cpu.stat' >"$sample_dir/$name.cpu.before" 2>&1 || true
+  done
+  for name in "$sender_name" "$receiver_name"; do
     docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.current' >"$sample_dir/$name.memory.current" 2>&1 || true
     docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.peak' >"$sample_dir/$name.memory.peak" 2>&1 || true
   done
   docker exec "$sender_name" rm -rf -- "$sender_dir"
   docker exec "$receiver_name" rm -rf -- "$receiver_dir"
   for name in "$sender_name" "$receiver_name"; do
+    docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/cpu.stat' >"$sample_dir/$name.cpu.after" 2>&1 || true
     docker exec "$name" sh -ceu 'cat /sys/fs/cgroup/memory.current' >"$sample_dir/$name.memory.post_cleanup" 2>&1 || true
   done
 }
@@ -392,7 +402,7 @@ for name in "$sender_name" "$receiver_name"; do
   docker stats --no-stream --format '{{json .}}' "$name" >"$output/containers/$name.stats.json"
 done
 
-python3 - "$output" "$source_sha" "$image_digest" "$host_platform" "$host_platform_eligible" "$swap_limit_enforced" "$profile_environment_eligible" "$container_validation_image_digest" <<'PY'
+python3 - "$output" "$source_sha" "$image_digest" "$host_platform" "$host_platform_eligible" "$swap_limit_enforced" "$profile_environment_eligible" "$container_validation_image_digest" "$compression" "$payload_profile" "$detailed_metrics" <<'PY'
 import json
 import pathlib
 import statistics
@@ -406,6 +416,9 @@ host_platform_eligible = sys.argv[5] == "true"
 swap_limit_enforced = sys.argv[6] == "true"
 profile_environment_eligible = sys.argv[7] == "true"
 container_validation_image_digest = sys.argv[8]
+compression = sys.argv[9]
+payload_profile = sys.argv[10]
+detailed_metrics_enabled = sys.argv[11] == "true"
 
 def env(path):
     values = {}
@@ -421,6 +434,24 @@ def phase_metrics(report):
 def cgroup_value(directory, suffix, role):
     paths = sorted(directory.glob(f"*{role}*.memory.{suffix}"))
     if not paths:
+        return None
+
+def cpu_delta(directory, role, key):
+    matches = sorted(directory.glob(f"*{role}*.cpu.*"))
+    before = next((p for p in matches if p.name.endswith("cpu.before")), None)
+    after = next((p for p in matches if p.name.endswith("cpu.after")), None)
+    if not before or not after:
+        return None
+    def read(path):
+        values = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 2:
+                values[parts[0]] = int(parts[1])
+        return values
+    try:
+        return read(after).get(key, 0) - read(before).get(key, 0)
+    except (OSError, ValueError):
         return None
     try:
         return int(paths[0].read_text(encoding="utf-8").strip())
@@ -471,6 +502,12 @@ for number in range(1, 6):
             "receiver_memory_peak_bytes": cgroup_value(directory, "peak", "receiver"),
             "sender_memory_post_cleanup_bytes": cgroup_value(directory, "post_cleanup", "sender"),
             "receiver_memory_post_cleanup_bytes": cgroup_value(directory, "post_cleanup", "receiver"),
+            "sender_cpu_usage_usec": cpu_delta(directory, "sender", "usage_usec"),
+            "sender_cpu_user_usec": cpu_delta(directory, "sender", "user_usec"),
+            "sender_cpu_system_usec": cpu_delta(directory, "sender", "system_usec"),
+            "receiver_cpu_usage_usec": cpu_delta(directory, "receiver", "usage_usec"),
+            "receiver_cpu_user_usec": cpu_delta(directory, "receiver", "user_usec"),
+            "receiver_cpu_system_usec": cpu_delta(directory, "receiver", "system_usec"),
         }
     )
 
@@ -509,6 +546,9 @@ result = {
     "container_validation_passed": True,
     "container_validation_image_digest": container_validation_image_digest,
     "file_bytes": 134217728,
+    "compression": compression,
+    "payload_profile": payload_profile,
+    "detailed_metrics_enabled": detailed_metrics_enabled,
     "sample_count": len(samples),
     "minimum_end_to_end_goodput_bytes_per_second": threshold,
     "samples": samples,
