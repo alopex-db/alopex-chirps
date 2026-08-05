@@ -676,7 +676,11 @@ impl ReceiveHandler {
         // This keeps hash verification and rename single-shot even when streams
         // arrive concurrently and out of order.
         let data_len = data.len() as u64;
-        let finalization = {
+        // Update in-memory progress under the session lock, but perform the
+        // durable checkpoint without holding it.  Checkpoint I/O is serialized
+        // by SessionPersistence's own guard and must not block unrelated
+        // receive streams from validating/writing their chunks.
+        let resumable = {
             let mut sessions = self.sessions.write().await;
             let session = match sessions.get_mut(&session_id) {
                 Some(session) => session,
@@ -690,14 +694,18 @@ impl ReceiveHandler {
             }
             session.chunk_tracker.mark_completed(chunk_index);
             session.updated_at = SystemTime::now();
+            session.options.resumable
+        };
+
+        if resumable && let Some(persistence) = &self.persistence {
             let checkpoint_started = Instant::now();
-            if session.options.resumable
-                && let Some(persistence) = &self.persistence
-                && let Err(error) = persistence.checkpoint_chunk(session_id, chunk_index).await
-            {
-                session.chunk_tracker.completed.remove(&chunk_index);
-                session.chunk_tracker.mark_failed(chunk_index);
-                session.updated_at = SystemTime::now();
+            if let Err(error) = persistence.checkpoint_chunk(session_id, chunk_index).await {
+                let mut sessions = self.sessions.write().await;
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.chunk_tracker.completed.remove(&chunk_index);
+                    session.chunk_tracker.mark_failed(chunk_index);
+                    session.updated_at = SystemTime::now();
+                }
                 drop(sessions);
                 send_chunk_ack(
                     control,
@@ -715,14 +723,26 @@ impl ReceiveHandler {
                     completed: false,
                 });
             }
-            if session.options.resumable
-                && let Some(metrics) = &self.metrics
-            {
+            if let Some(metrics) = &self.metrics {
                 metrics.observe_phase(
                     "receiver_checkpoint",
                     checkpoint_started.elapsed(),
                     data_len,
                 );
+            }
+        }
+
+        let finalization = {
+            let mut sessions = self.sessions.write().await;
+            let session = match sessions.get_mut(&session_id) {
+                Some(session) => session,
+                None => return Err(FileTransferError::SessionNotFound(session_id)),
+            };
+            if matches!(
+                session.state,
+                TransferState::Cancelled | TransferState::Failed
+            ) {
+                return Err(FileTransferError::Cancelled);
             }
             let hash_started = Instant::now();
             let bytes_hashed = self
