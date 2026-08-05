@@ -1,14 +1,19 @@
 #![cfg(feature = "multi-raft")]
 
 use alopex_chirps::multi_raft::{
-    GroupId, MultiRaftError, RaftStorageFactory, WalRaftStorageFactory, group_namespace,
-    parse_group_namespace,
+    GroupId, MultiRaftError, MultiRaftManager, RaftStorageFactory, WalRaftStorageFactory,
+    group_namespace, parse_group_namespace,
 };
+use alopex_chirps::{ChirpsRaftTransport, RaftConfig};
+use alopex_chirps_core::backend::MessageBackend;
+use alopex_chirps_mock::{MockBackend, MockNetwork};
 use alopex_chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
 use alopex_chirps_raft_storage::types::LogId;
 use alopex_chirps_raft_storage::wal_storage::WalStorageConfig;
 use async_trait::async_trait;
+use std::collections::BTreeSet;
 use std::io::Cursor;
+use std::sync::Arc;
 
 #[derive(Default)]
 struct EchoStateMachine;
@@ -116,4 +121,63 @@ async fn storage_factory_isolates_group_paths_and_abort_removes_partial_state() 
     assert!(!first_snapshot.exists());
 
     second.abort().await.unwrap();
+}
+
+#[tokio::test]
+async fn manager_create_list_get_and_remove_are_consistent_and_idempotent() {
+    let root = tempfile::tempdir().unwrap();
+    let factory = Arc::new(WalRaftStorageFactory::<EchoStateMachine>::new(
+        WalStorageConfig {
+            wal_dir: root.path().join("wal"),
+            snapshot_dir: root.path().join("snapshot"),
+            ..WalStorageConfig::default()
+        },
+        1,
+    ));
+    let network = MockNetwork::new();
+    let backend = network
+        .add_node([0; 16].into(), MockBackend::ephemeral_addr())
+        .await;
+    let backend: Arc<dyn MessageBackend> = Arc::new(backend);
+    let transport = Arc::new(ChirpsRaftTransport::new(backend, GroupId(0), 1));
+    let manager = MultiRaftManager::new(
+        transport,
+        factory,
+        RaftConfig {
+            node_id: 1,
+            ..RaftConfig::default()
+        },
+    );
+    let members: BTreeSet<_> = [1].into_iter().collect();
+
+    manager
+        .create_group(GroupId(2), members.clone(), EchoStateMachine)
+        .await
+        .unwrap();
+    manager
+        .create_group(GroupId(1), members.clone(), EchoStateMachine)
+        .await
+        .unwrap();
+
+    assert_eq!(manager.groups_count(), 2);
+    assert_eq!(manager.list_groups(), vec![GroupId(1), GroupId(2)]);
+    assert_eq!(
+        manager.get_group(GroupId(1)).unwrap().group_id(),
+        GroupId(1)
+    );
+    assert!(manager.get_group(GroupId(3)).is_none());
+    assert!(matches!(
+        manager
+            .create_group(GroupId(1), members, EchoStateMachine)
+            .await,
+        Err(MultiRaftError::GroupAlreadyExists {
+            group_id: GroupId(1)
+        })
+    ));
+
+    assert!(manager.remove_group(GroupId(1)).await.unwrap());
+    assert!(!manager.remove_group(GroupId(1)).await.unwrap());
+    assert!(manager.get_group(GroupId(1)).is_none());
+    assert_eq!(manager.list_groups(), vec![GroupId(2)]);
+    manager.shutdown_all().await.unwrap();
 }

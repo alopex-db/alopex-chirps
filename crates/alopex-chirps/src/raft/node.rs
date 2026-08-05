@@ -109,8 +109,7 @@ pub struct RaftNode {
     #[allow(dead_code)]
     pub(crate) transport: Arc<ChirpsRaftTransport>,
     metrics_collector: Arc<Mutex<Option<Arc<RaftMetricsCollector>>>>,
-    #[allow(dead_code)]
-    observer_handle: JoinHandle<()>,
+    observer_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl RaftNode {
@@ -151,7 +150,7 @@ impl RaftNode {
             raft,
             transport,
             metrics_collector: collector,
-            observer_handle,
+            observer_handle: Mutex::new(Some(observer_handle)),
         })
     }
 
@@ -332,6 +331,36 @@ impl RaftNode {
             snapshot_total: 1,
             ..Default::default()
         });
+        Ok(())
+    }
+
+    /// Stops OpenRaft and its metrics observer.
+    ///
+    /// Calling shutdown more than once is safe. The method does not return
+    /// until the core task has stopped and the observer task has been joined.
+    pub async fn shutdown(&self) -> RaftResult<()> {
+        self.raft
+            .shutdown()
+            .await
+            .map_err(|error| RaftError::Internal(anyhow!("Raft shutdown failed: {error}")))?;
+
+        let observer = self
+            .observer_handle
+            .lock()
+            .map_err(|_| RaftError::Internal(anyhow!("metrics observer lock poisoned")))?
+            .take();
+        if let Some(observer) = observer {
+            observer.abort();
+            match observer.await {
+                Ok(()) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => {
+                    return Err(RaftError::Internal(anyhow!(
+                        "metrics observer failed during shutdown: {error}"
+                    )));
+                }
+            }
+        }
         Ok(())
     }
 }

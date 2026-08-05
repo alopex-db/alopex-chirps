@@ -639,6 +639,17 @@ impl TestCluster {
         }
         map
     }
+
+    async fn shutdown_all(&self) -> Result<()> {
+        for test_node in self.nodes.values() {
+            test_node.running.store(false, Ordering::SeqCst);
+            test_node.pump.abort();
+            test_node.ticker.abort();
+            test_node.node.shutdown().await?;
+            test_node.node.shutdown().await?;
+        }
+        Ok(())
+    }
 }
 
 fn spawn_pump(
@@ -721,6 +732,13 @@ fn membership_voters(
         .flatten()
         .cloned()
         .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn raft_node_shutdown_is_explicit_and_idempotent() -> Result<()> {
+    let cluster = TestCluster::new(&[1], 10).await?;
+    cluster.shutdown_all().await?;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

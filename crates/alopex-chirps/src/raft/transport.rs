@@ -70,6 +70,18 @@ impl ChirpsRaftTransport {
         }
     }
 
+    /// Creates an isolated per-group transport over the same backend.
+    ///
+    /// Correlation IDs and pending RPC state are deliberately not shared
+    /// between groups.
+    pub fn fork_for_group(&self, group_id: GroupId) -> Self {
+        Self::new(Arc::clone(&self.backend), group_id, self.node_id)
+    }
+
+    pub fn node_id(&self) -> ChirpsNodeId {
+        self.node_id
+    }
+
     /// RaftNetworkFactoryをwrapした型を取得する。
     pub fn factory(inner: Arc<ChirpsRaftTransport>) -> ChirpsRaftNetworkFactory {
         ChirpsRaftNetworkFactory { inner }
