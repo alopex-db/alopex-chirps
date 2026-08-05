@@ -385,8 +385,10 @@ run_transfer() {
   done
   docker exec "$receiver_name" sh -ceu \
     'test -s "$1" && grep -q "^completed=true$" "$1"' sh "$receiver_dir/receiver-result.env"
-  kill "$receiver_exec_pid" 2>/dev/null || true
-  wait "$receiver_exec_pid" 2>/dev/null || true
+  # docker exec may retain the child process while the service keeps its
+  # listener alive. The report is the completion contract; terminate only the
+  # host-side exec wrapper and do not block the next sample on process exit.
+  kill -KILL "$receiver_exec_pid" 2>/dev/null || true
   receiver_exec_pid=""
   docker exec "$sender_name" cat "$sender_dir/sender-result.env" >"$sample_dir/sender-result.env"
   docker exec "$receiver_name" cat "$receiver_dir/receiver-result.env" >"$sample_dir/receiver-result.env"
