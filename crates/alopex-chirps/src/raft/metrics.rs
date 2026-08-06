@@ -17,8 +17,15 @@ use thiserror::Error;
 
 #[cfg(feature = "hlc")]
 use alopex_chirps_gossip_swim::hlc::{HlcAdvance, HlcMetricsSink, HlcReceiveResult};
+use alopex_chirps_raft_storage::{SnapshotCompletionEvent, SnapshotCompletionHook};
 
 use crate::raft::{BasicNode, ChirpsNodeId, GroupId};
+
+impl SnapshotCompletionHook for RaftMetricsCollector {
+    fn completed(&self, event: SnapshotCompletionEvent) {
+        self.record_raft_snapshot_completed(event.group_id, event.size_bytes);
+    }
+}
 
 const RAFT_STATES: [&str; 4] = ["follower", "candidate", "leader", "other"];
 const RAFT_MESSAGE_TYPES: [&str; 7] = [

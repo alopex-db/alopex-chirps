@@ -4,7 +4,7 @@ use alopex_chirps::multi_raft::{
     GroupId, MultiRaftError, MultiRaftManager, RaftStorageFactory, WalRaftStorageFactory,
     group_namespace, parse_group_namespace,
 };
-use alopex_chirps::raft::RaftFramePayload;
+use alopex_chirps::raft::{RaftFramePayload, RaftMetricsCollector};
 use alopex_chirps::{ChirpsRaftTransport, RaftConfig, RaftMessage};
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_mock::{MockBackend, MockNetwork};
@@ -14,6 +14,8 @@ use alopex_chirps_raft_storage::wal_storage::WalStorageConfig;
 use alopex_chirps_wire::frame::{Frame, RaftFrame};
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
+use openraft::RaftSnapshotBuilder;
+use openraft::storage::RaftStateMachine;
 use std::collections::BTreeSet;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -124,6 +126,32 @@ async fn storage_factory_isolates_group_paths_and_abort_removes_partial_state() 
     assert!(!first_snapshot.exists());
 
     second.abort().await.unwrap();
+}
+
+#[tokio::test]
+async fn late_bound_metrics_observe_durable_snapshot_completion() {
+    let root = tempfile::tempdir().unwrap();
+    let config = WalStorageConfig {
+        wal_dir: root.path().join("wal"),
+        snapshot_dir: root.path().join("snapshot"),
+        ..WalStorageConfig::default()
+    };
+    let factory = WalRaftStorageFactory::<EchoStateMachine>::new(config, 9);
+    let transaction = factory
+        .begin_storage(GroupId(19), EchoStateMachine)
+        .await
+        .unwrap();
+    let mut storage = transaction.storage();
+
+    let collector = Arc::new(RaftMetricsCollector::new());
+    factory.set_snapshot_completion_hook(collector.clone());
+    let mut builder = storage.get_snapshot_builder().await;
+    builder.build_snapshot().await.unwrap();
+
+    let body = collector.encode().unwrap();
+    assert!(body.contains("chirps_raft_snapshot_total{group_id=\"19\"} 1"));
+    assert!(body.contains("chirps_raft_snapshot_size_bytes{group_id=\"19\"} 0"));
+    transaction.abort().await.unwrap();
 }
 
 #[tokio::test]

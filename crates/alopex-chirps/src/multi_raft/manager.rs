@@ -2,6 +2,7 @@ use super::{GroupHandle, GroupId, MultiRaftError, RaftStorageFactory};
 use crate::raft::{
     ChirpsRaftTransport, RaftConfig, RaftFramePayload, RaftMessage, RaftMetricsCollector, RaftNode,
 };
+use alopex_chirps_raft_storage::SnapshotCompletionHook;
 use alopex_chirps_wire::frame::Frame;
 use alopex_chirps_wire::node_id::NodeId;
 use std::collections::{BTreeSet, HashMap};
@@ -79,6 +80,8 @@ where
     /// Registers one collector for all existing and subsequently-created groups.
     pub async fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
         let _lifecycle = self.lifecycle.lock().await;
+        let snapshot_hook: Arc<dyn SnapshotCompletionHook> = collector.clone();
+        self.factory.set_snapshot_completion_hook(snapshot_hook);
         *self
             .metrics_collector
             .write()

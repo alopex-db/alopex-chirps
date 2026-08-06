@@ -1,5 +1,7 @@
 use super::{GroupId, MultiRaftError, group_namespace};
-use alopex_chirps_raft_storage::snapshot::{NoopSnapshotCompletionHook, SnapshotCompletionHook};
+use alopex_chirps_raft_storage::snapshot::{
+    NoopSnapshotCompletionHook, SnapshotCompletionEvent, SnapshotCompletionHook,
+};
 use alopex_chirps_raft_storage::traits::{RaftStorage as ChirpsRaftStorage, StateMachine};
 use alopex_chirps_raft_storage::types::{
     ChirpsTypeConfig, Entry, LogFlushed, LogId, LogState, OptionalSend, RaftLogReader, Snapshot,
@@ -12,7 +14,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::RangeBounds;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 
 /// Begins construction of storage isolated to a single Raft group.
@@ -20,6 +22,9 @@ use tokio::sync::Mutex;
 pub trait RaftStorageFactory: Send + Sync + 'static {
     type StateMachine: StateMachine<Command = Vec<u8>, Response = Vec<u8>>;
     type Storage: ChirpsRaftStorage<ChirpsTypeConfig>;
+
+    /// Replaces the durable snapshot completion sink for existing and future storage instances.
+    fn set_snapshot_completion_hook(&self, _hook: Arc<dyn SnapshotCompletionHook>) {}
 
     async fn begin_storage(
         &self,
@@ -33,7 +38,35 @@ pub struct WalRaftStorageFactory<SM> {
     base_config: WalStorageConfig,
     node_id: u64,
     state_machine: PhantomData<SM>,
-    snapshot_completion_hook: Arc<dyn SnapshotCompletionHook>,
+    snapshot_completion_router: Arc<SnapshotCompletionRouter>,
+}
+
+struct SnapshotCompletionRouter {
+    hook: RwLock<Arc<dyn SnapshotCompletionHook>>,
+}
+
+impl SnapshotCompletionRouter {
+    fn new() -> Self {
+        Self {
+            hook: RwLock::new(Arc::new(NoopSnapshotCompletionHook)),
+        }
+    }
+
+    fn set(&self, hook: Arc<dyn SnapshotCompletionHook>) {
+        *self
+            .hook
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = hook;
+    }
+}
+
+impl SnapshotCompletionHook for SnapshotCompletionRouter {
+    fn completed(&self, event: SnapshotCompletionEvent) {
+        self.hook
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .completed(event);
+    }
 }
 
 impl<SM> WalRaftStorageFactory<SM> {
@@ -42,12 +75,12 @@ impl<SM> WalRaftStorageFactory<SM> {
             base_config,
             node_id,
             state_machine: PhantomData,
-            snapshot_completion_hook: Arc::new(NoopSnapshotCompletionHook),
+            snapshot_completion_router: Arc::new(SnapshotCompletionRouter::new()),
         }
     }
 
-    pub fn with_snapshot_completion_hook(mut self, hook: Arc<dyn SnapshotCompletionHook>) -> Self {
-        self.snapshot_completion_hook = hook;
+    pub fn with_snapshot_completion_hook(self, hook: Arc<dyn SnapshotCompletionHook>) -> Self {
+        self.snapshot_completion_router.set(hook);
         self
     }
 }
@@ -59,6 +92,10 @@ where
 {
     type StateMachine = SM;
     type Storage = WalRaftStorage<SM>;
+
+    fn set_snapshot_completion_hook(&self, hook: Arc<dyn SnapshotCompletionHook>) {
+        self.snapshot_completion_router.set(hook);
+    }
 
     async fn begin_storage(
         &self,
@@ -74,7 +111,9 @@ where
 
         match WalRaftStorage::new(config, group_id, self.node_id, state_machine) {
             Ok(mut storage) => {
-                storage.set_snapshot_completion_hook(Arc::clone(&self.snapshot_completion_hook));
+                let hook: Arc<dyn SnapshotCompletionHook> =
+                    Arc::clone(&self.snapshot_completion_router) as Arc<dyn SnapshotCompletionHook>;
+                storage.set_snapshot_completion_hook(hook);
                 Ok(StorageTransaction {
                     group_id,
                     namespace,
