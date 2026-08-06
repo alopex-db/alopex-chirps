@@ -607,7 +607,7 @@ async fn handle_connection(
                     payload_len,
                     msg.frame.clone(),
                 );
-                if let Err(err) = send_envelope(&connection, envelope).await {
+                if let Err(err) = send_envelope(&connection, envelope, true).await {
                     failed += 1;
                     warn!(peer=?remote_id, seq=msg.seq, "retransmit failed: {err}");
                 } else {
@@ -740,6 +740,7 @@ async fn send_wire_message(
 async fn send_envelope(
     connection: &Connection,
     envelope: FrameEnvelopeV2,
+    await_peer_stop: bool,
 ) -> Result<(), TransportError> {
     let bytes = envelope.encode();
     let mut stream = connection
@@ -753,6 +754,23 @@ async fn send_envelope(
     stream
         .finish()
         .map_err(|e| TransportError::Send(e.to_string()))?;
+    if !await_peer_stop {
+        // Keep the finished stream alive until QUIC confirms delivery. Raft's
+        // caller waits for its correlated application response, so it need not
+        // synchronously wait for the redundant stream-stop acknowledgement.
+        // Holding the stream in this task is essential: dropping it here can
+        // cancel queued bytes before the peer consumes them.
+        tokio::spawn(async move {
+            match stream.stopped().await {
+                Ok(Some(error_code)) => {
+                    warn!(%error_code, "detached Raft stream stopped by peer");
+                }
+                Ok(None) => {}
+                Err(error) => warn!(%error, "detached Raft stream completion failed"),
+            }
+        });
+        return Ok(());
+    }
     match stream
         .stopped()
         .await
@@ -1129,7 +1147,8 @@ async fn send_to_peer(
         frame,
     );
     let start = tokio::time::Instant::now();
-    let res = send_envelope(&conn, envelope).await;
+    let await_peer_stop = !matches!(kind, StreamKind::Raft | StreamKind::RaftSnapshot);
+    let res = send_envelope(&conn, envelope, await_peer_stop).await;
     if let Ok(()) = res {
         let elapsed = start.elapsed();
         metrics.sent.fetch_add(1, Ordering::Relaxed);
