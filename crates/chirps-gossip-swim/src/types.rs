@@ -3,7 +3,7 @@ use alopex_chirps_wire::node_id::NodeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Instant;
+use tokio::time::Instant;
 
 /// The status of a peer.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

@@ -3,7 +3,8 @@ use alopex_chirps_gossip_swim::util::{StatusChange, calculate_fanout, check_time
 use alopex_chirps_wire::node_id::NodeId;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tokio::time::Instant;
 
 #[test]
 fn fanout_respects_defaults_and_caps() {

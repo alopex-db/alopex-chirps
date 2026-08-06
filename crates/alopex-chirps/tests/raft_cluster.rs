@@ -487,6 +487,28 @@ impl TestCluster {
         }
     }
 
+    async fn wait_for_leader_except(
+        &self,
+        excluded: ChirpsNodeId,
+        timeout: Duration,
+    ) -> Result<ChirpsNodeId> {
+        let start = Instant::now();
+        loop {
+            for node in self.nodes.values() {
+                if node.id != excluded
+                    && node.node.leader_id() == Some(node.id)
+                    && !node.paused.load(Ordering::SeqCst)
+                {
+                    return Ok(node.id);
+                }
+            }
+            if start.elapsed() > timeout {
+                bail!("replacement leader not elected within {:?}", timeout);
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     async fn wait_for_state_len(
         &self,
         expected: usize,
@@ -887,5 +909,51 @@ async fn cluster_handles_node_failure_and_partition() -> Result<()> {
     cluster
         .wait_for_state_len(3, Duration::from_secs(2), true)
         .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stale_partitioned_leader_cannot_commit_and_heal_converges() -> Result<()> {
+    let cluster = TestCluster::new(&[51, 52, 53], 20).await?;
+    let old_leader = cluster.wait_for_leader(Duration::from_secs(1)).await?;
+    cluster
+        .propose(old_leader, b"committed-before-split")
+        .await?;
+    cluster
+        .wait_for_state_len(1, Duration::from_secs(1), true)
+        .await?;
+
+    cluster.isolate(old_leader).await;
+    let stale = tokio::time::timeout(
+        Duration::from_millis(500),
+        cluster.propose(old_leader, b"must-not-commit"),
+    )
+    .await;
+    assert!(
+        !matches!(stale, Ok(Ok(_))),
+        "the partitioned old leader must not commit a stale proposal"
+    );
+
+    let new_leader = cluster
+        .wait_for_leader_except(old_leader, Duration::from_secs(2))
+        .await?;
+    cluster
+        .propose(new_leader, b"committed-by-new-leader")
+        .await?;
+    cluster
+        .wait_for_state_len(2, Duration::from_secs(1), false)
+        .await?;
+
+    cluster.heal(old_leader).await;
+    cluster
+        .wait_for_state_len(2, Duration::from_secs(3), true)
+        .await?;
+    let states = cluster.states().await;
+    let expected = vec![
+        b"committed-before-split".to_vec(),
+        b"committed-by-new-leader".to_vec(),
+    ];
+    assert!(states.values().all(|state| state == &expected));
+    cluster.shutdown_all().await?;
     Ok(())
 }

@@ -2,7 +2,8 @@ use crate::types::{Peer, Status};
 use alopex_chirps_wire::node_id::NodeId;
 use std::cmp::min;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tokio::time::Instant;
 
 /// Describes a membership status transition detected by timeout checks.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -18,8 +18,8 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-use std::time::{Duration, Instant};
-use tokio::time::{Interval, interval};
+use std::time::Duration;
+use tokio::time::{Instant, Interval, interval};
 use tracing::{debug, info, warn};
 
 /// Transport abstraction used by the gossip engine.
