@@ -464,6 +464,75 @@ async fn learners_catch_up_before_common_voter_promotion() {
 }
 
 #[tokio::test]
+async fn sequential_groups_all_finish_common_voter_promotion() {
+    let cluster = TestCluster::new(GroupId(100)).await;
+
+    for raw_group_id in 100..110 {
+        let group_id = GroupId(raw_group_id);
+        cluster.managers[&1]
+            .create_group(group_id, BTreeSet::from([1]), EchoStateMachine::default())
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(3), async {
+            loop {
+                if cluster.managers[&1]
+                    .get_group(group_id)
+                    .unwrap()
+                    .metrics()
+                    .current_leader
+                    == Some(1)
+                {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("each seed must become leader");
+
+        let seed = cluster.managers[&1].get_group(group_id).unwrap();
+        for node_id in [2, 3] {
+            cluster.managers[&node_id]
+                .create_group_uninitialized(group_id, EchoStateMachine::default())
+                .await
+                .unwrap();
+            seed.add_learner(
+                node_id,
+                openraft::BasicNode {
+                    addr: format!("node-{node_id}"),
+                },
+            )
+            .await
+            .unwrap();
+        }
+        timeout(
+            Duration::from_secs(3),
+            seed.change_membership(BTreeSet::from([1, 2, 3])),
+        )
+        .await
+        .expect("membership promotion must not stall")
+        .unwrap();
+    }
+
+    for raw_group_id in 100..110 {
+        let group_id = GroupId(raw_group_id);
+        for node_id in [1, 2, 3] {
+            assert_eq!(
+                voters(
+                    &cluster.managers[&node_id]
+                        .get_group(group_id)
+                        .unwrap()
+                        .metrics()
+                ),
+                BTreeSet::from([1, 2, 3]),
+                "group {raw_group_id} must converge on node {node_id}"
+            );
+        }
+    }
+    cluster.shutdown().await;
+}
+
+#[tokio::test]
 async fn membership_failure_keeps_previous_configuration() {
     let cluster = TestCluster::new(GroupId(10)).await;
     cluster.create_replicas().await;

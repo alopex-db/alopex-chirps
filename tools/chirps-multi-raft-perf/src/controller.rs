@@ -59,17 +59,26 @@ pub async fn bootstrap(nodes: &[SocketAddr; 3], groups: u64) -> anyhow::Result<(
 
 async fn retry_membership(address: SocketAddr, request: Request) -> anyhow::Result<()> {
     let bytes = bincode::serialize(&request)?;
+    let description = format!("{request:?}");
+    let mut last_error = "operation was not attempted".to_owned();
     timeout(Duration::from_secs(30), async {
         loop {
             let request = bincode::deserialize(&bytes).expect("request round trip");
             match call(address, request).await {
                 Ok(Response::Ok) => break,
-                _ => sleep(Duration::from_millis(50)).await,
+                Ok(Response::Error(error)) => last_error = error,
+                Ok(response) => last_error = format!("unexpected response: {response:?}"),
+                Err(error) => last_error = format!("control call failed: {error:#}"),
             }
+            sleep(Duration::from_millis(50)).await;
         }
     })
     .await
-    .map_err(|_| anyhow::anyhow!("membership operation timed out"))
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "membership operation timed out for {description}; last error: {last_error}"
+        )
+    })
 }
 
 pub async fn probe_all(

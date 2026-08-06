@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, broadcast, oneshot};
+use tokio::sync::{Mutex, Semaphore, broadcast, oneshot};
 use tokio::time::{sleep, timeout};
 
 const PROBE_MAGIC: &[u8; 8] = b"MRPROBE1";
@@ -193,21 +193,45 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
 
 async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHandle<()>> {
     let mut incoming = runtime.backend.subscribe().await?;
+    let dispatch_slots = Arc::new(Semaphore::new(1024));
     Ok(tokio::spawn(async move {
         while let Some((source, frame)) = incoming.recv().await {
-            match frame {
-                Frame::User(message) => handle_probe_frame(&runtime, source, message).await,
-                frame @ (Frame::Raft(_) | Frame::RaftSnapshot(_)) => {
-                    if let Ok(Some(response)) = runtime
-                        .manager
-                        .dispatch_frame(source, wire_node_id(runtime.node_id), frame)
-                        .await
-                    {
-                        let _ = runtime.manager.send_routed_response(response).await;
+            let Ok(slot) = Arc::clone(&dispatch_slots).acquire_owned().await else {
+                break;
+            };
+            let runtime = Arc::clone(&runtime);
+            tokio::spawn(async move {
+                let _slot = slot;
+                match frame {
+                    Frame::User(message) => handle_probe_frame(&runtime, source, message).await,
+                    frame @ (Frame::Raft(_) | Frame::RaftSnapshot(_)) => {
+                        match runtime
+                            .manager
+                            .dispatch_frame(source, wire_node_id(runtime.node_id), frame)
+                            .await
+                        {
+                            Ok(Some(response)) => {
+                                if let Err(error) =
+                                    runtime.manager.send_routed_response(response).await
+                                {
+                                    eprintln!(
+                                        "node {} failed to send routed Raft response to {}: {error}",
+                                        runtime.node_id,
+                                        decode_node_id(source)
+                                    );
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(error) => eprintln!(
+                                "node {} failed to dispatch Raft frame from {}: {error}",
+                                runtime.node_id,
+                                decode_node_id(source)
+                            ),
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
+            });
         }
     }))
 }
