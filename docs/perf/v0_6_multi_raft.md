@@ -99,9 +99,7 @@ The release artifact path is
   "runner_command": ["argv", "without", "shell-expansion"],
   "execution_environment": {"class": "native|container|wsl", "host_count": 1, "logical_nodes": 3, "process_or_container_ids": ["..."], "cpu": "...", "cores": 0, "ram_bytes": 0, "kernel": "...", "storage": "...", "network_shaper": "...", "physical_deployment": false},
   "resolved_config": {"nodes": 3, "groups": 100, "payload_bytes": 1024, "rtt_ms": 1.0, "clients": 300, "warmup_seconds": 15, "measure_seconds": 60, "samples": 5},
-  "network_rtt_ms": [{"source": 1, "destination": 2, "unloaded": {"p50": 0.0, "p95": 0.0}, "shaped": {"p50": 0.0, "p95": 0.0}}],
-  "group_membership": [{"group_id": 1, "replicas": [{"node_id": 1, "voters": [1, 2, 3], "leader_id": 1, "last_applied": 0, "committed_digest": "64-hex"}]}],
-  "samples": [{"mode": "multi_raft", "index": 0, "group_count": 100, "clients": 300, "committed": 0, "throughput_per_sec": 0.0, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}, "errors": 0, "timeouts": 0, "cpu_seconds": 0.0, "peak_rss_bytes": 0}],
+  "samples": [{"mode": "multi_raft", "index": 0, "group_count": 100, "clients": 300, "actual_measure_duration_ms": 60000, "monotonic_start_ns": 0, "monotonic_end_ns": 0, "network_rtt_ms": [{"source": 1, "destination": 2, "unloaded": {"p50": 0.0, "p95": 0.0}, "shaped": {"p50": 0.0, "p95": 0.0}}], "group_membership_after_drain": [{"group_id": 1, "replicas": [{"node_id": 1, "voters": [1, 2, 3], "leader_id": 1, "last_applied": 0, "committed_digest": "64-hex"}]}], "committed": 0, "throughput_per_sec": 0.0, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}, "errors": 0, "timeouts": 0, "cpu_seconds": 0.0, "peak_rss_bytes": 0}],
   "per_group": [{"mode": "multi_raft", "sample_index": 0, "group_id": 1, "committed": 0, "throughput_per_sec": 0.0}],
   "raw_metrics_artifacts": [{"path": "relative/path", "sha256": "64-hex"}],
   "raw_artifact_set_sha256": "64-hex",
@@ -113,10 +111,11 @@ The release artifact path is
 The verifier must reject an artifact unless every Multi-Raft sample covers
 exactly groups `1..=100`, every baseline sample covers only group 1 with 300
 clients, and every per-group row belongs to an existing `(mode, sample_index)`.
-It must also verify all six directed node-pair RTT observations, identical
-voter set `{1, 2, 3}` on every replica, exactly one leader per group, matching
-commit position/digest after drain, each raw file digest, and the aggregate raw
-artifact-set digest.
+For every sample independently, it must verify a monotonic measured interval of
+at least 60,000 ms, all six directed node-pair RTT observations, identical voter
+set `{1, 2, 3}` on every replica, exactly one leader per group, and matching
+commit position/digest after drain. It must also verify each raw file digest and
+the aggregate raw artifact-set digest.
 
 Absolute temporary paths and wall-clock timestamps are metadata, not identity.
 The artifact identity is commit SHA, binary digest, resolved configuration,
