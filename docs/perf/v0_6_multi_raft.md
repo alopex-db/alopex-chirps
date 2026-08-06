@@ -81,7 +81,8 @@ scripts/perf/run-controlled-container-multi-raft.sh \
 ```
 
 The run needs Docker Compose, OpenSSL, `jq`, `tc`, seven disjoint available CPU
-IDs (defaults `0..=6`), and enough RAM for three 8 GiB container limits. It runs
+IDs (defaults use node sets `0-2`, `4-6`, `8-10` and load-generator CPUs
+`3`, `7`, `11`), and enough RAM for three 8 GiB container limits. It runs
 ten fresh-storage samples in the fixed order
 `M0,S0,S1,M1,M2,S2,S3,M3,M4,S4`. Each sample preserves three node JSONL metric
 streams, three exact load-generator histograms, container/network inspection,

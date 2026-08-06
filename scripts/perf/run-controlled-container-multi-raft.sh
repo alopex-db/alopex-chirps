@@ -35,10 +35,10 @@ context="$(mktemp -d /tmp/chirps-mr-context.XXXXXX)"
 tls="$(mktemp -d /tmp/chirps-mr-tls.XXXXXX)"
 project="chirps-mr-${source_sha:0:10}-$$"
 export PERF_OUTPUT="$output" PERF_TLS="$tls"
-export NODE1_CPU="${NODE1_CPU:-0}" LOADGEN1_CPU="${LOADGEN1_CPU:-1}"
-export NODE2_CPU="${NODE2_CPU:-2}" LOADGEN2_CPU="${LOADGEN2_CPU:-3}"
-export NODE3_CPU="${NODE3_CPU:-4}" LOADGEN3_CPU="${LOADGEN3_CPU:-5}"
-export CONTROLLER_CPU="${CONTROLLER_CPU:-6}"
+export NODE1_CPU="${NODE1_CPU:-0-2}" LOADGEN1_CPU="${LOADGEN1_CPU:-3}"
+export NODE2_CPU="${NODE2_CPU:-4-6}" LOADGEN2_CPU="${LOADGEN2_CPU:-7}"
+export NODE3_CPU="${NODE3_CPU:-8-10}" LOADGEN3_CPU="${LOADGEN3_CPU:-11}"
+export CONTROLLER_CPU="${CONTROLLER_CPU:-11}"
 
 cleanup() {
   local status=$?

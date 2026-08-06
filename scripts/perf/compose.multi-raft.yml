@@ -3,7 +3,7 @@ services:
     image: ${CHIRPS_PERF_IMAGE:?set CHIRPS_PERF_IMAGE}
     user: root
     cap_add: [NET_ADMIN]
-    cpuset: ${NODE1_CPU:-0}
+    cpuset: ${NODE1_CPU:-0-2}
     networks:
       data: { ipv4_address: 192.168.128.11 }
       control: { ipv4_address: 192.168.129.11 }
@@ -30,7 +30,7 @@ services:
     restart: "no"
   node2:
     <<: *node
-    cpuset: ${NODE2_CPU:-2}
+    cpuset: ${NODE2_CPU:-4-6}
     networks:
       data: { ipv4_address: 192.168.128.12 }
       control: { ipv4_address: 192.168.129.12 }
@@ -49,7 +49,7 @@ services:
           --trust /work/tls/cert.der --metrics /evidence/${SAMPLE_DIR}/node2-metrics.jsonl
   node3:
     <<: *node
-    cpuset: ${NODE3_CPU:-4}
+    cpuset: ${NODE3_CPU:-8-10}
     networks:
       data: { ipv4_address: 192.168.128.13 }
       control: { ipv4_address: 192.168.129.13 }
@@ -69,7 +69,7 @@ services:
   controller:
     image: ${CHIRPS_PERF_IMAGE:?set CHIRPS_PERF_IMAGE}
     user: root
-    cpuset: ${CONTROLLER_CPU:-6}
+    cpuset: ${CONTROLLER_CPU:-11}
     networks: [control]
     volumes:
       - ${PERF_OUTPUT:?set PERF_OUTPUT}:/evidence
@@ -77,17 +77,17 @@ services:
   loadgen1: &loadgen
     image: ${CHIRPS_PERF_IMAGE:?set CHIRPS_PERF_IMAGE}
     user: root
-    cpuset: ${LOADGEN1_CPU:-1}
+    cpuset: ${LOADGEN1_CPU:-3}
     networks: [control]
     volumes:
       - ${PERF_OUTPUT:?set PERF_OUTPUT}:/evidence
     profiles: [tools]
   loadgen2:
     <<: *loadgen
-    cpuset: ${LOADGEN2_CPU:-3}
+    cpuset: ${LOADGEN2_CPU:-7}
   loadgen3:
     <<: *loadgen
-    cpuset: ${LOADGEN3_CPU:-5}
+    cpuset: ${LOADGEN3_CPU:-11}
 
 networks:
   data:

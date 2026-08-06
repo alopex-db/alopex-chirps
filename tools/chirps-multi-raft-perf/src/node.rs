@@ -150,8 +150,8 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
         factory,
         RaftConfig {
             node_id: args.node_id,
-            election_timeout_ms: 300,
-            heartbeat_interval_ms: 100,
+            election_timeout_ms: 2_000,
+            heartbeat_interval_ms: 250,
             snapshot_threshold: args.snapshot_threshold,
             max_in_snapshot_log_to_keep: args.snapshot_threshold,
             ..RaftConfig::default()
@@ -240,7 +240,7 @@ fn spawn_ticker(runtime: Arc<Runtime>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             let _ = runtime.manager.tick_all().await;
-            sleep(Duration::from_millis(20)).await;
+            sleep(Duration::from_millis(250)).await;
         }
     })
 }
