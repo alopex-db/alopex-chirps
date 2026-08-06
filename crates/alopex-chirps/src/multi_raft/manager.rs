@@ -54,6 +54,28 @@ where
         initial_members: BTreeSet<u64>,
         state_machine: F::StateMachine,
     ) -> Result<(), MultiRaftError> {
+        self.create_group_inner(group_id, Some(initial_members), state_machine)
+            .await
+    }
+
+    /// Creates a routable local replica without initializing a second cluster.
+    ///
+    /// A seed node must later add this replica as a learner, wait for catch-up,
+    /// and promote it through [`GroupHandle::change_membership`].
+    pub async fn create_group_uninitialized(
+        &self,
+        group_id: GroupId,
+        state_machine: F::StateMachine,
+    ) -> Result<(), MultiRaftError> {
+        self.create_group_inner(group_id, None, state_machine).await
+    }
+
+    async fn create_group_inner(
+        &self,
+        group_id: GroupId,
+        initial_members: Option<BTreeSet<u64>>,
+        state_machine: F::StateMachine,
+    ) -> Result<(), MultiRaftError> {
         let _lifecycle = self.lifecycle.lock().await;
         if self.groups_read().contains_key(&group_id) {
             return Err(MultiRaftError::GroupAlreadyExists { group_id });
@@ -81,7 +103,9 @@ where
             }
         };
 
-        if let Err(error) = node.initialize(initial_members).await {
+        if let Some(initial_members) = initial_members
+            && let Err(error) = node.initialize(initial_members).await
+        {
             let shutdown = node.shutdown().await;
             drop(node);
             let cleanup = transaction.abort().await;
@@ -95,6 +119,10 @@ where
             return Err(MultiRaftError::NodeInitialization { group_id, reason });
         }
 
+        // Commit the storage allocation before making the replica routable.
+        // The lifecycle lock makes the following map insertion infallible with
+        // respect to duplicate creation.
+        drop(transaction.commit());
         let handle = Arc::new(GroupHandle::new(group_id, Arc::clone(&node)));
         let replaced = self.groups_write().insert(group_id, handle);
         if let Some(previous) = replaced {
@@ -105,13 +133,8 @@ where
             let _ = node.shutdown().await;
             drop(inserted);
             drop(node);
-            let cleanup = transaction.abort().await;
-            return match cleanup {
-                Ok(()) => Err(MultiRaftError::GroupAlreadyExists { group_id }),
-                Err(error) => Err(error),
-            };
+            return Err(MultiRaftError::GroupAlreadyExists { group_id });
         }
-        drop(transaction.commit());
         Ok(())
     }
 
@@ -147,6 +170,11 @@ where
         payload: RaftFramePayload,
     ) -> Result<RoutedRaftResponse, MultiRaftError> {
         let group_id = payload.message.group_id();
+        if is_response(&payload.message) {
+            return Err(MultiRaftError::InvalidTransportRoute {
+                reason: "Raft responses must be delivered through dispatch_message".to_owned(),
+            });
+        }
         if destination != self.transport.node_id() {
             return Err(MultiRaftError::Routing {
                 group_id,
@@ -175,12 +203,14 @@ where
         })
     }
 
-    /// Decodes and routes one Raft frame received from the Chirps backend.
+    /// Decodes and routes one request frame for compatibility callers.
     ///
     /// Wire node IDs are accepted only in the canonical representation used by
     /// `ChirpsRaftTransport`: eight zero bytes followed by the big-endian Raft
     /// node ID. Non-Raft frames, malformed payloads, and non-canonical node IDs
-    /// are rejected before any group is looked up or mutated.
+    /// are rejected before any group is looked up or mutated. Actual receive
+    /// loops must use [`Self::dispatch_frame`] so correlated responses wake the
+    /// correct pending group RPC.
     pub async fn route_frame(
         &self,
         source: NodeId,
@@ -202,6 +232,72 @@ where
             }
         })?;
         self.route_message(source, destination, payload).await
+    }
+
+    /// Dispatches a frame from an actual receive loop.
+    ///
+    /// Requests return `Some(response)` for the caller to encode and send.
+    /// Responses are validated against the per-group pending RPC table, wake
+    /// exactly one waiter, and return `None`.
+    pub async fn dispatch_frame(
+        &self,
+        source: NodeId,
+        destination: NodeId,
+        frame: Frame,
+    ) -> Result<Option<RoutedRaftResponse>, MultiRaftError> {
+        let source =
+            decode_wire_node_id(source).ok_or_else(|| MultiRaftError::InvalidTransportRoute {
+                reason: "source NodeId is not a canonical Raft node ID".to_owned(),
+            })?;
+        let destination = decode_wire_node_id(destination).ok_or_else(|| {
+            MultiRaftError::InvalidTransportRoute {
+                reason: "destination NodeId is not a canonical Raft node ID".to_owned(),
+            }
+        })?;
+        let payload = ChirpsRaftTransport::decode_frame(frame).ok_or_else(|| {
+            MultiRaftError::InvalidTransportRoute {
+                reason: "frame is not a valid group-consistent Raft frame".to_owned(),
+            }
+        })?;
+        self.dispatch_message(source, destination, payload).await
+    }
+
+    /// Dispatches one decoded request or correlated response.
+    pub async fn dispatch_message(
+        &self,
+        source: u64,
+        destination: u64,
+        payload: RaftFramePayload,
+    ) -> Result<Option<RoutedRaftResponse>, MultiRaftError> {
+        let group_id = payload.message.group_id();
+        if destination != self.transport.node_id() {
+            return Err(MultiRaftError::Routing {
+                group_id,
+                reason: format!(
+                    "destination mismatch: expected {}, got {destination}",
+                    self.transport.node_id()
+                ),
+            });
+        }
+        let correlation_id = payload.correlation_id;
+        let group = self
+            .get_group(group_id)
+            .ok_or(MultiRaftError::UnknownGroup { group_id })?;
+        let Some(message) = group.dispatch_message(source, payload).await? else {
+            return Ok(None);
+        };
+        if message.group_id() != group_id {
+            return Err(MultiRaftError::Routing {
+                group_id,
+                reason: "Raft response group mismatch".to_owned(),
+            });
+        }
+        Ok(Some(RoutedRaftResponse {
+            source: destination,
+            destination: source,
+            correlation_id,
+            message,
+        }))
     }
 
     pub async fn tick_all(&self) -> Vec<GroupTickResult> {
@@ -255,6 +351,15 @@ fn decode_wire_node_id(node_id: NodeId) -> Option<u64> {
         return None;
     }
     Some(u64::from_be_bytes(bytes[8..].try_into().ok()?))
+}
+
+fn is_response(message: &RaftMessage) -> bool {
+    matches!(
+        message,
+        RaftMessage::AppendEntriesResponse { .. }
+            | RaftMessage::VoteResponse { .. }
+            | RaftMessage::InstallSnapshotResponse { .. }
+    )
 }
 
 fn node_initialization_error(

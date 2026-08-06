@@ -12,10 +12,10 @@ use openraft::network::{RPCOption, RPCTypes, RaftNetwork, RaftNetworkFactory};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::oneshot;
 use tokio::time;
 
 /// Raft RPCメッセージをフレーム化する際のコンテナ。レスポンス対応のため相関IDを保持する。
@@ -42,7 +42,22 @@ pub struct RaftFramePayload {
 struct PendingRpc {
     target: ChirpsNodeId,
     group_id: GroupId,
+    rpc_type: RPCTypes,
     response: oneshot::Sender<RaftMessage>,
+}
+
+struct PendingRegistration {
+    correlation_id: u64,
+    pending: Arc<Mutex<HashMap<u64, PendingRpc>>>,
+}
+
+impl Drop for PendingRegistration {
+    fn drop(&mut self) {
+        self.pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.correlation_id);
+    }
 }
 
 /// Raftネットワークのファクトリ。openraftのRaftNetworkFactoryを実装する。
@@ -61,6 +76,7 @@ pub struct ChirpsRaftTransport {
     group_id: GroupId,
     node_id: ChirpsNodeId,
     next_corr: AtomicU64,
+    accepting_rpcs: AtomicBool,
     pending: Arc<Mutex<HashMap<u64, PendingRpc>>>,
 }
 
@@ -72,6 +88,7 @@ impl ChirpsRaftTransport {
             group_id,
             node_id,
             next_corr: AtomicU64::new(1),
+            accepting_rpcs: AtomicBool::new(true),
             pending: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -128,7 +145,10 @@ impl ChirpsRaftTransport {
         if payload.message.group_id() != self.group_id {
             return None;
         }
-        let mut guard = self.pending.lock().await;
+        let mut guard = self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if is_response(&payload.message)
             && let Some(pending) = guard.remove(&payload.correlation_id)
         {
@@ -156,7 +176,10 @@ impl ChirpsRaftTransport {
             return Ok(Some(payload));
         }
 
-        let mut guard = self.pending.lock().await;
+        let mut guard = self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(pending) = guard.get(&payload.correlation_id) else {
             return Err(TransportError::Connection(format!(
                 "unknown Raft response correlation {}",
@@ -166,6 +189,12 @@ impl ChirpsRaftTransport {
         if pending.target != source || pending.group_id != group_id {
             return Err(TransportError::Connection(format!(
                 "Raft response route mismatch for correlation {}",
+                payload.correlation_id
+            )));
+        }
+        if !response_matches(pending.rpc_type, &payload.message) {
+            return Err(TransportError::Connection(format!(
+                "Raft response type mismatch for correlation {}",
                 payload.correlation_id
             )));
         }
@@ -193,6 +222,20 @@ impl ChirpsRaftTransport {
         self.backend.send(target, frame).await
     }
 
+    /// Stops admission of new outbound RPCs while keeping already pending
+    /// responses deliverable during lifecycle drain.
+    pub(crate) fn close_rpc_admission(&self) {
+        self.accepting_rpcs.store(false, Ordering::Release);
+    }
+
+    /// Cancels any residual RPCs after lifecycle-held operations have drained.
+    pub(crate) fn cancel_pending_rpcs(&self) {
+        self.pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+    }
+
     /// 内部でRPCを送信しレスポンスを待つ共通処理。
     async fn send_rpc<E>(
         &self,
@@ -207,6 +250,11 @@ impl ChirpsRaftTransport {
     where
         E: std::error::Error + Send + Sync + 'static,
     {
+        if !self.accepting_rpcs.load(Ordering::Acquire) {
+            return Err(RPCError::Network(NetworkError::new(&RaftError::Internal(
+                anyhow::anyhow!("Raft transport is shutting down"),
+            ))));
+        }
         let correlation_id = self.next_corr.fetch_add(1, Ordering::Relaxed);
         let frame = self
             .encode_frame(RaftFramePayload {
@@ -217,16 +265,29 @@ impl ChirpsRaftTransport {
 
         let (tx, rx) = oneshot::channel();
         {
-            let mut guard = self.pending.lock().await;
+            let mut guard = self
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !self.accepting_rpcs.load(Ordering::Acquire) {
+                return Err(RPCError::Network(NetworkError::new(&RaftError::Internal(
+                    anyhow::anyhow!("Raft transport is shutting down"),
+                ))));
+            }
             guard.insert(
                 correlation_id,
                 PendingRpc {
                     target,
                     group_id: self.group_id,
+                    rpc_type,
                     response: tx,
                 },
             );
         }
+        let _registration = PendingRegistration {
+            correlation_id,
+            pending: Arc::clone(&self.pending),
+        };
 
         let send_res = self
             .backend
@@ -236,31 +297,19 @@ impl ChirpsRaftTransport {
                 map_transport_error::<E>(rpc_type, self.node_id, target, option.hard_ttl(), e)
             });
 
-        if let Err(err) = send_res {
-            let mut guard = self.pending.lock().await;
-            guard.remove(&correlation_id);
-            return Err(err);
-        }
+        send_res?;
 
         match time::timeout(option.hard_ttl(), rx).await {
             Ok(Ok(msg)) => Ok(msg),
-            Ok(Err(_canceled)) => {
-                let mut guard = self.pending.lock().await;
-                guard.remove(&correlation_id);
-                Err(RPCError::Network(NetworkError::new(&RaftError::Internal(
-                    anyhow::anyhow!("response channel closed"),
-                ))))
-            }
-            Err(_) => {
-                let mut guard = self.pending.lock().await;
-                guard.remove(&correlation_id);
-                Err(RPCError::Timeout(Timeout {
-                    action: rpc_type,
-                    id: self.node_id,
-                    target,
-                    timeout: option.hard_ttl(),
-                }))
-            }
+            Ok(Err(_canceled)) => Err(RPCError::Network(NetworkError::new(&RaftError::Internal(
+                anyhow::anyhow!("response channel closed"),
+            )))),
+            Err(_) => Err(RPCError::Timeout(Timeout {
+                action: rpc_type,
+                id: self.node_id,
+                target,
+                timeout: option.hard_ttl(),
+            })),
         }
     }
 
@@ -282,6 +331,21 @@ fn is_response(message: &RaftMessage) -> bool {
         RaftMessage::AppendEntriesResponse { .. }
             | RaftMessage::VoteResponse { .. }
             | RaftMessage::InstallSnapshotResponse { .. }
+    )
+}
+
+fn response_matches(rpc_type: RPCTypes, message: &RaftMessage) -> bool {
+    matches!(
+        (rpc_type, message),
+        (RPCTypes::Vote, RaftMessage::VoteResponse { .. })
+            | (
+                RPCTypes::AppendEntries,
+                RaftMessage::AppendEntriesResponse { .. }
+            )
+            | (
+                RPCTypes::InstallSnapshot,
+                RaftMessage::InstallSnapshotResponse { .. }
+            )
     )
 }
 
@@ -427,7 +491,8 @@ where
 mod tests {
     use super::*;
     use alopex_chirps_mock::{MockBackend, MockNetwork};
-    use alopex_chirps_raft_storage::types::Vote;
+    use alopex_chirps_raft_storage::types::{AppendEntriesResponse, Vote};
+    use std::time::Duration;
 
     #[tokio::test]
     async fn response_requires_matching_source_group_and_correlation() {
@@ -438,14 +503,19 @@ mod tests {
         let backend: Arc<dyn MessageBackend> = Arc::new(backend);
         let transport = ChirpsRaftTransport::new(backend, GroupId(4), 1);
         let (tx, rx) = oneshot::channel();
-        transport.pending.lock().await.insert(
-            9,
-            PendingRpc {
-                target: 2,
-                group_id: GroupId(4),
-                response: tx,
-            },
-        );
+        transport
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                9,
+                PendingRpc {
+                    target: 2,
+                    group_id: GroupId(4),
+                    rpc_type: RPCTypes::Vote,
+                    response: tx,
+                },
+            );
         let response = || RaftFramePayload {
             correlation_id: 9,
             message: RaftMessage::VoteResponse {
@@ -464,7 +534,51 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert_eq!(transport.pending.lock().await.len(), 1);
+        assert_eq!(
+            transport
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            1
+        );
+        let mut wrong_correlation = response();
+        wrong_correlation.correlation_id = 10;
+        assert!(
+            transport
+                .consume_incoming_from(2, wrong_correlation)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            transport
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            1
+        );
+        let wrong_type = RaftFramePayload {
+            correlation_id: 9,
+            message: RaftMessage::AppendEntriesResponse {
+                group_id: GroupId(4),
+                response: AppendEntriesResponse::Success,
+            },
+        };
+        assert!(
+            transport
+                .consume_incoming_from(2, wrong_type)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            transport
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            1
+        );
         assert!(
             transport
                 .consume_incoming_from(2, response())
@@ -479,5 +593,91 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn cancelled_future_and_shutdown_cleanup_remove_pending_rpcs() {
+        let network = MockNetwork::new();
+        let backend = network
+            .add_node(NodeId::from([0; 16]), MockBackend::ephemeral_addr())
+            .await;
+        let _peer = network
+            .add_node(encode_node_id(2), MockBackend::ephemeral_addr())
+            .await;
+        let backend: Arc<dyn MessageBackend> = Arc::new(backend);
+        let transport = Arc::new(ChirpsRaftTransport::new(backend, GroupId(4), 1));
+
+        let task = {
+            let transport = Arc::clone(&transport);
+            tokio::spawn(async move {
+                transport
+                    .send_rpc::<Infallible>(
+                        2,
+                        RPCTypes::Vote,
+                        RaftMessage::Vote {
+                            group_id: GroupId(4),
+                            request: VoteRequest {
+                                vote: Vote::new(1, 1),
+                                last_log_id: None,
+                            },
+                        },
+                        RPCOption::new(Duration::from_secs(60)),
+                    )
+                    .await
+            })
+        };
+        time::timeout(Duration::from_secs(1), async {
+            loop {
+                if transport
+                    .pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .len()
+                    == 1
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("outbound RPC must register pending state");
+
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(
+            transport
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
+        );
+
+        transport.close_rpc_admission();
+        assert!(
+            transport
+                .send_rpc::<Infallible>(
+                    2,
+                    RPCTypes::Vote,
+                    RaftMessage::Vote {
+                        group_id: GroupId(4),
+                        request: VoteRequest {
+                            vote: Vote::new(1, 1),
+                            last_log_id: None,
+                        },
+                    },
+                    RPCOption::new(Duration::from_secs(60)),
+                )
+                .await
+                .is_err()
+        );
+        transport.cancel_pending_rpcs();
+        assert!(
+            transport
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
+        );
     }
 }

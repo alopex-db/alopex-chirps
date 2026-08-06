@@ -22,6 +22,8 @@ pub enum MultiRaftError {
     TransportRegistration { group_id: GroupId, reason: String },
     #[error("routing failed for group {group_id:?}: {reason}")]
     Routing { group_id: GroupId, reason: String },
+    #[error("membership change failed for group {group_id:?}: {reason}")]
+    Membership { group_id: GroupId, reason: String },
     #[error("invalid transport route: {reason}")]
     InvalidTransportRoute { reason: String },
     #[error("shutdown failed for group {group_id:?}: {reason}")]

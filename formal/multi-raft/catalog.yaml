@@ -41,22 +41,22 @@ requirements:
   - id: MR-REPLICA-PUBLICATION
     classification: concurrent/distributed-state
     failure_mode: "A remote replica is advertised as initialized or as a member before its uninitialized local replica has been durably published."
-    properties: [ReplicaPublicationSafe, PublishedOnlyAfterCommit, FailureLeavesMembershipAtomic]
+    properties: [ReplicaPublicationSafe, PublishedOnlyAfterCommit, RejectedPreSubmitMembershipLeavesStateUnchanged]
     refinement:
       - crates/alopex-chirps/src/multi_raft/manager.rs
       - crates/alopex-chirps/src/multi_raft/group.rs
       - crates/alopex-chirps/src/multi_raft/storage.rs
-    planned_local_component_test:
+    local_component_test:
       - crates/alopex-chirps/tests/multi_raft_three_voter.rs::uninitialized_replica_is_published_without_single_member_initialize
       - crates/alopex-chirps/tests/multi_raft_three_voter.rs::replica_publication_failure_is_atomic
   - id: MR-MEMBERSHIP-BOOTSTRAP
     classification: concurrent/distributed-state
     failure_mode: "A learner is promoted before publication and catch-up, or nodes converge on different voter sets."
-    properties: [MembershipSafety, LearnerPromotionSafe, FailureLeavesMembershipAtomic]
+    properties: [MembershipSafety, LearnerPromotionSafe, RejectedPreSubmitMembershipLeavesStateUnchanged]
     refinement:
       - crates/alopex-chirps/src/multi_raft/manager.rs
       - crates/alopex-chirps/src/raft/node.rs
-    planned_local_component_test:
+    local_component_test:
       - crates/alopex-chirps/tests/multi_raft_three_voter.rs::learners_catch_up_before_common_voter_promotion
       - crates/alopex-chirps/tests/multi_raft_three_voter.rs::membership_failure_keeps_previous_configuration
   - id: MR-CORRELATED-DISPATCH
@@ -69,8 +69,8 @@ requirements:
     local_component_test:
       - crates/alopex-chirps/src/raft/transport.rs::tests::response_requires_matching_source_group_and_correlation
       - crates/alopex-chirps/tests/multi_raft_transport.rs::outer_and_payload_group_must_match_before_routing
-    planned_local_component_test:
-      - crates/alopex-chirps/tests/multi_raft_transport.rs::correlated_response_wakes_pending_group_rpc
+      - crates/alopex-chirps/tests/multi_raft_transport.rs::unknown_correlated_responses_do_not_mutate_group_state
+      - crates/alopex-chirps/tests/multi_raft_three_voter.rs::remove_drains_pending_proposal_and_only_valid_response_completes_it
   - id: MR-CONSENSUS-SAFETY
     classification: concurrent/distributed-state
     failure_mode: "A group exposes multiple leaders in one term or commits conflicting values without a voter quorum."
@@ -81,7 +81,6 @@ requirements:
     local_component_test:
       - crates/alopex-chirps/tests/raft_cluster.rs::three_node_cluster_elects_leader
       - crates/alopex-chirps/tests/raft_cluster.rs::proposals_replicate_to_all_nodes
-    planned_local_component_test:
       - crates/alopex-chirps/tests/multi_raft_three_voter.rs::three_voters_elect_one_leader_and_commit_consistently
   - id: MR-STORAGE-ISOLATION
     classification: local-state
@@ -111,8 +110,9 @@ requirements:
     refinement:
       - crates/alopex-chirps/src/multi_raft/group.rs
       - crates/alopex-chirps/src/multi_raft/manager.rs
-    planned_local_component_test:
-      - crates/alopex-chirps/tests/multi_raft_lifecycle.rs::remove_drains_in_flight_route_tick_and_rpc
+    local_component_test:
+      - crates/alopex-chirps/tests/multi_raft_three_voter.rs::remove_drains_pending_proposal_and_only_valid_response_completes_it
+      - crates/alopex-chirps/src/raft/transport.rs::tests::cancelled_future_and_shutdown_cleanup_remove_pending_rpcs
   - id: MR-TICK-INDEPENDENCE
     classification: concurrent/distributed-state
     failure_mode: "One group's tick failure prevents an unrelated active group from progressing."

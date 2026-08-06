@@ -39,7 +39,7 @@ FailureEvents == {
     "rpc_timed_out", "replica_failed", "fail_replica_publish",
     "fail_learner_add", "fail_learner_catchup", "fail_learner_promote"
 }
-AtomicMembershipFailureEvents == {
+RejectedPreSubmitMembershipEvents == {
     "fail_replica_publish", "fail_learner_add",
     "fail_learner_catchup", "fail_learner_promote"
 }
@@ -959,8 +959,8 @@ RejectedRouteHasNoMutation ==
         /\ pendingCorrelationSnapshot = pendingCorrelation
         /\ pendingTargetSnapshot = pendingTarget
 
-FailureLeavesMembershipAtomic ==
-    lastEvent \in AtomicMembershipFailureEvents =>
+RejectedPreSubmitMembershipLeavesStateUnchanged ==
+    lastEvent \in RejectedPreSubmitMembershipEvents =>
         /\ lastEventGroup = BootstrapGroup
         /\ lastEventReplica \in RemoteReplicas
         /\ phaseSnapshot = phase[lastEventGroup]

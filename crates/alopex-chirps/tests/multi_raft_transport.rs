@@ -1,6 +1,6 @@
 #![cfg(feature = "multi-raft")]
 
-use alopex_chirps::multi_raft::{MultiRaftManager, WalRaftStorageFactory};
+use alopex_chirps::multi_raft::{MultiRaftError, MultiRaftManager, WalRaftStorageFactory};
 use alopex_chirps::raft::RaftFramePayload;
 use alopex_chirps::{ChirpsRaftTransport, RaftConfig, RaftMessage};
 use alopex_chirps_core::backend::MessageBackend;
@@ -88,7 +88,7 @@ fn only_exact_v0_6_peers_negotiate_multi_raft() {
 }
 
 #[tokio::test]
-async fn correlated_response_wakes_pending_group_rpc() {
+async fn unknown_correlated_responses_do_not_mutate_group_state() {
     let root = tempfile::tempdir().unwrap();
     let network = MockNetwork::new();
     let backend = network
@@ -140,6 +140,12 @@ async fn correlated_response_wakes_pending_group_rpc() {
             .await
             .is_err()
     );
+    assert!(matches!(
+        manager
+            .route_frame(wire_node_id(2), wire_node_id(1), response_frame(8))
+            .await,
+        Err(MultiRaftError::InvalidTransportRoute { .. })
+    ));
     let after = manager.get_group(GroupId(4)).unwrap().metrics();
     assert_eq!(after.last_applied, before.last_applied);
     assert_eq!(after.current_term, before.current_term);

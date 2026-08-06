@@ -2,6 +2,12 @@
 
 Status: PASS for the six bounded profiles below (2026-08-06 Asia/Tokyo)
 
+The model was re-typechecked and all six profiles were rerun after narrowing
+the membership-failure property name and evidence scope. The chained command
+completed with exit status 0; every profile again reported `NoError` at the
+documented bound. Generated `_apalache-out` data was deleted after recording
+the verdict.
+
 ## Finite bounds
 
 - checker: Apalache 0.58.3, pinned by digest in compose.yml
@@ -60,7 +66,10 @@ Status: PASS for the six bounded profiles below (2026-08-06 Asia/Tokyo)
 The bootstrap bound covers create/prepare/publish of n1, then
 publish-uninitialized/add-learner/catch-up/promote for n2 and n3, then the
 common voter-set readiness transition. The membership profile checks explicit
-publication, learner-add, catch-up, and promotion failure actions. The
+pre-submit rejection actions for publication, learner-add, catch-up, and
+promotion. These actions do not model an OpenRaft request that was accepted and
+then failed after a partial joint-consensus transition; transactional rollback
+of such a transition is neither a requirement nor a model claim. The
 correlation profile checks wrong group, wrong source, wrong correlation,
 matched delivery, and timeout choices without mutating an unrelated request.
 The drain profile checks that request and tick work finish before shutdown.
@@ -87,11 +96,11 @@ combined transition relation was exhaustively checked.
 ## Refinement and local viewpoints
 
 catalog.yaml is normative. It maps every property to production source and
-separates existing local tests from planned RED viewpoints required by the
-three-voter implementation. In particular, remote replica publication,
-learner catch-up/promotion, manager-side correlated-response dispatch, and a
-three-voter commit test are planned production-local viewpoints; this model
-does not claim those tests already exist or pass.
+separates completed local tests from the remaining planned viewpoints. Remote
+replica publication, sequential learner catch-up/promotion, manager-side
+correlated-response dispatch during drain, cancellation cleanup, and a
+three-voter commit now have production-local tests. Unknown-route and
+independent tick-failure viewpoints remain planned where the catalog says so.
 
 AssumeReadyBootstrap is used only to set up the consensus profile. It does not
 replace the twelve-step detailed bootstrap result and must not be refined as a

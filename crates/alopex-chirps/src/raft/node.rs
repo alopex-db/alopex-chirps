@@ -310,6 +310,14 @@ impl RaftNode {
             .map_err(RaftError::from)
     }
 
+    pub(crate) fn close_transport_admission(&self) {
+        self.transport.close_rpc_admission();
+    }
+
+    pub(crate) fn cancel_pending_transport_rpcs(&self) {
+        self.transport.cancel_pending_rpcs();
+    }
+
     /// スナップショット生成を手動でトリガーする。
     pub async fn trigger_snapshot(&self) -> RaftResult<()> {
         self.raft
