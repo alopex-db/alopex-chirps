@@ -3,7 +3,7 @@ set -euo pipefail
 umask 077
 
 readonly COMPOSE_FILE="scripts/perf/compose.multi-raft.yml"
-readonly NODES="172.31.61.11:7101,172.31.61.12:7102,172.31.61.13:7103"
+readonly NODES="192.168.129.11:7101,192.168.129.12:7102,192.168.129.13:7103"
 readonly ORDER=(multi_raft:0 single_group:0 single_group:1 multi_raft:1 multi_raft:2 single_group:2 single_group:3 multi_raft:3 multi_raft:4 single_group:4)
 
 usage() {
@@ -74,7 +74,7 @@ measure_network_rtt() {
   for source_node in 1 2 3; do
     for destination_node in 1 2 3; do
       [[ "$source_node" != "$destination_node" ]] || continue
-      destination_ip="172.31.60.$((10 + destination_node))"
+      destination_ip="192.168.128.$((10 + destination_node))"
       ping_output="$(compose exec --user root --no-TTY "node${source_node}" ping -n -c 200 -i 0.01 -W 1 "$destination_ip")"
       mapfile -t samples < <(printf '%s\n' "$ping_output" | sed -n 's/.* time[=<]\([0-9.]*\) ms.*/\1/p')
       [[ "${#samples[@]}" == 200 ]] || { printf 'incomplete RTT probe %s -> %s\n' "$source_node" "$destination_node" >&2; return 1; }
@@ -99,9 +99,9 @@ for item in "${ORDER[@]}"; do
   mkdir -p "$output/$sample"
   compose up --detach node1 node2 node3
   for attempt in $(seq 1 120); do
-    if controller ctl --address 172.31.61.11:7101 --operation health >/dev/null 2>&1 \
-      && controller ctl --address 172.31.61.12:7102 --operation health >/dev/null 2>&1 \
-      && controller ctl --address 172.31.61.13:7103 --operation health >/dev/null 2>&1; then break; fi
+    if controller ctl --address 192.168.129.11:7101 --operation health >/dev/null 2>&1 \
+      && controller ctl --address 192.168.129.12:7102 --operation health >/dev/null 2>&1 \
+      && controller ctl --address 192.168.129.13:7103 --operation health >/dev/null 2>&1; then break; fi
     sleep 0.25
     [[ "$attempt" != 120 ]] || { printf '%s\n' 'node health timeout' >&2; exit 1; }
   done
@@ -122,7 +122,7 @@ for item in "${ORDER[@]}"; do
   pids=()
   for node in 1 2 3; do
     compose run --rm --no-deps "loadgen${node}" loadgen \
-      --origin-node "$node" --leader-control 172.31.61.11:7101 \
+      --origin-node "$node" --leader-control 192.168.129.11:7101 \
       --mode "$mode" --sample-index "$index" --start-at-ns "$start_at" \
       --output "/evidence/$sample/loadgen${node}.json" \
       >"$output/$sample/loadgen${node}.log" 2>&1 &
