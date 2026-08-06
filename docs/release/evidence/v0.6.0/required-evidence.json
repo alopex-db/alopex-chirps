@@ -1,0 +1,22 @@
+{
+  "schema": "chirps.release-required-evidence/v1",
+  "release_version": "0.6.0",
+  "contract": "docs/release/v0.6.0.md",
+  "target_gate_id": "chirps-v0.6-target-gate",
+  "required_evidence": [
+    {"id": "multi-raft-deterministic", "source_path": "docs/release/evidence/v0.6.0/multi-raft-fault-v2.json"},
+    {"id": "multi-raft-controlled-failure", "source_path": "docs/release/evidence/v0.6.0/multi-raft-controlled-failure-v2.json"},
+    {"id": "multi-raft-performance", "source_path": "docs/release/evidence/v0.6.0/multi-raft-performance.json"},
+    {"id": "tso", "source_path": "docs/release/evidence/v0.6.0/tso-v0.6.json"},
+    {"id": "hlc", "source_path": "docs/release/evidence/v0.6.0/hlc-v0.6.json"},
+    {"id": "snapshot", "source_path": "docs/release/evidence/v0.6.0/snapshot-v0.6.json"},
+    {"id": "metrics", "source_path": "docs/release/evidence/v0.6.0/metrics-v0.6.json"},
+    {"id": "resilience-network", "source_path": "docs/release/evidence/v0.6.0/network-resilience-v0.6.json"},
+    {"id": "resilience-storage", "source_path": "docs/release/evidence/v0.6.0/storage-resilience-v0.6.json"},
+    {"id": "resilience-consensus", "source_path": "docs/release/evidence/v0.6.0/consensus-resilience-v0.6.json"},
+    {"id": "resilience-membership", "source_path": "docs/release/evidence/v0.6.0/membership-resilience-v0.6.json"},
+    {"id": "resilience-qos", "source_path": "docs/release/evidence/v0.6.0/qos-resilience-v0.6.json"},
+    {"id": "mesh-file-transfer-api", "source_path": "docs/release/evidence/v0.6.0/mesh-file-transfer-api-v0.6.json"},
+    {"id": "alopex-core-registry", "generated_by": "scripts/verify-registry-dependency.sh"}
+  ]
+}

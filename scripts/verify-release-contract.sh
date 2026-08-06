@@ -6,19 +6,27 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage: verify-release-contract.sh --version X.Y.Z [--require-ready]
+       [--manifest FILE] [--source-commit SHA]
 
 Checks docs/release/vX.Y.Z.md for traceability, exclusions, and approval
 sections. --require-ready additionally rejects a non-READY release status and
-unproven/TODO markers.
+unproven/TODO markers. v0.6.0 additionally requires a version-bound evidence
+manifest, target-version gate, exact required evidence set, and artifact SHA-256
+verification before --require-ready can succeed.
 USAGE
 }
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 version=""
 require_ready=false
+manifest=""
+source_commit=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version) version="${2:?missing value for --version}"; shift 2 ;;
     --require-ready) require_ready=true; shift ;;
+    --manifest) manifest="${2:?missing value for --manifest}"; shift 2 ;;
+    --source-commit) source_commit="${2:?missing value for --source-commit}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -28,8 +36,9 @@ done
   printf '%s\n' '--version must be semantic version X.Y.Z' >&2
   exit 2
 }
-contract="docs/release/v${version}.md"
-[[ -f "$contract" ]] || { printf 'missing release contract: %s\n' "$contract" >&2; exit 1; }
+contract_rel="docs/release/v${version}.md"
+contract="$repo_root/$contract_rel"
+[[ -f "$contract" ]] || { printf 'missing release contract: %s\n' "$contract_rel" >&2; exit 1; }
 
 for heading in '## 要件・検証対応表' '## 未証明・除外事項' '## 変更影響レビュー' '## 承認'; do
   grep -Fqx "$heading" "$contract" || { printf 'missing heading %s in %s\n' "$heading" "$contract" >&2; exit 1; }
@@ -86,4 +95,17 @@ if [[ "$require_ready" == true ]]; then
   }
 fi
 
-printf 'release contract validated: %s\n' "$contract"
+if [[ -n "$manifest" ]]; then
+  source_commit="${source_commit:-$(git -C "$repo_root" rev-parse HEAD)}"
+  python3 "$repo_root/scripts/release/verify-evidence-manifest.py" \
+    --manifest "$manifest" \
+    --requirements "$repo_root/docs/release/evidence/v${version}/required-evidence.json" \
+    --schema "$repo_root/docs/release/evidence/v${version}/manifest.schema.json" \
+    --version "$version" \
+    --source-commit "$source_commit"
+elif [[ "$require_ready" == true && "$version" == "0.6.0" ]]; then
+  printf '%s\n' 'v0.6.0 READY verification requires --manifest and its target-version gate' >&2
+  exit 1
+fi
+
+printf 'release contract validated: %s\n' "$contract_rel"

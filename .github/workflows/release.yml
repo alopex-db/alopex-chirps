@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing annotated tag in the form chirps-vX.Y.Z
+        description: Annotated tag to create after all gates pass (chirps-vX.Y.Z)
+        required: true
+        type: string
+      commit:
+        description: Exact 40-character commit SHA to verify and tag
         required: true
         type: string
       confirm_publish:
@@ -16,6 +20,7 @@ env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   RELEASE_TAG: ${{ inputs.tag }}
+  RELEASE_COMMIT: ${{ inputs.commit }}
   RELEASE_CONFIRM: ${{ inputs.confirm_publish }}
 
 concurrency:
@@ -30,9 +35,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.commit }}
           fetch-depth: 0
-      - name: Verify publish confirmation, annotated tag, and version
+      - name: Verify publish confirmation, tag candidate, commit, and version
+        id: release_metadata
         run: |
           set -euo pipefail
           [[ "${RELEASE_CONFIRM}" == "true" ]] || {
@@ -45,15 +51,23 @@ jobs:
             echo "Expected tag prefix ${prefix}, got ${tag}"
             exit 1
           fi
-          if [[ "$(git cat-file -t "${tag}")" != "tag" ]]; then
-            echo "${tag} must be an annotated tag" >&2
-            exit 1
-          fi
           tag_version="${tag#${prefix}}"
           [[ "${tag_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "Expected semantic version in ${tag}" >&2
             exit 1
           }
+          [[ "${RELEASE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "commit must be an exact lowercase 40-character SHA" >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "${RELEASE_COMMIT}" ]] || {
+            echo "checkout does not match requested commit" >&2
+            exit 1
+          }
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/${tag}")" ]]; then
+            echo "Refusing to reuse existing remote tag ${tag}" >&2
+            exit 1
+          fi
           cargo_version="$(python -c $'import sys\nimport tomllib\n\nwith open("Cargo.toml", "rb") as handle:\n    data = tomllib.load(handle)\n\nversion = data.get("workspace", {}).get("package", {}).get("version")\nif not version:\n    sys.exit("Failed to read workspace.package version from Cargo.toml")\n\nprint(version)')"
           if [[ -z "${cargo_version}" ]]; then
             echo "Failed to read workspace.package version from Cargo.toml"
@@ -64,11 +78,34 @@ jobs:
             exit 1
           fi
           echo "Tag version ${tag_version} matches Cargo.toml"
-          scripts/verify-release-contract.sh --version "${tag_version}" --require-ready
+          echo "version=${tag_version}" >> "${GITHUB_OUTPUT}"
+          echo "commit=${RELEASE_COMMIT}" >> "${GITHUB_OUTPUT}"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Run v0.6 target-version release gate
+        if: steps.release_metadata.outputs.version == '0.6.0'
+        run: |
+          scripts/run-v0.6-release-gate.sh \
+            --output-dir "${RUNNER_TEMP}/chirps-v0.6-release-evidence" \
+            --source-commit "${{ steps.release_metadata.outputs.commit }}"
+      - name: Verify release contract and version-bound evidence
+        run: |
+          version="${{ steps.release_metadata.outputs.version }}"
+          commit="${{ steps.release_metadata.outputs.commit }}"
+          args=(--version "${version}" --source-commit "${commit}" --require-ready)
+          if [[ "${version}" == "0.6.0" ]]; then
+            args+=(--manifest "${RUNNER_TEMP}/chirps-v0.6-release-evidence/manifest.json")
+          fi
+          scripts/verify-release-contract.sh "${args[@]}"
+      - name: Archive v0.6 release evidence
+        if: steps.release_metadata.outputs.version == '0.6.0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chirps-v0.6-release-evidence-${{ steps.release_metadata.outputs.commit }}
+          path: ${{ runner.temp }}/chirps-v0.6-release-evidence
+          if-no-files-found: error
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run clippy
@@ -84,9 +121,37 @@ jobs:
       - name: Run three-node mesh integration tests
         run: cargo test -p chirps-e2e --test three_node_mesh -- --ignored
 
+  publish-tag:
+    name: Publish verified annotated tag
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Create and push annotated tag
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "${RELEASE_COMMIT}" ]] || {
+            echo "checkout does not match verified commit" >&2
+            exit 1
+          }
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}")" ]]; then
+            echo "Refusing to overwrite existing remote tag ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${RELEASE_TAG}" -m "Alopex Chirps ${RELEASE_TAG#chirps-v}"
+          git push origin "refs/tags/${RELEASE_TAG}"
+
   publish-crate:
     name: Publish to crates.io
-    needs: [ci-gate]
+    needs: [publish-tag]
     runs-on: ubuntu-latest
     environment: release
     env:

@@ -1,0 +1,48 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-release-contract-v0-6
+  language: TLA+
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    type_features: no-rows
+    max_steps: 7
+    constants:
+      UnsafeMode: none
+    mutation_profiles:
+      - {config: UnsafeDigest.cfg, expected: counterexample, max_steps: 6}
+    scope: "Two target versions, their canonical contracts, target/stale commits, complete/missing evidence, digest outcomes, and target-version gate outcomes through publication."
+    exclusions:
+      - "Cryptographic collision resistance of SHA-256"
+      - "GitHub Actions, registry, or filesystem availability"
+      - "Correctness of the tests represented by a passing target-version gate"
+      - "Human approval authenticity"
+requirements:
+  - id: RC-VERSION-CONTRACT
+    classification: local-state
+    failure_mode: "A release selects a stale or other-version contract."
+    properties: [VerifiedUsesTargetContract]
+    refinement:
+      - scripts/verify-release-contract.sh
+      - .github/workflows/release.yml
+    local_component_test:
+      - scripts/tests/test_release_integrity.py
+  - id: RC-EVIDENCE-INTEGRITY
+    classification: local-state
+    failure_mode: "Missing, stale-commit, wrong-version, or digest-mismatched evidence is accepted."
+    properties: [VerifiedUsesTargetVersionEvidence, VerifiedUsesTargetCommit, VerifiedUsesValidDigests, VerifiedHasAllRequiredEvidence]
+    refinement:
+      - scripts/verify-release-contract.sh
+      - docs/release/evidence/v0.6.0/manifest.schema.json
+    local_component_test:
+      - scripts/tests/test_release_integrity.py
+  - id: RC-TARGET-GATE
+    classification: local-state
+    failure_mode: "A generic or other-version test result authorizes v0.6 publication."
+    properties: [VerifiedPassedTargetGate, PublishOnlyAfterVerification, RejectedNeverPublishes]
+    refinement:
+      - scripts/run-v0.6-release-gate.sh
+      - .github/workflows/release.yml
+    local_component_test:
+      - scripts/tests/test_release_integrity.py
