@@ -38,10 +38,16 @@ async fn raft_messages_dequeue_before_user_under_load() {
         first_five.push(kind);
     }
 
-    assert!(
-        first_five.iter().all(|k| *k == StreamKind::Raft),
-        "Raft frames should be prioritized even when enqueued after user backlog: {:?}",
-        first_five
+    assert_eq!(
+        first_five,
+        vec![
+            StreamKind::Raft,
+            StreamKind::Raft,
+            StreamKind::Raft,
+            StreamKind::Raft,
+            StreamKind::User,
+        ],
+        "the default 4:2:1 DWRR weights must prioritize a four-frame Raft burst without starving user traffic"
     );
 }
 
