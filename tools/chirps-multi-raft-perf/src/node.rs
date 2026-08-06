@@ -1,7 +1,7 @@
 use crate::protocol::{Request, Response, read_frame, write_frame};
 use crate::schema::{RawMetricsLine, ReplicaState};
 use alopex_chirps::multi_raft::{GroupId, MultiRaftManager, WalRaftStorageFactory};
-use alopex_chirps::raft::{BasicNode, RaftFramePayload};
+use alopex_chirps::raft::BasicNode;
 use alopex_chirps::{ChirpsRaftTransport, RaftConfig};
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
@@ -202,16 +202,8 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                         .manager
                         .dispatch_frame(source, wire_node_id(runtime.node_id), frame)
                         .await
-                        && let Ok(frame) =
-                            ChirpsRaftTransport::encode_group_frame(RaftFramePayload {
-                                correlation_id: response.correlation_id,
-                                message: response.message,
-                            })
                     {
-                        let _ = runtime
-                            .backend
-                            .send(wire_node_id(response.destination), frame)
-                            .await;
+                        let _ = runtime.manager.send_routed_response(response).await;
                     }
                 }
                 _ => {}
