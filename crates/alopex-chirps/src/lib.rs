@@ -9,6 +9,8 @@ pub mod multi_raft;
 pub mod node_id;
 pub mod profile;
 pub mod raft;
+#[cfg(feature = "tso")]
+pub mod tso;
 
 use crate::config::NodeConfig;
 use crate::error::MeshError;

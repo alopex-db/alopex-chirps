@@ -2,7 +2,7 @@ schema: alopex-formal-catalog/v1
 model:
   id: chirps-tso-v0-6
   language: TLA+
-  implementation_status: production-before
+  implementation_status: refined-in-production
   checker:
     name: Apalache
     image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
@@ -27,42 +27,53 @@ requirements:
   - id: TSO-RAFT-ALLOCATION
     requirement: "CHIRPS v0.6 Requirement 3"
     classification: concurrent/distributed-state
-    implementation_status: planned
+    implementation_status: implemented
     failure_mode: "A follower or expired lease owner issues a timestamp, ranges overlap, or physical clock rollback regresses allocation."
     properties: [DedicatedRaftGroup, RangesAreCommitted, LeaderOnlyIssue, IssuedTimestampsMonotonic, ReservedRangesDoNotOverlap, PhysicalRollbackPreservesFloor, FollowerRejectHasNoAllocation]
-    planned_refinement:
+    refinement:
       - crates/alopex-chirps/src/tso/oracle.rs
       - crates/alopex-chirps/src/tso/state_machine.rs
       - crates/alopex-chirps/src/multi_raft/manager.rs
-    planned_local_component_test:
+    local_component_test:
       - crates/alopex-chirps/tests/tso_oracle.rs::leader_allocates_monotonic_non_overlapping_ranges
       - crates/alopex-chirps/tests/tso_oracle.rs::follower_returns_not_leader_without_allocating
       - crates/alopex-chirps/tests/tso_oracle.rs::physical_clock_rollback_uses_logical_floor
   - id: TSO-LEASE-HANDOFF
     requirement: "CHIRPS v0.6 Requirement 3"
     classification: concurrent/distributed-state
-    implementation_status: planned
+    implementation_status: implemented
     failure_mode: "A new leader issues before the previous leader lease expires."
     properties: [LeaseHandoffSafe, LeaderOnlyIssue, IssuedTimestampsMonotonic]
-    planned_refinement:
+    refinement:
       - crates/alopex-chirps/src/tso/oracle.rs
-      - crates/alopex-chirps/src/tso/lease.rs
-    planned_local_component_test:
+      - crates/alopex-chirps/src/tso/state_machine.rs
+    local_component_test:
       - crates/alopex-chirps/tests/tso_handoff.rs::new_leader_waits_for_previous_lease_before_issuing
   - id: TSO-CLIENT-CACHE
     requirement: "CHIRPS v0.6 Requirement 4"
     classification: local-state
-    implementation_status: planned
+    implementation_status: implemented
     failure_mode: "A client issues outside its reserved cache, accepts an incorrect leader, or loses monotonicity across refill/retry."
     properties: [ClientCacheSafe, IssuedTimestampsMonotonic, FollowerRejectHasNoAllocation]
-    planned_refinement:
-      - crates/alopex-client/src/tso.rs
-      - crates/alopex-client/src/transport.rs
-    planned_local_component_test:
-      - crates/alopex-client/tests/tso_client.rs::empty_cache_fetches_and_consumes_a_committed_batch
-      - crates/alopex-client/tests/tso_client.rs::not_leader_refreshes_hint_and_retries
-      - crates/alopex-client/tests/tso_client.rs::retryable_failure_preserves_cache_and_monotonicity
+    refinement:
+      - crates/alopex-chirps/src/tso/client.rs
+      - crates/alopex-chirps/src/tso/service.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/tso_client.rs::empty_cache_fetches_and_consumes_a_committed_batch
+      - crates/alopex-chirps/tests/tso_client.rs::not_leader_refreshes_hint_and_retries
+      - crates/alopex-chirps/tests/tso_client.rs::leader_rediscovery_transport_failure_uses_backoff
+      - crates/alopex-chirps/tests/tso_client.rs::retryable_failure_preserves_cache_and_monotonicity
     limitation: "Retry count and redirect/cache safety are modeled; exponential backoff timing is not."
+  - id: TSO-NODE-AUTHENTICATION
+    requirement: "CHIRPS v0.6 Security / Issue #20"
+    classification: local-state
+    implementation_status: implemented
+    property: not_modeled
+    reason: "Credential validation is a request-boundary contract outside the allocation state model."
+    refinement:
+      - crates/alopex-chirps/src/tso/service.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/tso_oracle.rs::unauthenticated_request_is_rejected_before_raft_allocation
   - id: TSO-PERFORMANCE-PROFILE
     requirement: "CHIRPS v0.6 Requirement 3 batching/cache optimization"
     classification: physical/performance-evidence

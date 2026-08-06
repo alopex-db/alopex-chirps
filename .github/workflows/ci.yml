@@ -46,6 +46,8 @@ jobs:
             args: '--no-default-features'
           - name: multi-raft
             args: '--no-default-features --features multi-raft'
+          - name: tso
+            args: '--no-default-features --features tso'
           - name: all
             args: '--all-features'
     steps:
@@ -66,11 +68,11 @@ jobs:
           fi
 
       - name: Verify storage-v2 is present when Multi-Raft is enabled
-        if: matrix.name == 'multi-raft'
+        if: matrix.name == 'multi-raft' || matrix.name == 'tso'
         shell: bash
         run: |
           set -euo pipefail
-          cargo tree -p alopex-chirps --no-default-features --features multi-raft -e features -i openraft \
+          cargo tree -p alopex-chirps ${{ matrix.args }} -e features -i openraft \
             | grep -F 'openraft feature "storage-v2"'
 
   test:

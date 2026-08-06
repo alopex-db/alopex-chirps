@@ -35,8 +35,8 @@ bounds. Handoff and retry paths are bounded reachability witnesses, not proofs
 of unbounded liveness or fairness. This model does not prove Raft consensus or
 durability, concurrent-client allocation, logical-counter overflow, real-time
 lease precision, the duration of exponential backoff, transport behavior, or
-throughput. Production paths and tests in `catalog.yaml` are planned refinement
-targets; their presence here does not claim that implementation already exists.
+throughput. Production refinement paths and local tests are recorded in
+`catalog.yaml`; the bounded model remains narrower than those implementations.
 
 The root `formal/compose.yml` is the canonical runner for new models. Existing
 model-local Compose files remain unchanged and may be migrated separately.
