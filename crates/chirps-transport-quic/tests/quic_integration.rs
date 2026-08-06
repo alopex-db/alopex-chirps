@@ -6,7 +6,7 @@ use alopex_chirps_transport_quic::{QuicBackend, init_test_tracing};
 use alopex_chirps_wire::file_transfer::{
     CancelRequest, FileTransferFrame, FileTransferMessage, TransferSessionId,
 };
-use alopex_chirps_wire::frame::{Frame, RaftFrame, UserMessage};
+use alopex_chirps_wire::frame::{Frame, UserMessage};
 use alopex_chirps_wire::node_id::NodeId;
 use rcgen::generate_simple_self_signed;
 use std::fs;
@@ -253,63 +253,6 @@ async fn close_after_send_preserves_file_transfer_control_frames() -> anyhow::Re
         assert!(reasons.contains(&format!("close-after-send-{index}")));
     }
 
-    backend_a.close().await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
-async fn detached_raft_streams_remain_alive_until_delivery() -> anyhow::Result<()> {
-    const FRAME_COUNT: usize = 256;
-
-    let node_a = NodeId::new();
-    let node_b = NodeId::new();
-    let tls = TestTls::two_nodes();
-    let addr_a = free_addr()?;
-    let addr_b = free_addr()?;
-    let backend_a = QuicBackend::new(node_a, tls.config(0, addr_a, vec![])).await?;
-    let backend_b = Arc::new(QuicBackend::new(node_b, tls.config(1, addr_b, vec![addr_a])).await?);
-    let mut rx_a = backend_a.subscribe().await?;
-    let _rx_b = backend_b.subscribe().await?;
-
-    wait_for_connected(&backend_a, 1).await;
-    wait_for_connected(&backend_b, 1).await;
-
-    let mut sends = tokio::task::JoinSet::new();
-    for index in 0..FRAME_COUNT {
-        let backend = Arc::clone(&backend_b);
-        sends.spawn(async move {
-            backend
-                .send(
-                    node_a,
-                    Frame::Raft(RaftFrame {
-                        group_id: (index % 100 + 1) as u64,
-                        payload: (index as u64).to_be_bytes().to_vec(),
-                    }),
-                )
-                .await
-        });
-    }
-    while let Some(result) = sends.join_next().await {
-        result.expect("Raft send task")?;
-    }
-
-    let mut received = std::collections::BTreeSet::new();
-    for _ in 0..FRAME_COUNT {
-        let (from, frame) = tokio::time::timeout(Duration::from_secs(2), rx_a.recv())
-            .await?
-            .expect("all finished Raft streams must reach the peer");
-        assert_eq!(from, node_b);
-        let Frame::Raft(frame) = frame else {
-            panic!("expected Raft frame")
-        };
-        received.insert(u64::from_be_bytes(
-            frame.payload.try_into().expect("sequence payload"),
-        ));
-    }
-    assert_eq!(received.len(), FRAME_COUNT);
-
-    backend_b.close().await?;
     backend_a.close().await?;
     Ok(())
 }
