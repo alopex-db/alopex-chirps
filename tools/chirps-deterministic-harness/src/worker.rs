@@ -455,6 +455,10 @@ fn raft_message_kind(message: &RaftMessage) -> &'static str {
         RaftMessage::VoteResponse { .. } => "vote_response",
         RaftMessage::InstallSnapshot { .. } => "install_snapshot",
         RaftMessage::InstallSnapshotResponse { .. } => "install_snapshot_response",
+        #[cfg(feature = "snapshot")]
+        RaftMessage::SnapshotTransfer { .. } => "snapshot_transfer",
+        #[cfg(feature = "snapshot")]
+        RaftMessage::SnapshotTransferResponse { .. } => "snapshot_transfer_response",
     }
 }
 

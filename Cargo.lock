@@ -37,6 +37,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "criterion",
+ "futures",
  "http 0.2.12",
  "openraft",
  "prometheus",
@@ -131,6 +132,7 @@ dependencies = [
  "crc32fast",
  "openraft",
  "serde",
+ "sha2",
  "tempfile",
  "tokio",
 ]

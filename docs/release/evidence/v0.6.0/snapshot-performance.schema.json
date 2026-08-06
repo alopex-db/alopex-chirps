@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "chirps.snapshot-performance/v1",
+  "title": "Chirps v0.6 controlled snapshot performance evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "commit_sha", "binary_sha256", "source_tree_clean",
+    "runner_command", "host", "topology", "profile", "samples",
+    "raw_files", "statistics", "verdict"
+  ],
+  "properties": {
+    "schema": {"const": "chirps.snapshot-performance/v1"},
+    "commit_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_tree_clean": {"const": true},
+    "runner_command": {"type": "string", "minLength": 1},
+    "host": {
+      "type": "object",
+      "required": ["os", "kernel", "cpu", "ram_bytes", "storage", "network_shaper"],
+      "additionalProperties": true
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logical_nodes", "processes", "voters", "replacement_is_learner"],
+      "properties": {
+        "logical_nodes": {"const": 3},
+        "processes": {"const": 3},
+        "voters": {"const": 3},
+        "replacement_is_learner": {"const": true}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "snapshot_bytes", "chunk_threshold", "chunk_size", "max_concurrent_chunks", "timeout_seconds", "shaped_bits_per_second"],
+      "properties": {
+        "id": {"const": "snapshot-v06-local-v1"},
+        "snapshot_bytes": {"const": 1073741824},
+        "chunk_threshold": {"const": 10485760},
+        "chunk_size": {"const": 1048576},
+        "max_concurrent_chunks": {"const": 4},
+        "timeout_seconds": {"const": 60},
+        "shaped_bits_per_second": {"const": 1000000000}
+      }
+    },
+    "samples": {
+      "type": "array", "minItems": 10, "maxItems": 10,
+      "items": {"$ref": "#/$defs/sample"}
+    },
+    "raw_files": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "statistics": {
+      "type": "object", "additionalProperties": true,
+      "required": ["optimized_median_bytes_per_second"]
+    },
+    "verdict": {
+      "type": "object", "additionalProperties": false,
+      "required": ["gating", "passed", "reasons"],
+      "properties": {
+        "gating": {"type": "boolean"},
+        "passed": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "$defs": {
+    "sample": {
+      "type": "object", "additionalProperties": true,
+      "required": ["ordinal", "mode", "installed_count", "partial_visibility", "retried_chunks", "max_observed_concurrency", "progress", "transferred_bytes", "elapsed_seconds", "throughput_bytes_per_second", "snapshot_digest", "applied_index", "state_digest"],
+      "properties": {
+        "ordinal": {"type": "integer", "minimum": 1, "maximum": 10},
+        "mode": {"enum": ["optimized", "single-stream-reference"]},
+        "installed_count": {"const": 1},
+        "partial_visibility": {"const": false},
+        "retried_chunks": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+        "max_observed_concurrency": {"type": "integer", "minimum": 1, "maximum": 4},
+        "progress": {"type": "array", "minItems": 2, "items": {"type": "number", "minimum": 0, "maximum": 100}},
+        "transferred_bytes": {"type": "integer", "minimum": 1073741824},
+        "elapsed_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 60},
+        "throughput_bytes_per_second": {"type": "number", "exclusiveMinimum": 0},
+        "snapshot_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "applied_index": {"type": "integer", "minimum": 0},
+        "state_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

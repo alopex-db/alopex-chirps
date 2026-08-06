@@ -103,6 +103,26 @@ resolved snapshot and shaper configuration, ten ordered samples, per-chunk
 attempt/checksum/progress records, installed state digests, raw-file digests,
 and verdict.
 
+The checked-in schema is
+`docs/release/evidence/v0.6.0/snapshot-performance.schema.json`. The production
+component benchmark can be run without making a release claim:
+
+```sh
+CHIRPS_SNAPSHOT_BENCH_BYTES=1073741824 \
+  cargo bench -p alopex-chirps --features snapshot --bench snapshot_bench
+```
+
+It exercises the production 10 MiB threshold, 1 MiB SHA-256 chunks, four-way
+bounded sender/receiver pipeline, whole digest verification, and a durable
+local checkpoint. It is component evidence only. It is not accepted by the
+release schema as the controlled gate because it does not provide the required
+three-process, three-voter learner-replacement topology, 1 Gbit/s shaper, ten
+alternating samples, or Raft membership/applied-state fields. The real
+Raft-frame/WAL integration path is covered locally by
+`snapshot_transfer::raft_transport_and_wal_storage_install_verified_snapshot`;
+the full controlled run remains pending until the three-process runner records
+all schema fields from a clean release binary.
+
 ## Current evidence status
 
 No TSO, HLC, or snapshot performance claim is made by this document. Missing

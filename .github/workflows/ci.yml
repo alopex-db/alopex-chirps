@@ -48,6 +48,8 @@ jobs:
             args: '--no-default-features --features multi-raft'
           - name: tso
             args: '--no-default-features --features tso'
+          - name: snapshot
+            args: '--no-default-features --features snapshot'
           - name: all
             args: '--all-features'
     steps:
@@ -68,7 +70,7 @@ jobs:
           fi
 
       - name: Verify storage-v2 is present when Multi-Raft is enabled
-        if: matrix.name == 'multi-raft' || matrix.name == 'tso'
+        if: matrix.name == 'multi-raft' || matrix.name == 'tso' || matrix.name == 'snapshot'
         shell: bash
         run: |
           set -euo pipefail

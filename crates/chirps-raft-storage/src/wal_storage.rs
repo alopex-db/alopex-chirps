@@ -1,3 +1,6 @@
+use crate::snapshot::{
+    SnapshotCompletionEvent, SnapshotCompletionHook, SnapshotCompletionKind, noop_completion_hook,
+};
 use crate::traits::{RaftStorage, StateMachine};
 use crate::types::{
     BasicNode, ChirpsNodeId, ChirpsTypeConfig, Entry, EntryPayload, GroupId, LogFlushed, LogId,
@@ -9,15 +12,17 @@ use alopex_core::types::TxnId;
 use anyhow::{Context, Result, anyhow};
 use openraft::{ErrorSubject, ErrorVerb};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 #[cfg(test)]
 use std::any::Any;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fmt::Debug;
-use std::io::{self, Cursor};
+use std::fs::OpenOptions;
+use std::io::{self, Cursor, Write};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 
@@ -233,6 +238,7 @@ where
     last_membership: StoredMembership<ChirpsNodeId, BasicNode>,
     snapshot_meta: Option<SnapshotMeta<ChirpsNodeId, BasicNode>>,
     snapshot_path: Option<PathBuf>,
+    snapshot_completion_hook: Arc<dyn SnapshotCompletionHook>,
     state_machine: SM,
 }
 
@@ -300,6 +306,7 @@ where
             last_membership: StoredMembership::default(),
             snapshot_meta: None,
             snapshot_path: None,
+            snapshot_completion_hook: noop_completion_hook(),
             state_machine,
         };
 
@@ -313,6 +320,12 @@ where
 
         storage.replay_wal()?;
         Ok(storage)
+    }
+
+    /// Registers a completion observer used by metrics and evidence capture.
+    /// The hook is invoked only after the snapshot checkpoint is durable.
+    pub fn set_snapshot_completion_hook(&mut self, hook: Arc<dyn SnapshotCompletionHook>) {
+        self.snapshot_completion_hook = hook;
     }
 
     #[cfg(test)]
@@ -383,9 +396,17 @@ where
                 self.vote = Some(vote);
             }
             RaftWalRecord::SnapshotApplied(meta) => {
+                let path = snapshot_path(&self.config.snapshot_dir, self.group_id, &meta);
+                if !path.exists() {
+                    return Err(anyhow!(
+                        "snapshot WAL checkpoint references missing file {}",
+                        path.display()
+                    ));
+                }
                 self.last_applied = meta.last_log_id;
                 self.last_membership = meta.last_membership.clone();
                 self.snapshot_meta = Some(meta);
+                self.snapshot_path = Some(path);
             }
             RaftWalRecord::Truncate(log_id) => {
                 self.truncate_cache(log_id.index);
@@ -731,70 +752,43 @@ where
     ) -> Result<(), StorageError<ChirpsNodeId>> {
         let path = snapshot_path(&self.config.snapshot_dir, self.group_id, meta);
         let data = snapshot.into_inner();
-        // ステートマシンへも同じスナップショットを適用する。
+        let encoded =
+            encode_snapshot_file(meta, &data, self.config.snapshot_chunk_size).map_err(|e| {
+                self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
+            })?;
+
+        // The durable file checkpoint must precede StateMachine visibility.
+        durably_replace(&path, &encoded).map_err(|e| {
+            self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
+        })?;
         self.state_machine
             .restore(Box::new(Cursor::new(data.clone())))
             .await
             .map_err(|e| {
                 self.to_storage_io_error(e, ErrorSubject::StateMachine, ErrorVerb::Write)
             })?;
-        let meta_bytes = bincode::serialize(meta).map_err(|e| {
-            self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
-        })?;
-        let chunk_size = self.config.snapshot_chunk_size.max(1);
 
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&SNAP_MAGIC);
-        buf.extend_from_slice(&SNAP_VERSION.to_le_bytes());
-
-        let mut offset = 0usize;
-        let mut first = true;
-        loop {
-            let meta_part = if first {
-                meta_bytes.clone()
-            } else {
-                Vec::new()
-            };
-            let take = std::cmp::min(chunk_size, data.len().saturating_sub(offset));
-            let data_part = data[offset..offset + take].to_vec();
-            let checksum = crc32fast::hash(
-                [meta_part.as_slice(), data_part.as_slice()]
-                    .concat()
-                    .as_slice(),
-            );
-
-            buf.extend_from_slice(&(meta_part.len() as u32).to_le_bytes());
-            buf.extend_from_slice(&(data_part.len() as u32).to_le_bytes());
-            buf.extend_from_slice(&checksum.to_le_bytes());
-            buf.extend_from_slice(&meta_part);
-            buf.extend_from_slice(&data_part);
-
-            offset += take;
-            first = false;
-            if offset >= data.len() {
-                break;
-            }
-        }
-
-        // 終端チャンク
-        buf.extend_from_slice(&0u32.to_le_bytes()); // meta_len
-        buf.extend_from_slice(&0u32.to_le_bytes()); // data_len
-        buf.extend_from_slice(&0u32.to_le_bytes()); // checksum
-
-        std::fs::write(&path, buf).map_err(|e| {
-            self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
-        })?;
         let meta_cloned = meta.clone();
-        self.snapshot_meta = Some(meta_cloned.clone());
-        self.snapshot_path = Some(path);
-        self.last_applied = meta.last_log_id;
-        self.last_membership = meta.last_membership.clone();
-        // 記録をWALに残し、リカバリで反映できるようにする。
+        // The WAL marker is fsynced before in-memory installed state and the
+        // completion hook become visible.
         self.write_frame(
             &WalFrame::Record(RaftWalRecord::SnapshotApplied(meta_cloned)),
             true,
         )
         .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write))?;
+        self.snapshot_meta = Some(meta.clone());
+        self.snapshot_path = Some(path);
+        self.last_applied = meta.last_log_id;
+        self.last_membership = meta.last_membership.clone();
+        self.snapshot_completion_hook
+            .completed(SnapshotCompletionEvent {
+                group_id: self.group_id,
+                node_id: self.node_id,
+                snapshot_id: meta.snapshot_id.clone(),
+                size_bytes: data.len() as u64,
+                digest: Sha256::digest(&data).into(),
+                kind: SnapshotCompletionKind::Installed,
+            });
         Ok(())
     }
 
@@ -917,8 +911,86 @@ where
             last_membership: self.last_membership.clone(),
             snapshot_id: format!("snapshot-{}", now_micros()),
         };
-        WalSnapshotBuilder { meta, data }
+        let path = snapshot_path(&self.config.snapshot_dir, self.group_id, &meta);
+        WalSnapshotBuilder {
+            meta,
+            data,
+            path,
+            chunk_size: self.config.snapshot_chunk_size,
+            group_id: self.group_id,
+            node_id: self.node_id,
+            completion_hook: Arc::clone(&self.snapshot_completion_hook),
+        }
     }
+}
+
+fn encode_snapshot_file(
+    meta: &SnapshotMeta<ChirpsNodeId, BasicNode>,
+    data: &[u8],
+    chunk_size: usize,
+) -> Result<Vec<u8>> {
+    let meta_bytes = bincode::serialize(meta)?;
+    let chunk_size = chunk_size.max(1);
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&SNAP_MAGIC);
+    buf.extend_from_slice(&SNAP_VERSION.to_le_bytes());
+
+    let mut offset = 0usize;
+    let mut first = true;
+    loop {
+        let meta_part = if first { meta_bytes.as_slice() } else { &[] };
+        let take = std::cmp::min(chunk_size, data.len().saturating_sub(offset));
+        let data_part = &data[offset..offset + take];
+        let mut body = Vec::with_capacity(meta_part.len() + data_part.len());
+        body.extend_from_slice(meta_part);
+        body.extend_from_slice(data_part);
+        let checksum = crc32fast::hash(&body);
+
+        buf.extend_from_slice(&(meta_part.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&(data_part.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&checksum.to_le_bytes());
+        buf.extend_from_slice(&body);
+
+        offset += take;
+        first = false;
+        if offset >= data.len() {
+            break;
+        }
+    }
+
+    buf.extend_from_slice(&0u32.to_le_bytes());
+    buf.extend_from_slice(&0u32.to_le_bytes());
+    buf.extend_from_slice(&0u32.to_le_bytes());
+    Ok(buf)
+}
+
+fn durably_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "snapshot path has no parent")
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid snapshot file name"))?;
+    let temp = parent.join(format!(".{file_name}.{}.tmp", now_micros()));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temp, path)?;
+        #[cfg(unix)]
+        OpenOptions::new().read(true).open(parent)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 
 fn wal_path(base: &Path, group_id: GroupId, node_id: ChirpsNodeId) -> PathBuf {
@@ -1014,6 +1086,11 @@ where
 pub struct WalSnapshotBuilder {
     meta: SnapshotMeta<ChirpsNodeId, BasicNode>,
     data: Vec<u8>,
+    path: PathBuf,
+    chunk_size: usize,
+    group_id: GroupId,
+    node_id: ChirpsNodeId,
+    completion_hook: Arc<dyn SnapshotCompletionHook>,
 }
 
 impl RaftSnapshotBuilder<ChirpsTypeConfig> for WalSnapshotBuilder {
@@ -1022,11 +1099,41 @@ impl RaftSnapshotBuilder<ChirpsTypeConfig> for WalSnapshotBuilder {
     ) -> impl core::future::Future<
         Output = Result<Snapshot<ChirpsTypeConfig>, StorageError<ChirpsNodeId>>,
     > + Send {
-        let snapshot = Snapshot {
-            meta: self.meta.clone(),
-            snapshot: Box::new(Cursor::new(self.data.clone())),
-        };
-        async move { Ok(snapshot) }
+        let meta = self.meta.clone();
+        let data = self.data.clone();
+        let encoded = encode_snapshot_file(&meta, &data, self.chunk_size);
+        let path = self.path.clone();
+        let group_id = self.group_id;
+        let node_id = self.node_id;
+        let completion_hook = Arc::clone(&self.completion_hook);
+        async move {
+            let encoded = encoded.map_err(|error| {
+                StorageError::from_io_error(
+                    ErrorSubject::Snapshot(Some(meta.signature())),
+                    ErrorVerb::Write,
+                    io::Error::other(error.to_string()),
+                )
+            })?;
+            durably_replace(&path, &encoded).map_err(|error| {
+                StorageError::from_io_error(
+                    ErrorSubject::Snapshot(Some(meta.signature())),
+                    ErrorVerb::Write,
+                    error,
+                )
+            })?;
+            completion_hook.completed(SnapshotCompletionEvent {
+                group_id,
+                node_id,
+                snapshot_id: meta.snapshot_id.clone(),
+                size_bytes: data.len() as u64,
+                digest: Sha256::digest(&data).into(),
+                kind: SnapshotCompletionKind::Built,
+            });
+            Ok(Snapshot {
+                meta,
+                snapshot: Box::new(Cursor::new(data)),
+            })
+        }
     }
 }
 
@@ -1043,6 +1150,15 @@ mod tests {
 
     #[derive(Default)]
     struct MockStateMachine;
+
+    #[derive(Default)]
+    struct CompletionLog(Mutex<Vec<SnapshotCompletionEvent>>);
+
+    impl SnapshotCompletionHook for CompletionLog {
+        fn completed(&self, event: SnapshotCompletionEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+    }
 
     #[async_trait]
     impl StateMachine for MockStateMachine {
@@ -1066,6 +1182,34 @@ mod tests {
             _snapshot: Box<dyn AsyncSnapshotData>,
         ) -> StateMachineResult<()> {
             Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct FailingRestoreStateMachine;
+
+    #[async_trait]
+    impl StateMachine for FailingRestoreStateMachine {
+        type Command = Vec<u8>;
+        type Response = Vec<u8>;
+
+        async fn apply(
+            &mut self,
+            _log_id: LogId<ChirpsNodeId>,
+            command: Self::Command,
+        ) -> StateMachineResult<Self::Response> {
+            Ok(command)
+        }
+
+        async fn snapshot(&self) -> StateMachineResult<Box<dyn AsyncSnapshotData>> {
+            Ok(Box::new(Cursor::new(Vec::new())))
+        }
+
+        async fn restore(
+            &mut self,
+            _snapshot: Box<dyn AsyncSnapshotData>,
+        ) -> StateMachineResult<()> {
+            Err(anyhow!("injected restore failure"))
         }
     }
 
@@ -1580,5 +1724,52 @@ mod tests {
             chunk_count >= 2,
             "data should be split into multiple chunks"
         );
+    }
+
+    #[tokio::test]
+    async fn automatic_snapshot_builder_emits_completion_after_durable_checkpoint() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let hook = Arc::new(CompletionLog::default());
+        let mut storage =
+            WalRaftStorage::new(cfg.clone(), GroupId(14), 14, MockStateMachine).unwrap();
+        storage.set_snapshot_completion_hook(hook.clone());
+
+        let mut builder = storage.get_snapshot_builder().await;
+        let snapshot = builder.build_snapshot().await.unwrap();
+
+        let events = hook.0.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, SnapshotCompletionKind::Built);
+        assert_eq!(events[0].size_bytes, 0);
+        assert_eq!(events[0].snapshot_id, snapshot.meta.snapshot_id);
+        let path = snapshot_path(&cfg.snapshot_dir, GroupId(14), &snapshot.meta);
+        assert!(path.exists(), "hook must follow the durable snapshot file");
+    }
+
+    #[tokio::test]
+    async fn restore_failure_does_not_publish_or_emit_completion() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let hook = Arc::new(CompletionLog::default());
+        let mut storage =
+            WalRaftStorage::new(cfg, GroupId(15), 15, FailingRestoreStateMachine).unwrap();
+        storage.set_snapshot_completion_hook(hook.clone());
+        let meta = SnapshotMeta {
+            last_log_id: Some(LogId::new(openraft::CommittedLeaderId::new(1, 15), 4)),
+            last_membership: StoredMembership::default(),
+            snapshot_id: "restore-fails".into(),
+        };
+
+        assert!(
+            storage
+                .install_snapshot(&meta, Box::new(Cursor::new(vec![1, 2, 3])))
+                .await
+                .is_err()
+        );
+        assert!(hook.0.lock().unwrap().is_empty());
+        assert!(storage.snapshot_meta.is_none());
+        assert!(storage.snapshot_path.is_none());
+        assert!(storage.last_applied.is_none());
     }
 }

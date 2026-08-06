@@ -18,4 +18,6 @@ transitions. It proves only the listed safety invariants within that bound. It
 does not prove OpenRaft consensus, crash durability, unbounded liveness, real
 network behavior, or the 100 MB/s performance target. Those require the mapped
 component/failure-injection tests and controlled profile in
-`docs/perf/v0_6_tso_hlc_snapshot.md`.
+`docs/perf/v0_6_tso_hlc_snapshot.md`. The production refinement and local
+tests are implemented; the 1 Gbit/s, three-process measurement remains pending
+and no throughput claim is made by this model.

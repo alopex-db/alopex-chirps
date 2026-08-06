@@ -15,6 +15,7 @@ default = []
 multi-raft = ["openraft/storage-v2"]
 tso = ["multi-raft"]
 hlc = ["alopex-chirps-gossip-swim/hlc", "alopex-chirps-wire/hlc"]
+snapshot = ["multi-raft"]
 
 [dependencies]
 alopex-chirps-core.workspace = true
@@ -36,6 +37,7 @@ http = "0.2"
 quinn = "0.11"
 sha2 = "0.10"
 subtle = "2.6"
+futures = "0.3"
 
 [dev-dependencies]
 alopex-chirps-mock.workspace = true
@@ -59,3 +61,8 @@ required-features = ["hlc"]
 name = "hlc_metrics"
 path = "tests/hlc_metrics.rs"
 required-features = ["hlc"]
+
+[[bench]]
+name = "snapshot_bench"
+harness = false
+required-features = ["snapshot"]

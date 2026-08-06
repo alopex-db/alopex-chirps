@@ -1,4 +1,5 @@
 use super::{GroupId, MultiRaftError, group_namespace};
+use alopex_chirps_raft_storage::snapshot::{NoopSnapshotCompletionHook, SnapshotCompletionHook};
 use alopex_chirps_raft_storage::traits::{RaftStorage as ChirpsRaftStorage, StateMachine};
 use alopex_chirps_raft_storage::types::{
     ChirpsTypeConfig, Entry, LogFlushed, LogId, LogState, OptionalSend, RaftLogReader, Snapshot,
@@ -32,6 +33,7 @@ pub struct WalRaftStorageFactory<SM> {
     base_config: WalStorageConfig,
     node_id: u64,
     state_machine: PhantomData<SM>,
+    snapshot_completion_hook: Arc<dyn SnapshotCompletionHook>,
 }
 
 impl<SM> WalRaftStorageFactory<SM> {
@@ -40,7 +42,13 @@ impl<SM> WalRaftStorageFactory<SM> {
             base_config,
             node_id,
             state_machine: PhantomData,
+            snapshot_completion_hook: Arc::new(NoopSnapshotCompletionHook),
         }
+    }
+
+    pub fn with_snapshot_completion_hook(mut self, hook: Arc<dyn SnapshotCompletionHook>) -> Self {
+        self.snapshot_completion_hook = hook;
+        self
     }
 }
 
@@ -65,13 +73,16 @@ where
         let snapshot_dir = config.snapshot_dir.clone();
 
         match WalRaftStorage::new(config, group_id, self.node_id, state_machine) {
-            Ok(storage) => Ok(StorageTransaction {
-                group_id,
-                namespace,
-                wal_dir,
-                snapshot_dir,
-                storage: SharedRaftStorage::new(storage),
-            }),
+            Ok(mut storage) => {
+                storage.set_snapshot_completion_hook(Arc::clone(&self.snapshot_completion_hook));
+                Ok(StorageTransaction {
+                    group_id,
+                    namespace,
+                    wal_dir,
+                    snapshot_dir,
+                    storage: SharedRaftStorage::new(storage),
+                })
+            }
             Err(error) => {
                 let cleanup = remove_group_dirs(&wal_dir, &snapshot_dir).await;
                 let reason = match cleanup {

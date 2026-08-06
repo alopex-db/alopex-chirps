@@ -12,12 +12,33 @@ use openraft::error::{Infallible, InstallSnapshotError, NetworkError, RPCError, 
 use openraft::network::{RPCOption, RPCTypes, RaftNetwork, RaftNetworkFactory};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+#[cfg(feature = "snapshot")]
+use std::future::Future;
+#[cfg(feature = "snapshot")]
+use std::sync::RwLock;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use tokio::sync::oneshot;
 use tokio::time;
+
+#[cfg(feature = "snapshot")]
+use crate::snapshot::{
+    NoopSnapshotProgressObserver, RaftSnapshotBegin, RaftSnapshotRequest, RaftSnapshotResponse,
+    RaftSnapshotStatus, SnapshotChunk, SnapshotChunkSink, SnapshotProgressObserver, SnapshotSender,
+    SnapshotTransferConfig, SnapshotTransferError, SnapshotTransferReceipt,
+};
+#[cfg(feature = "snapshot")]
+use async_trait::async_trait;
+#[cfg(feature = "snapshot")]
+use openraft::error::{Fatal, ReplicationClosed, StreamingError};
+#[cfg(feature = "snapshot")]
+use openraft::raft::SnapshotResponse;
+#[cfg(feature = "snapshot")]
+use openraft::{Snapshot, Vote};
+#[cfg(feature = "snapshot")]
+use tokio::io::AsyncReadExt;
 
 /// Raft RPCメッセージをフレーム化する際のコンテナ。レスポンス対応のため相関IDを保持する。
 ///
@@ -80,6 +101,10 @@ pub struct ChirpsRaftTransport {
     accepting_rpcs: AtomicBool,
     pending: Arc<Mutex<HashMap<u64, PendingRpc>>>,
     metrics_collector: Mutex<Option<Arc<RaftMetricsCollector>>>,
+    #[cfg(feature = "snapshot")]
+    snapshot_config: RwLock<SnapshotTransferConfig>,
+    #[cfg(feature = "snapshot")]
+    snapshot_progress: RwLock<Arc<dyn SnapshotProgressObserver>>,
 }
 
 impl ChirpsRaftTransport {
@@ -93,6 +118,10 @@ impl ChirpsRaftTransport {
             accepting_rpcs: AtomicBool::new(true),
             pending: Arc::new(Mutex::new(HashMap::new())),
             metrics_collector: Mutex::new(None),
+            #[cfg(feature = "snapshot")]
+            snapshot_config: RwLock::new(SnapshotTransferConfig::default()),
+            #[cfg(feature = "snapshot")]
+            snapshot_progress: RwLock::new(Arc::new(NoopSnapshotProgressObserver)),
         }
     }
 
@@ -104,6 +133,24 @@ impl ChirpsRaftTransport {
         let fork = Self::new(Arc::clone(&self.backend), group_id, self.node_id);
         if let Some(collector) = self.metrics_collector() {
             fork.set_metrics_collector(collector);
+        }
+        #[cfg(feature = "snapshot")]
+        {
+            *fork
+                .snapshot_config
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = *self
+                .snapshot_config
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *fork
+                .snapshot_progress
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = self
+                .snapshot_progress
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
         }
         fork
     }
@@ -122,6 +169,34 @@ impl ChirpsRaftTransport {
     fn metrics_collector(&self) -> Option<Arc<RaftMetricsCollector>> {
         self.metrics_collector
             .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    #[cfg(feature = "snapshot")]
+    pub fn configure_snapshot_transfer(
+        &self,
+        config: SnapshotTransferConfig,
+    ) -> Result<(), SnapshotTransferError> {
+        *self
+            .snapshot_config
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = config.validate()?;
+        Ok(())
+    }
+
+    #[cfg(feature = "snapshot")]
+    pub fn set_snapshot_progress_observer(&self, observer: Arc<dyn SnapshotProgressObserver>) {
+        *self
+            .snapshot_progress
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = observer;
+    }
+
+    #[cfg(feature = "snapshot")]
+    pub(crate) fn snapshot_progress_observer(&self) -> Arc<dyn SnapshotProgressObserver> {
+        self.snapshot_progress
+            .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
@@ -167,6 +242,10 @@ impl ChirpsRaftTransport {
         };
         Ok(match payload.message {
             RaftMessage::InstallSnapshot { .. } | RaftMessage::InstallSnapshotResponse { .. } => {
+                Frame::RaftSnapshot(raft_frame)
+            }
+            #[cfg(feature = "snapshot")]
+            RaftMessage::SnapshotTransfer { .. } | RaftMessage::SnapshotTransferResponse { .. } => {
                 Frame::RaftSnapshot(raft_frame)
             }
             _ => Frame::Raft(raft_frame),
@@ -368,16 +447,20 @@ impl ChirpsRaftTransport {
 }
 
 fn is_response(message: &RaftMessage) -> bool {
-    matches!(
+    let standard = matches!(
         message,
         RaftMessage::AppendEntriesResponse { .. }
             | RaftMessage::VoteResponse { .. }
             | RaftMessage::InstallSnapshotResponse { .. }
-    )
+    );
+    #[cfg(feature = "snapshot")]
+    return standard || matches!(message, RaftMessage::SnapshotTransferResponse { .. });
+    #[cfg(not(feature = "snapshot"))]
+    standard
 }
 
 fn response_matches(rpc_type: RPCTypes, message: &RaftMessage) -> bool {
-    matches!(
+    let standard = matches!(
         (rpc_type, message),
         (RPCTypes::Vote, RaftMessage::VoteResponse { .. })
             | (
@@ -388,7 +471,18 @@ fn response_matches(rpc_type: RPCTypes, message: &RaftMessage) -> bool {
                 RPCTypes::InstallSnapshot,
                 RaftMessage::InstallSnapshotResponse { .. }
             )
-    )
+    );
+    #[cfg(feature = "snapshot")]
+    return standard
+        || matches!(
+            (rpc_type, message),
+            (
+                RPCTypes::InstallSnapshot,
+                RaftMessage::SnapshotTransferResponse { .. }
+            )
+        );
+    #[cfg(not(feature = "snapshot"))]
+    standard
 }
 
 /// RaftNetworkFactory実装用のラッパー。
@@ -401,6 +495,139 @@ pub struct ChirpsRaftNetworkFactory {
 pub struct ChirpsRaftNetworkClient {
     inner: Arc<ChirpsRaftTransport>,
     target: ChirpsNodeId,
+}
+
+#[cfg(feature = "snapshot")]
+struct RaftSnapshotSink {
+    inner: Arc<ChirpsRaftTransport>,
+    target: ChirpsNodeId,
+    option: RPCOption,
+    vote: Mutex<Vote<ChirpsNodeId>>,
+    meta: openraft::SnapshotMeta<ChirpsNodeId, BasicNode>,
+}
+
+#[cfg(feature = "snapshot")]
+impl RaftSnapshotSink {
+    async fn request(
+        &self,
+        request: RaftSnapshotRequest,
+    ) -> Result<RaftSnapshotResponse, SnapshotTransferError> {
+        let message = RaftMessage::SnapshotTransfer {
+            group_id: self.inner.group_id,
+            request,
+        };
+        let response = self
+            .inner
+            .send_rpc::<InstallSnapshotError>(
+                self.target,
+                RPCTypes::InstallSnapshot,
+                message,
+                self.option.clone(),
+            )
+            .await
+            .map_err(|error| SnapshotTransferError::retryable(error.to_string()))?;
+        let RaftMessage::SnapshotTransferResponse { response, .. } = response else {
+            return Err(SnapshotTransferError::terminal(
+                "unexpected response to snapshot transfer request",
+            ));
+        };
+        *self
+            .vote
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = response.vote;
+        Ok(response)
+    }
+
+    fn response_vote(&self) -> Vote<ChirpsNodeId> {
+        *self
+            .vote
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+#[cfg(feature = "snapshot")]
+#[async_trait]
+impl SnapshotChunkSink for RaftSnapshotSink {
+    async fn begin(
+        &self,
+        manifest: crate::snapshot::SnapshotManifest,
+    ) -> Result<(), SnapshotTransferError> {
+        let snapshot_id = manifest.snapshot_id.clone();
+        let response = self
+            .request(RaftSnapshotRequest::Begin(RaftSnapshotBegin {
+                vote: self.response_vote(),
+                meta: self.meta.clone(),
+                manifest,
+            }))
+            .await?;
+        if response.snapshot_id != snapshot_id {
+            return Err(SnapshotTransferError::terminal(
+                "snapshot response id mismatch",
+            ));
+        }
+        match response.status {
+            RaftSnapshotStatus::Accepted => Ok(()),
+            RaftSnapshotStatus::Rejected { reason } => Err(SnapshotTransferError::terminal(reason)),
+            status => Err(SnapshotTransferError::terminal(format!(
+                "unexpected snapshot begin response: {status:?}"
+            ))),
+        }
+    }
+
+    async fn send_chunk(&self, chunk: SnapshotChunk) -> Result<(), SnapshotTransferError> {
+        let snapshot_id = chunk.snapshot_id.clone();
+        let index = chunk.index;
+        let response = self.request(RaftSnapshotRequest::Chunk(chunk)).await?;
+        if response.snapshot_id != snapshot_id {
+            return Err(SnapshotTransferError::terminal(
+                "snapshot response id mismatch",
+            ));
+        }
+        match response.status {
+            RaftSnapshotStatus::ChunkVerified { index: ack } if ack == index => Ok(()),
+            RaftSnapshotStatus::RetryChunk { index: ack, reason } if ack == index => {
+                Err(SnapshotTransferError::retryable(reason))
+            }
+            RaftSnapshotStatus::Rejected { reason } => Err(SnapshotTransferError::terminal(reason)),
+            status => Err(SnapshotTransferError::terminal(format!(
+                "unexpected snapshot chunk response: {status:?}"
+            ))),
+        }
+    }
+
+    async fn finish(
+        &self,
+        snapshot_id: &str,
+    ) -> Result<SnapshotTransferReceipt, SnapshotTransferError> {
+        let response = self
+            .request(RaftSnapshotRequest::Finish {
+                snapshot_id: snapshot_id.to_owned(),
+            })
+            .await?;
+        if response.snapshot_id != snapshot_id {
+            return Err(SnapshotTransferError::terminal(
+                "snapshot response id mismatch",
+            ));
+        }
+        match response.status {
+            RaftSnapshotStatus::Installed { size_bytes } => {
+                Ok(SnapshotTransferReceipt::installed(size_bytes))
+            }
+            RaftSnapshotStatus::Rejected { reason } => Err(SnapshotTransferError::terminal(reason)),
+            status => Err(SnapshotTransferError::terminal(format!(
+                "unexpected snapshot finish response: {status:?}"
+            ))),
+        }
+    }
+
+    async fn abort(&self, snapshot_id: &str) {
+        let _ = self
+            .request(RaftSnapshotRequest::Abort {
+                snapshot_id: snapshot_id.to_owned(),
+            })
+            .await;
+    }
 }
 
 unsafe impl Send for ChirpsRaftNetworkClient {}
@@ -474,6 +701,78 @@ impl RaftNetwork<ChirpsTypeConfig> for ChirpsRaftNetworkClient {
         }
     }
 
+    #[cfg(feature = "snapshot")]
+    async fn full_snapshot(
+        &mut self,
+        vote: Vote<ChirpsNodeId>,
+        mut snapshot: Snapshot<ChirpsTypeConfig>,
+        cancel: impl Future<Output = ReplicationClosed> + Send + 'static,
+        option: RPCOption,
+    ) -> Result<SnapshotResponse<ChirpsNodeId>, StreamingError<ChirpsTypeConfig, Fatal<ChirpsNodeId>>>
+    {
+        let mut bytes = Vec::new();
+        snapshot
+            .snapshot
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|error| {
+                let storage = openraft::StorageIOError::read_snapshot(
+                    Some(snapshot.meta.signature()),
+                    &error,
+                );
+                openraft::StorageError::from(storage)
+            })?;
+
+        let config = *self
+            .inner
+            .snapshot_config
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if bytes.len() <= config.chunk_threshold {
+            let request = InstallSnapshotRequest {
+                vote,
+                meta: snapshot.meta,
+                offset: 0,
+                data: bytes,
+                done: true,
+            };
+            let response = self
+                .install_snapshot(request, option)
+                .await
+                .map_err(rpc_to_streaming_error)?;
+            return Ok(SnapshotResponse::new(response.vote));
+        }
+
+        let snapshot_id = snapshot.meta.snapshot_id.clone();
+        let sink = Arc::new(RaftSnapshotSink {
+            inner: Arc::clone(&self.inner),
+            target: self.target,
+            option,
+            vote: Mutex::new(vote),
+            meta: snapshot.meta,
+        });
+        let sender = SnapshotSender::new(config, self.inner.snapshot_progress_observer())
+            .map_err(|error| StreamingError::Network(NetworkError::new(&error)))?;
+        let transfer = sender.transfer(snapshot_id.clone(), bytes, Arc::clone(&sink));
+        tokio::pin!(transfer);
+        tokio::pin!(cancel);
+        let result = tokio::select! {
+            result = &mut transfer => result,
+            closed = &mut cancel => {
+                sink.abort(&snapshot_id).await;
+                return Err(StreamingError::Closed(closed));
+            },
+        };
+
+        match result {
+            Ok(_) => Ok(SnapshotResponse::new(sink.response_vote())),
+            Err(_) if sink.response_vote() > vote => {
+                Ok(SnapshotResponse::new(sink.response_vote()))
+            }
+            Err(error) => Err(StreamingError::Network(NetworkError::new(&error))),
+        }
+    }
+
     async fn vote(
         &mut self,
         rpc: VoteRequest<ChirpsNodeId>,
@@ -526,6 +825,23 @@ where
             RPCError::Network(NetworkError::new(&err))
         }
         _ => RPCError::Network(NetworkError::new(&err)),
+    }
+}
+
+#[cfg(feature = "snapshot")]
+fn rpc_to_streaming_error(
+    error: RPCError<
+        ChirpsNodeId,
+        BasicNode,
+        openraft::error::RaftError<ChirpsNodeId, InstallSnapshotError>,
+    >,
+) -> StreamingError<ChirpsTypeConfig, Fatal<ChirpsNodeId>> {
+    match error {
+        RPCError::Timeout(error) => StreamingError::Timeout(error),
+        RPCError::Unreachable(error) => StreamingError::Unreachable(error),
+        RPCError::Network(error) => StreamingError::Network(error),
+        RPCError::PayloadTooLarge(error) => StreamingError::Network(NetworkError::new(&error)),
+        RPCError::RemoteError(error) => StreamingError::Network(NetworkError::new(&error)),
     }
 }
 

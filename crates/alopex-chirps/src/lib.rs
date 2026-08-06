@@ -11,6 +11,8 @@ pub mod multi_raft;
 pub mod node_id;
 pub mod profile;
 pub mod raft;
+#[cfg(feature = "snapshot")]
+pub mod snapshot;
 #[cfg(feature = "tso")]
 pub mod tso;
 

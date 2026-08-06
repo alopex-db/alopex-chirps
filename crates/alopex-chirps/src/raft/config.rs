@@ -1,6 +1,12 @@
 use alopex_chirps_raft_storage::types::{ChirpsNodeId, GroupId};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "snapshot")]
+use crate::snapshot::{
+    DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_THRESHOLD, DEFAULT_MAX_CONCURRENT_CHUNKS,
+    DEFAULT_MAX_RETRIES, SnapshotTransferConfig,
+};
+
 /// Raftグループの挙動を制御する設定値。
 ///
 /// # 例
@@ -30,6 +36,18 @@ pub struct RaftConfig {
     pub snapshot_threshold: u64,
     /// スナップショット後に保持するログ本数
     pub max_in_snapshot_log_to_keep: u64,
+    #[cfg(feature = "snapshot")]
+    /// Bytes above which the verified parallel snapshot protocol is used.
+    pub snapshot_chunk_threshold: usize,
+    #[cfg(feature = "snapshot")]
+    /// Payload bytes per verified snapshot chunk.
+    pub snapshot_chunk_size: usize,
+    #[cfg(feature = "snapshot")]
+    /// Maximum number of snapshot chunks in flight at once.
+    pub snapshot_max_concurrent_chunks: usize,
+    #[cfg(feature = "snapshot")]
+    /// Retry count after a chunk's initial attempt.
+    pub snapshot_max_retries: usize,
 }
 
 impl Default for RaftConfig {
@@ -42,6 +60,26 @@ impl Default for RaftConfig {
             max_batch_size: 1_000,
             snapshot_threshold: 10_000,
             max_in_snapshot_log_to_keep: 1_000,
+            #[cfg(feature = "snapshot")]
+            snapshot_chunk_threshold: DEFAULT_CHUNK_THRESHOLD,
+            #[cfg(feature = "snapshot")]
+            snapshot_chunk_size: DEFAULT_CHUNK_SIZE,
+            #[cfg(feature = "snapshot")]
+            snapshot_max_concurrent_chunks: DEFAULT_MAX_CONCURRENT_CHUNKS,
+            #[cfg(feature = "snapshot")]
+            snapshot_max_retries: DEFAULT_MAX_RETRIES,
+        }
+    }
+}
+
+#[cfg(feature = "snapshot")]
+impl RaftConfig {
+    pub(crate) fn snapshot_transfer_config(&self) -> SnapshotTransferConfig {
+        SnapshotTransferConfig {
+            chunk_threshold: self.snapshot_chunk_threshold,
+            chunk_size: self.snapshot_chunk_size,
+            max_concurrent_chunks: self.snapshot_max_concurrent_chunks,
+            max_retries: self.snapshot_max_retries,
         }
     }
 }

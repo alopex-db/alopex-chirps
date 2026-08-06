@@ -4,6 +4,10 @@ version.workspace = true
 edition = "2024"
 publish = false
 
+[features]
+default = []
+snapshot = ["alopex-chirps/snapshot"]
+
 [dependencies]
 alopex-chirps = { workspace = true, features = ["multi-raft"] }
 alopex-chirps-core.workspace = true

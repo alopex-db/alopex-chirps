@@ -412,7 +412,7 @@ impl TestCluster {
         };
         let store = MemoryStore::new(state_handle.clone());
 
-        let cfg = RaftConfig {
+        let mut cfg = RaftConfig {
             group_id: self.group_id,
             node_id: id,
             election_timeout_ms: 120,
@@ -421,6 +421,13 @@ impl TestCluster {
             max_in_snapshot_log_to_keep: 2 * self.snapshot_threshold,
             ..Default::default()
         };
+        #[cfg(feature = "snapshot")]
+        {
+            cfg.snapshot_chunk_threshold = 1;
+            cfg.snapshot_chunk_size = 4;
+            cfg.snapshot_max_concurrent_chunks = 2;
+            cfg.snapshot_max_retries = 1;
+        }
 
         let mut node = RaftNode::new(
             cfg,

@@ -21,6 +21,23 @@ use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tracing::info;
 
+#[cfg(feature = "snapshot")]
+use tokio::time::{Duration, timeout};
+
+#[cfg(feature = "snapshot")]
+use crate::snapshot::{
+    RaftSnapshotRequest, RaftSnapshotResponse, RaftSnapshotStatus, SnapshotReceiver,
+    SnapshotTransferError,
+};
+#[cfg(feature = "snapshot")]
+use openraft::Snapshot;
+#[cfg(feature = "snapshot")]
+use std::collections::HashMap;
+#[cfg(feature = "snapshot")]
+use std::io::Cursor;
+#[cfg(feature = "snapshot")]
+use tokio::sync::Mutex as AsyncMutex;
+
 /// Chirps内部でやり取りするRaft RPC。リクエストとレスポンス両方を保持する。
 ///
 /// # 例
@@ -64,6 +81,16 @@ pub enum RaftMessage {
         group_id: GroupId,
         response: InstallSnapshotResponse<ChirpsNodeId>,
     },
+    #[cfg(feature = "snapshot")]
+    SnapshotTransfer {
+        group_id: GroupId,
+        request: RaftSnapshotRequest,
+    },
+    #[cfg(feature = "snapshot")]
+    SnapshotTransferResponse {
+        group_id: GroupId,
+        response: RaftSnapshotResponse,
+    },
 }
 
 impl RaftMessage {
@@ -75,6 +102,9 @@ impl RaftMessage {
             | RaftMessage::VoteResponse { group_id, .. }
             | RaftMessage::InstallSnapshot { group_id, .. }
             | RaftMessage::InstallSnapshotResponse { group_id, .. } => *group_id,
+            #[cfg(feature = "snapshot")]
+            RaftMessage::SnapshotTransfer { group_id, .. }
+            | RaftMessage::SnapshotTransferResponse { group_id, .. } => *group_id,
         }
     }
 
@@ -86,8 +116,19 @@ impl RaftMessage {
             Self::VoteResponse { .. } => "vote_response",
             Self::InstallSnapshot { .. } => "install_snapshot",
             Self::InstallSnapshotResponse { .. } => "install_snapshot_response",
+            #[cfg(feature = "snapshot")]
+            Self::SnapshotTransfer { .. } => "snapshot_transfer",
+            #[cfg(feature = "snapshot")]
+            Self::SnapshotTransferResponse { .. } => "snapshot_transfer_response",
         }
     }
+}
+
+#[cfg(feature = "snapshot")]
+struct IncomingSnapshot {
+    vote: openraft::Vote<ChirpsNodeId>,
+    meta: openraft::SnapshotMeta<ChirpsNodeId, BasicNode>,
+    receiver: SnapshotReceiver,
 }
 
 /// openraft Raftをラップし、Chirps固有のエラー/設定型を提供する。
@@ -122,6 +163,8 @@ pub struct RaftNode {
     pub(crate) transport: Arc<ChirpsRaftTransport>,
     metrics_collector: Arc<Mutex<Option<Arc<RaftMetricsCollector>>>>,
     observer_handle: Mutex<Option<JoinHandle<()>>>,
+    #[cfg(feature = "snapshot")]
+    incoming_snapshots: AsyncMutex<HashMap<String, IncomingSnapshot>>,
 }
 
 impl RaftNode {
@@ -139,6 +182,10 @@ impl RaftNode {
         LS: RaftLogStorage<ChirpsTypeConfig> + Send + Sync + 'static,
         SM: RaftStateMachine<ChirpsTypeConfig> + Send + Sync + 'static,
     {
+        #[cfg(feature = "snapshot")]
+        transport
+            .configure_snapshot_transfer(config.snapshot_transfer_config())
+            .map_err(|e| RaftError::Internal(anyhow!(e)))?;
         let cfg = build_openraft_config(&config)
             .map_err(|e| RaftError::Internal(anyhow!("config error: {e}")))?;
         let raft = Raft::new(config.node_id, cfg, network, log_store, state_machine)
@@ -163,6 +210,8 @@ impl RaftNode {
             transport,
             metrics_collector: collector,
             observer_handle: Mutex::new(Some(observer_handle)),
+            #[cfg(feature = "snapshot")]
+            incoming_snapshots: AsyncMutex::new(HashMap::new()),
         })
     }
 
@@ -326,6 +375,10 @@ impl RaftNode {
                     response: resp,
                 })
             }
+            #[cfg(feature = "snapshot")]
+            RaftMessage::SnapshotTransfer { request, .. } => {
+                self.handle_snapshot_transfer(request).await
+            }
             RaftMessage::AppendEntriesResponse { response, .. } => {
                 Ok(RaftMessage::AppendEntriesResponse {
                     group_id: self.config.group_id,
@@ -342,7 +395,162 @@ impl RaftNode {
                     response,
                 })
             }
+            #[cfg(feature = "snapshot")]
+            RaftMessage::SnapshotTransferResponse { response, .. } => {
+                Ok(RaftMessage::SnapshotTransferResponse {
+                    group_id: self.config.group_id,
+                    response,
+                })
+            }
         }
+    }
+
+    #[cfg(feature = "snapshot")]
+    async fn handle_snapshot_transfer(
+        &self,
+        request: RaftSnapshotRequest,
+    ) -> RaftResult<RaftMessage> {
+        let local_vote = self.raft.metrics().borrow().vote;
+        let (snapshot_id, status) = match request {
+            RaftSnapshotRequest::Begin(begin) => {
+                let snapshot_id = begin.manifest.snapshot_id.clone();
+                if begin.vote < local_vote {
+                    (
+                        snapshot_id,
+                        RaftSnapshotStatus::Rejected {
+                            reason: "snapshot sender has a stale vote".into(),
+                        },
+                    )
+                } else {
+                    match SnapshotReceiver::new(
+                        begin.manifest,
+                        self.transport.snapshot_progress_observer(),
+                    ) {
+                        Ok(receiver) => {
+                            self.incoming_snapshots.lock().await.insert(
+                                snapshot_id.clone(),
+                                IncomingSnapshot {
+                                    vote: begin.vote,
+                                    meta: begin.meta,
+                                    receiver,
+                                },
+                            );
+                            (snapshot_id, RaftSnapshotStatus::Accepted)
+                        }
+                        Err(error) => (
+                            snapshot_id,
+                            RaftSnapshotStatus::Rejected {
+                                reason: error.to_string(),
+                            },
+                        ),
+                    }
+                }
+            }
+            RaftSnapshotRequest::Chunk(chunk) => {
+                let snapshot_id = chunk.snapshot_id.clone();
+                let index = chunk.index;
+                let mut incoming = self.incoming_snapshots.lock().await;
+                let status = match incoming.get_mut(&snapshot_id) {
+                    Some(session) => match session.receiver.accept(chunk) {
+                        Ok(()) => RaftSnapshotStatus::ChunkVerified { index },
+                        Err(SnapshotTransferError::Integrity(reason)) => {
+                            RaftSnapshotStatus::RetryChunk { index, reason }
+                        }
+                        Err(error) => RaftSnapshotStatus::Rejected {
+                            reason: error.to_string(),
+                        },
+                    },
+                    None => RaftSnapshotStatus::Rejected {
+                        reason: "snapshot transfer session not found".into(),
+                    },
+                };
+                (snapshot_id, status)
+            }
+            RaftSnapshotRequest::Finish { snapshot_id } => {
+                let session = self.incoming_snapshots.lock().await.remove(&snapshot_id);
+                let status = if let Some(session) = session {
+                    match session.receiver.into_verified(&snapshot_id) {
+                        Ok(verified) => {
+                            let size_bytes = verified.bytes.len() as u64;
+                            let expected_applied = session.meta.last_log_id;
+                            let snapshot = Snapshot {
+                                meta: session.meta,
+                                snapshot: Box::new(Cursor::new(verified.bytes)),
+                            };
+                            match self
+                                .raft
+                                .install_full_snapshot(session.vote, snapshot)
+                                .await
+                            {
+                                Ok(_)
+                                    if self
+                                        .wait_for_snapshot_apply(expected_applied)
+                                        .await
+                                        .is_ok() =>
+                                {
+                                    RaftSnapshotStatus::Installed { size_bytes }
+                                }
+                                Ok(_) => RaftSnapshotStatus::Rejected {
+                                    reason:
+                                        "snapshot durable apply did not complete before timeout"
+                                            .into(),
+                                },
+                                Err(error) => RaftSnapshotStatus::Rejected {
+                                    reason: error.to_string(),
+                                },
+                            }
+                        }
+                        Err(error) => RaftSnapshotStatus::Rejected {
+                            reason: error.to_string(),
+                        },
+                    }
+                } else {
+                    RaftSnapshotStatus::Rejected {
+                        reason: "snapshot transfer session not found".into(),
+                    }
+                };
+                (snapshot_id, status)
+            }
+            RaftSnapshotRequest::Abort { snapshot_id } => {
+                self.incoming_snapshots.lock().await.remove(&snapshot_id);
+                (snapshot_id, RaftSnapshotStatus::Aborted)
+            }
+        };
+
+        Ok(RaftMessage::SnapshotTransferResponse {
+            group_id: self.config.group_id,
+            response: RaftSnapshotResponse {
+                vote: self.raft.metrics().borrow().vote,
+                snapshot_id,
+                status,
+            },
+        })
+    }
+
+    #[cfg(feature = "snapshot")]
+    async fn wait_for_snapshot_apply(
+        &self,
+        expected: Option<LogId<ChirpsNodeId>>,
+    ) -> Result<(), ()> {
+        let Some(expected) = expected else {
+            return Ok(());
+        };
+        let mut metrics = self.raft.metrics();
+        timeout(Duration::from_secs(30), async {
+            loop {
+                if metrics
+                    .borrow()
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|applied| applied.index >= expected.index)
+                {
+                    return Ok(());
+                }
+                metrics.changed().await.map_err(|_| ())?;
+            }
+        })
+        .await
+        .map_err(|_| ())?
     }
 
     /// openraftトリガーをそのまま公開。現在はハートビートのみ。
@@ -422,6 +630,8 @@ fn build_openraft_config(src: &RaftConfig) -> Result<Arc<Config>, Box<ConfigErro
         max_payload_entries: src.max_batch_size as u64,
         snapshot_policy: SnapshotPolicy::LogsSinceLast(src.snapshot_threshold),
         max_in_snapshot_log_to_keep: src.max_in_snapshot_log_to_keep,
+        #[cfg(feature = "snapshot")]
+        snapshot_max_chunk_size: src.snapshot_chunk_size as u64,
         ..Default::default()
     };
     Ok(Arc::new(cfg.validate().map_err(Box::new)?))
