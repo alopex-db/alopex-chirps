@@ -1,0 +1,45 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-raft-snapshot-v0-6
+  language: TLA+
+  implementation_status: production-before
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 10
+    constants: {ChunkCount: 2, RetryLimit: 1, MaxConcurrent: 2}
+    scope: "One Raft snapshot, two chunks, one retry per chunk, and at most two concurrent in-flight chunks."
+    exclusions:
+      - "Unbounded chunks, retries, liveness, fairness, and arbitrary crash schedules"
+      - "OpenRaft consensus, learner catch-up, filesystem durability, real QUIC behavior, and throughput"
+requirements:
+  - id: SNAPSHOT-CHUNK-RETRY
+    requirement: "CHIRPS v0.6 Requirement 6 / Issue #22"
+    classification: concurrent/distributed-state
+    implementation_status: planned
+    failure_mode: "A failed chunk causes unrelated chunks or the whole snapshot to be retransmitted."
+    properties: [RetriesBelongOnlyToFailedChunks, ConcurrencyIsBounded]
+    planned_refinement:
+      - crates/alopex-chirps/src/snapshot.rs
+      - crates/alopex-chirps/src/raft/transport.rs
+    planned_local_component_test:
+      - crates/alopex-chirps/tests/snapshot_transfer.rs::failed_chunk_is_retried_without_resending_verified_chunks
+      - crates/alopex-chirps/tests/snapshot_transfer.rs::sender_never_exceeds_configured_parallelism
+  - id: SNAPSHOT-VERIFY-CHECKPOINT-INSTALL
+    requirement: "CHIRPS v0.6 Requirement 6 / Issue #22"
+    classification: concurrent/distributed-state
+    implementation_status: planned
+    failure_mode: "A partial, corrupt, or non-durable snapshot becomes visible to the StateMachine."
+    properties: [ProgressMatchesVerifiedChunks, InstalledOnlyAfterWholeVerification, NoPartialInstall, TerminalFailureIsInvisible]
+    planned_refinement:
+      - crates/alopex-chirps/src/snapshot.rs
+      - crates/chirps-raft-storage/src/wal_storage.rs
+    planned_local_component_test:
+      - crates/alopex-chirps/tests/snapshot_transfer.rs::receiver_installs_only_after_all_chunks_verify_and_checkpoint
+      - crates/alopex-chirps/tests/snapshot_transfer.rs::failed_transfer_never_exposes_partial_snapshot
+  - id: SNAPSHOT-PERFORMANCE
+    requirement: "CHIRPS v0.6 Requirement 6 throughput"
+    classification: physical/performance-evidence
+    property: not_modeled
+    reason: "The controlled 1 Gbit/s profile and 100 MB/s threshold require production measurement."
