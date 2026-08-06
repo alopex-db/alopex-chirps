@@ -18,7 +18,7 @@ use std::any::Any;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::fs::OpenOptions;
-use std::io::{self, Cursor, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -359,6 +359,7 @@ where
     }
 
     fn replay_wal(&mut self) -> Result<()> {
+        validate_wal_framing(&self.wal_path)?;
         let reader = WalReader::new(&self.wal_path)?;
         for record in reader {
             if let CoreWalRecord::Put(_, _, value) = record? {
@@ -589,6 +590,37 @@ where
     }
 }
 
+fn validate_wal_framing(path: &Path) -> Result<()> {
+    let mut file = std::fs::File::open(path)?;
+    let file_len = file.metadata()?.len();
+    let mut offset = 0u64;
+    while offset < file_len {
+        let remaining = file_len - offset;
+        if remaining < 8 {
+            return Err(anyhow!("truncated WAL record header at byte {offset}"));
+        }
+        let mut header = [0u8; 8];
+        file.read_exact(&mut header)?;
+        offset += header.len() as u64;
+
+        let record_len = u32::from_le_bytes(header[..4].try_into().unwrap()) as u64;
+        let expected_checksum = u32::from_le_bytes(header[4..].try_into().unwrap());
+        let remaining = file_len - offset;
+        if record_len > remaining {
+            return Err(anyhow!(
+                "truncated WAL record body at byte {offset}: expected {record_len}, remaining {remaining}"
+            ));
+        }
+        let mut record = vec![0u8; record_len as usize];
+        file.read_exact(&mut record)?;
+        offset += record_len;
+        if crc32fast::hash(&record) != expected_checksum {
+            return Err(anyhow!("WAL checksum mismatch at byte {offset}"));
+        }
+    }
+    Ok(())
+}
+
 #[async_trait::async_trait]
 impl<SM> RaftStorage<ChirpsTypeConfig> for WalRaftStorage<SM>
 where
@@ -807,7 +839,18 @@ where
                         ErrorVerb::Read,
                     ));
                 }
-                let _version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                if version != SNAP_VERSION {
+                    return Err(self.to_storage_io_error(
+                        anyhow!(
+                            "snapshot format version mismatch: expected {}, got {}",
+                            SNAP_VERSION,
+                            version
+                        ),
+                        ErrorSubject::Snapshot(None),
+                        ErrorVerb::Read,
+                    ));
+                }
                 let mut offset = 8;
                 let mut meta_bytes: Option<Vec<u8>> = None;
                 let mut data = Vec::new();
@@ -862,6 +905,14 @@ where
                         meta_bytes = Some(body[..meta_len].to_vec());
                     }
                     data.extend_from_slice(&body[meta_len..]);
+                }
+
+                if offset != bytes.len() {
+                    return Err(self.to_storage_io_error(
+                        anyhow!("snapshot has trailing bytes"),
+                        ErrorSubject::Snapshot(None),
+                        ErrorVerb::Read,
+                    ));
                 }
 
                 let meta_bytes = meta_bytes.ok_or_else(|| {
