@@ -109,7 +109,7 @@ for item in "${ORDER[@]}"; do
   measure_network_rtt "$output/$sample/rtt-unloaded.json"
   for node in node1 node2 node3; do
     compose exec --user root --no-TTY "$node" sh -ceu '
-      iface=$(ip -o -4 addr show | awk '\''$4 ~ /^172[.]31[.]60[.]/{print $2; exit}'\'')
+      iface=$(ip -o -4 addr show | awk '\''$4 ~ /^192[.]168[.]128[.]/{print $2; exit}'\'')
       test -n "$iface"
       tc qdisc replace dev "$iface" root netem delay 500us
       tc -s qdisc show dev "$iface"
