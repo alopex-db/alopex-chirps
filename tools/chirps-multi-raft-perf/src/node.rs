@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, Semaphore, broadcast, oneshot};
+use tokio::sync::{Mutex, Semaphore, broadcast, mpsc, oneshot};
 use tokio::time::{sleep, timeout};
 
 const PROBE_MAGIC: &[u8; 8] = b"MRPROBE1";
@@ -193,47 +193,97 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
 
 async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHandle<()>> {
     let mut incoming = runtime.backend.subscribe().await?;
-    let dispatch_slots = Arc::new(Semaphore::new(1024));
+    let probe_slots = Arc::new(Semaphore::new(1024));
     Ok(tokio::spawn(async move {
+        let mut group_queues = BTreeMap::new();
         while let Some((source, frame)) = incoming.recv().await {
-            let Ok(slot) = Arc::clone(&dispatch_slots).acquire_owned().await else {
-                break;
-            };
-            let runtime = Arc::clone(&runtime);
-            tokio::spawn(async move {
-                let _slot = slot;
-                match frame {
-                    Frame::User(message) => handle_probe_frame(&runtime, source, message).await,
-                    frame @ (Frame::Raft(_) | Frame::RaftSnapshot(_)) => {
-                        match runtime
-                            .manager
-                            .dispatch_frame(source, wire_node_id(runtime.node_id), frame)
-                            .await
-                        {
-                            Ok(Some(response)) => {
-                                if let Err(error) =
-                                    runtime.manager.send_routed_response(response).await
-                                {
-                                    eprintln!(
-                                        "node {} failed to send routed Raft response to {}: {error}",
-                                        runtime.node_id,
-                                        decode_node_id(source)
-                                    );
-                                }
-                            }
-                            Ok(None) => {}
-                            Err(error) => eprintln!(
-                                "node {} failed to dispatch Raft frame from {}: {error}",
-                                runtime.node_id,
-                                decode_node_id(source)
-                            ),
-                        }
-                    }
-                    _ => {}
+            match frame {
+                Frame::User(message) => {
+                    let Ok(slot) = Arc::clone(&probe_slots).acquire_owned().await else {
+                        break;
+                    };
+                    let runtime = Arc::clone(&runtime);
+                    tokio::spawn(async move {
+                        let _slot = slot;
+                        handle_probe_frame(&runtime, source, message).await;
+                    });
                 }
-            });
+                frame @ (Frame::Raft(_) | Frame::RaftSnapshot(_)) => {
+                    let Some(group_id) = frame_group_id(&frame) else {
+                        continue;
+                    };
+                    let send_result = {
+                        let runtime = Arc::clone(&runtime);
+                        group_queues
+                            .entry(group_id)
+                            .or_insert_with(|| {
+                                spawn_fifo_queue(move |(source, frame)| {
+                                    let runtime = Arc::clone(&runtime);
+                                    async move {
+                                        dispatch_raft_frame(&runtime, source, frame).await
+                                    }
+                                })
+                            })
+                            .send((source, frame))
+                    };
+                    if send_result.is_err() {
+                        eprintln!(
+                            "node {} Raft dispatch queue for group {group_id} stopped",
+                            runtime.node_id
+                        );
+                        group_queues.remove(&group_id);
+                    }
+                }
+                _ => {}
+            }
         }
     }))
+}
+
+fn spawn_fifo_queue<T, H, Fut>(mut handler: H) -> mpsc::UnboundedSender<T>
+where
+    T: Send + 'static,
+    H: FnMut(T) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Some(item) = receiver.recv().await {
+            handler(item).await;
+        }
+    });
+    sender
+}
+
+fn frame_group_id(frame: &Frame) -> Option<u64> {
+    match frame {
+        Frame::Raft(frame) | Frame::RaftSnapshot(frame) => Some(frame.group_id),
+        _ => None,
+    }
+}
+
+async fn dispatch_raft_frame(runtime: &Runtime, source: NodeId, frame: Frame) {
+    match runtime
+        .manager
+        .dispatch_frame(source, wire_node_id(runtime.node_id), frame)
+        .await
+    {
+        Ok(Some(response)) => {
+            if let Err(error) = runtime.manager.send_routed_response(response).await {
+                eprintln!(
+                    "node {} failed to send routed Raft response to {}: {error}",
+                    runtime.node_id,
+                    decode_node_id(source)
+                );
+            }
+        }
+        Ok(None) => {}
+        Err(error) => eprintln!(
+            "node {} failed to dispatch Raft frame from {}: {error}",
+            runtime.node_id,
+            decode_node_id(source)
+        ),
+    }
 }
 
 fn spawn_ticker(runtime: Arc<Runtime>) -> tokio::task::JoinHandle<()> {
@@ -615,4 +665,71 @@ fn wire_node_id(node_id: u64) -> NodeId {
 
 fn decode_node_id(node_id: NodeId) -> u64 {
     u64::from_be_bytes(node_id.as_bytes()[8..].try_into().unwrap_or([0; 8]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alopex_chirps_wire::frame::RaftFrame;
+
+    #[tokio::test]
+    async fn fifo_queue_preserves_group_order() {
+        let (observed_tx, mut observed_rx) = mpsc::unbounded_channel();
+        let queue = spawn_fifo_queue(move |value| {
+            let observed_tx = observed_tx.clone();
+            async move {
+                if value == 1 {
+                    sleep(Duration::from_millis(20)).await;
+                }
+                observed_tx.send(value).unwrap();
+            }
+        });
+
+        queue.send(1).unwrap();
+        queue.send(2).unwrap();
+        queue.send(3).unwrap();
+
+        assert_eq!(observed_rx.recv().await, Some(1));
+        assert_eq!(observed_rx.recv().await, Some(2));
+        assert_eq!(observed_rx.recv().await, Some(3));
+    }
+
+    #[tokio::test]
+    async fn separate_group_queues_do_not_head_of_line_block() {
+        let slow = spawn_fifo_queue(|()| async {
+            sleep(Duration::from_millis(100)).await;
+        });
+        let (fast_tx, mut fast_rx) = mpsc::unbounded_channel();
+        let fast = spawn_fifo_queue(move |value| {
+            let fast_tx = fast_tx.clone();
+            async move {
+                fast_tx.send(value).unwrap();
+            }
+        });
+
+        slow.send(()).unwrap();
+        fast.send(7).unwrap();
+
+        assert_eq!(
+            timeout(Duration::from_millis(50), fast_rx.recv())
+                .await
+                .unwrap(),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn raft_frame_exposes_its_outer_group_for_dispatch() {
+        let frame = Frame::Raft(RaftFrame {
+            group_id: 42,
+            payload: Vec::new(),
+        });
+        assert_eq!(frame_group_id(&frame), Some(42));
+        assert_eq!(
+            frame_group_id(&Frame::User(UserMessage {
+                payload: Vec::new()
+            })),
+            None
+        );
+    }
 }
