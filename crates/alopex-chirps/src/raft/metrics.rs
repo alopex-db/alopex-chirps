@@ -795,6 +795,14 @@ fn bounded_tso_result(value: Option<&str>) -> &'static str {
         Some("not_leader") => "not_leader",
         Some("unauthorized") => "unauthorized",
         Some("timeout") => "timeout",
+        Some("lease_not_ready") => "lease_not_ready",
+        Some("invalid_count") => "invalid_count",
+        Some("invalid_config") => "invalid_config",
+        Some("transport_error") => "transport_error",
+        Some("raft_error") => "raft_error",
+        Some("codec_error") => "codec_error",
+        Some("overflow") => "overflow",
+        Some("non_monotonic") => "non_monotonic",
         _ => "failed",
     }
 }

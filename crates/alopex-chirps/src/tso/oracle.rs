@@ -1,7 +1,8 @@
 use super::{Clock, TimestampRange, TsoCommand, TsoError, TsoResponse};
 use crate::multi_raft::{GroupHandle, GroupId, MultiRaftError};
-use std::sync::Arc;
-use std::time::Duration;
+use crate::raft::{RaftMetricsCollector, TsoMetricsUpdate};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 /// Reserved group namespace for the single cluster-wide Timestamp Oracle.
@@ -27,6 +28,7 @@ pub struct TimestampOracle {
     clock: Arc<dyn Clock>,
     lease_expiry: Mutex<Option<u64>>,
     lease_duration_ms: u64,
+    metrics_collector: RwLock<Option<Arc<RaftMetricsCollector>>>,
 }
 
 impl TimestampOracle {
@@ -56,7 +58,20 @@ impl TimestampOracle {
             clock,
             lease_expiry: Mutex::new(None),
             lease_duration_ms,
+            metrics_collector: RwLock::new(None),
         })
+    }
+
+    /// Registers the Prometheus collector used for subsequent TSO requests.
+    ///
+    /// Replacing the collector is atomic with respect to request observations;
+    /// an in-flight request records to either the old or new collector, never
+    /// to both.
+    pub fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
+        *self
+            .metrics_collector
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(collector);
     }
 
     pub fn is_leader(&self) -> bool {
@@ -73,6 +88,20 @@ impl TimestampOracle {
     }
 
     pub async fn get_timestamps(&self, count: u32) -> Result<TimestampRange, TsoError> {
+        self.get_timestamps_started(count, Instant::now()).await
+    }
+
+    pub(crate) async fn get_timestamps_started(
+        &self,
+        count: u32,
+        started: Instant,
+    ) -> Result<TimestampRange, TsoError> {
+        let result = self.get_timestamps_inner(count).await;
+        self.record_request(started, &result);
+        result
+    }
+
+    async fn get_timestamps_inner(&self, count: u32) -> Result<TimestampRange, TsoError> {
         if count == 0 {
             return Err(TsoError::InvalidCount);
         }
@@ -100,6 +129,38 @@ impl TimestampOracle {
                 "allocation returned a lease response".into(),
             )),
         }
+    }
+
+    pub(crate) fn record_rejected_request(&self, started: Instant, error: &TsoError) {
+        self.record_request(started, &Err(error.clone()));
+    }
+
+    fn record_request(&self, started: Instant, result: &Result<TimestampRange, TsoError>) {
+        let collector = self
+            .metrics_collector
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let Some(collector) = collector else {
+            return;
+        };
+
+        let mut update = TsoMetricsUpdate {
+            result: Some(match result {
+                Ok(_) => "success",
+                Err(error) => metric_result(error),
+            }),
+            request_count: 1,
+            request_latency_seconds: Some(started.elapsed().as_secs_f64()),
+            ..Default::default()
+        };
+        if let Ok(range) = result {
+            update.allocated = u64::from(range.count);
+            update.physical_time = Some(range.end.physical);
+            update.logical_counter = Some(u64::from(range.end.logical));
+            update.batch_size = Some(u64::from(range.count));
+        }
+        collector.update_tso(&update);
     }
 
     fn require_leader(&self) -> Result<(), TsoError> {
@@ -152,5 +213,20 @@ impl TimestampOracle {
             }
         })?;
         bincode::deserialize(&response).map_err(|error| TsoError::Codec(error.to_string()))
+    }
+}
+
+fn metric_result(error: &TsoError) -> &'static str {
+    match error {
+        TsoError::InvalidCount => "invalid_count",
+        TsoError::InvalidTsoGroup { .. } | TsoError::InvalidConfig(_) => "invalid_config",
+        TsoError::NotLeader(_) => "not_leader",
+        TsoError::LeaseNotReady { .. } => "lease_not_ready",
+        TsoError::Unauthenticated { .. } => "unauthorized",
+        TsoError::Transport(_) => "transport_error",
+        TsoError::Raft(_) => "raft_error",
+        TsoError::Codec(_) => "codec_error",
+        TsoError::TimestampOverflow => "overflow",
+        TsoError::NonMonotonicResponse => "non_monotonic",
     }
 }

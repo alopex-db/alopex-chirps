@@ -1,8 +1,10 @@
 use super::{TimestampOracle, TimestampRange, TsoError};
+use crate::raft::RaftMetricsCollector;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
+use std::time::Instant;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TsoRequest {
@@ -42,16 +44,26 @@ impl TsoService {
         }
     }
 
+    /// Registers one collector for authenticated and rejected TSO requests.
+    pub fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
+        self.oracle.set_metrics_collector(collector);
+    }
+
     pub async fn get_timestamps(&self, request: TsoRequest) -> Result<TimestampRange, TsoError> {
+        let started = Instant::now();
         if !self
             .authenticator
             .authenticate(request.requester, &request.credential)
             .await
         {
-            return Err(TsoError::Unauthenticated {
+            let error = TsoError::Unauthenticated {
                 node_id: request.requester,
-            });
+            };
+            self.oracle.record_rejected_request(started, &error);
+            return Err(error);
         }
-        self.oracle.get_timestamps(request.count).await
+        self.oracle
+            .get_timestamps_started(request.count, started)
+            .await
     }
 }
