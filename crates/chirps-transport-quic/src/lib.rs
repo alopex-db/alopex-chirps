@@ -216,6 +216,7 @@ pub struct QuicBackend {
     #[allow(dead_code)]
     incoming_tx: mpsc::Sender<(NodeId, Frame)>,
     incoming_rx: Arc<Mutex<Option<mpsc::Receiver<(NodeId, Frame)>>>>,
+    file_transfer_rx: Arc<Mutex<Option<mpsc::Receiver<(NodeId, RecvStream)>>>>,
     shutdown: broadcast::Sender<()>,
     reconnect_tx: mpsc::Sender<ReconnectCommand>,
     send_tx: mpsc::Sender<SendCommand>,
@@ -253,6 +254,7 @@ impl QuicBackend {
         endpoint.set_default_client_config(client_config.clone());
 
         let (incoming_tx, incoming_rx) = mpsc::channel(1024);
+        let (file_transfer_tx, file_transfer_rx) = mpsc::channel(64);
         let (send_tx, send_rx) = mpsc::channel(transport_config.send_queue_capacity);
         let send_slots = Arc::new(Semaphore::new(transport_config.send_queue_capacity));
         let (shutdown, _) = broadcast::channel(4);
@@ -263,9 +265,10 @@ impl QuicBackend {
         let retransmit_buffer = Arc::new(RwLock::new(RetransmissionBuffer::new(
             transport_config.retransmit.clone(),
         )));
-        let receive_handler = Arc::new(ReceiveHandler::new(
+        let receive_handler = Arc::new(ReceiveHandler::new_with_file_transfer(
             Arc::clone(&retransmit_buffer),
             incoming_tx.clone(),
+            Some(file_transfer_tx),
             Arc::clone(&metrics_ext),
         ));
         let reconnect_tx = start_seed_reconnector(
@@ -289,6 +292,7 @@ impl QuicBackend {
             peer_capabilities,
             incoming_tx,
             incoming_rx: Arc::new(Mutex::new(Some(incoming_rx))),
+            file_transfer_rx: Arc::new(Mutex::new(Some(file_transfer_rx))),
             shutdown,
             reconnect_tx,
             send_tx,
@@ -397,6 +401,41 @@ impl QuicBackend {
             concurrent_sends: self.metrics.concurrent_sends.load(Ordering::Relaxed),
             max_concurrent_sends: self.metrics.max_concurrent_sends.load(Ordering::Relaxed),
         }
+    }
+
+    /// Opens a raw unidirectional stream on an established peer connection.
+    ///
+    /// The file-transfer codec writes its own stream discriminator and payload
+    /// after this method returns.
+    pub async fn open_file_transfer_stream(
+        &self,
+        target: NodeId,
+    ) -> Result<quinn::SendStream, TransportError> {
+        let connection = self
+            .connections
+            .read()
+            .await
+            .get(&target)
+            .cloned()
+            .ok_or_else(|| {
+                TransportError::Connection(format!("peer {target:?} is not connected"))
+            })?;
+        connection
+            .open_uni()
+            .await
+            .map_err(|error| TransportError::Send(error.to_string()))
+    }
+
+    /// Subscribes to incoming file-transfer chunk streams.
+    ///
+    /// Chunk streams have already had their one-byte stream discriminator
+    /// consumed. A backend permits exactly one chunk-stream consumer.
+    pub async fn subscribe_file_transfer_streams(
+        &self,
+    ) -> Result<mpsc::Receiver<(NodeId, RecvStream)>, TransportError> {
+        self.file_transfer_rx.lock().await.take().ok_or_else(|| {
+            TransportError::Subscribe("file transfer streams already subscribed".into())
+        })
     }
 }
 

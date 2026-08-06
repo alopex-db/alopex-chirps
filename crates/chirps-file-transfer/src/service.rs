@@ -371,15 +371,26 @@ impl FileTransferServiceImpl {
         stream_opener: Arc<dyn ChunkStreamOpener>,
         config: FileTransferConfig,
     ) -> Result<Self, FileTransferError> {
-        if config.max_concurrent_transfers == 0 {
-            return Err(FileTransferError::Internal(
-                "max_concurrent_transfers must be greater than zero".into(),
-            ));
-        }
+        validate_config(&config)?;
         let receiver = backend
             .subscribe()
             .await
             .map_err(|err| FileTransferError::Transport(err.to_string()))?;
+        Self::new_with_receiver(source_node, backend, stream_opener, config, receiver).await
+    }
+
+    /// Creates a service from an already-demultiplexed control-frame receiver.
+    ///
+    /// This constructor lets a higher-level mesh own the transport's single
+    /// subscription while preserving the same file-transfer control protocol.
+    pub async fn new_with_receiver(
+        source_node: NodeId,
+        backend: Arc<dyn MessageBackend>,
+        stream_opener: Arc<dyn ChunkStreamOpener>,
+        config: FileTransferConfig,
+        receiver: tokio::sync::mpsc::Receiver<(NodeId, alopex_chirps_wire::frame::Frame)>,
+    ) -> Result<Self, FileTransferError> {
+        validate_config(&config)?;
         let control = ControlDispatcher::new(Arc::clone(&backend), receiver);
         let sessions = Arc::new(RwLock::new(HashMap::new()));
         let path_validator = PathValidator::new(config.base_path.clone(), false);
@@ -607,6 +618,15 @@ impl FileTransferServiceImpl {
             .map(TransferSessionInfo::from)
             .collect()
     }
+}
+
+fn validate_config(config: &FileTransferConfig) -> Result<(), FileTransferError> {
+    if config.max_concurrent_transfers == 0 {
+        return Err(FileTransferError::Internal(
+            "max_concurrent_transfers must be greater than zero".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -3,6 +3,9 @@ use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
 use crate::node_id::{NodeId, load_or_create_node_id};
 use crate::profile::{EnvelopeMetadata, MessageProfile, resolve_profile};
+use alopex_chirps_file_transfer::{
+    ChunkStreamOpener, FileTransferConfig, FileTransferError, FileTransferServiceImpl,
+};
 use alopex_chirps_gossip_swim::engine::{
     GossipConfig, GossipEngine, Transport as GossipTransport,
     TransportError as GossipTransportError,
@@ -93,11 +96,53 @@ impl MeshHandle {
 
     /// 受信フレーム購読を開始し、`(from, frame)` を受け取るチャネルを返す。
     pub async fn subscribe(&self) -> Result<mpsc::Receiver<(NodeId, Frame)>, MeshError> {
-        self.inner
-            .backend
+        let (sender, receiver) = mpsc::channel(1024);
+        self.inner.frame_subscribers.lock().unwrap().push(sender);
+        Ok(receiver)
+    }
+
+    /// Creates the file-transfer service attached to this mesh.
+    ///
+    /// The mesh keeps ownership of the transport subscription and supplies the
+    /// service with demultiplexed control frames and QUIC chunk streams.
+    pub async fn file_transfer(
+        &self,
+        config: FileTransferConfig,
+    ) -> Result<FileTransferServiceImpl, FileTransferError> {
+        if config.max_concurrent_transfers == 0 {
+            return Err(FileTransferError::Internal(
+                "max_concurrent_transfers must be greater than zero".into(),
+            ));
+        }
+
+        let chunk_receiver = self
+            .inner
+            .quic_backend
+            .subscribe_file_transfer_streams()
+            .await
+            .map_err(|error| FileTransferError::Transport(error.to_string()))?;
+        let frame_receiver = self
             .subscribe()
             .await
-            .map_err(MeshError::from)
+            .map_err(|error| FileTransferError::Transport(error.to_string()))?;
+        let opener: Arc<dyn ChunkStreamOpener> = Arc::new(MeshChunkStreamOpener {
+            backend: Arc::clone(&self.inner.quic_backend),
+        });
+        let service = FileTransferServiceImpl::new_with_receiver(
+            self.inner.node_id,
+            Arc::clone(&self.inner.backend),
+            opener,
+            config,
+            frame_receiver,
+        )
+        .await?;
+
+        spawn_file_transfer_stream_loop(
+            chunk_receiver,
+            service.receive_handler(),
+            service.control(),
+        );
+        Ok(service)
     }
 
     /// ノード参加イベントハンドラを登録する。
@@ -171,7 +216,9 @@ pub struct Mesh {
     pub(crate) incarnation: u64,
     pub(crate) config: Arc<NodeConfig>,
     pub(crate) backend: Arc<dyn MessageBackend>,
+    quic_backend: Arc<QuicBackend>,
     gossip: Arc<Mutex<GossipEngine>>,
+    frame_subscribers: std::sync::Mutex<Vec<mpsc::Sender<(NodeId, Frame)>>>,
     join_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     leave_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     status_handlers: std::sync::Mutex<Vec<NodeHandler>>,
@@ -201,11 +248,12 @@ impl Mesh {
         let config = Arc::new(config);
         let (node_id, incarnation) = load_or_create_node_id(&config.node_id_path)?;
 
-        let backend = Arc::new(
+        let quic_backend = Arc::new(
             QuicBackend::new(node_id, Arc::clone(&config))
                 .await
                 .map_err(|e| TransportError::Connection(e.to_string()))?,
-        ) as Arc<dyn MessageBackend>;
+        );
+        let backend: Arc<dyn MessageBackend> = quic_backend.clone();
 
         let gossip_backend: Arc<dyn GossipTransport> = Arc::new(BackendAdapter {
             inner: Arc::clone(&backend),
@@ -232,7 +280,9 @@ impl Mesh {
             incarnation,
             config,
             backend,
+            quic_backend,
             gossip,
+            frame_subscribers: std::sync::Mutex::new(Vec::new()),
             join_handlers: std::sync::Mutex::new(Vec::new()),
             leave_handlers: std::sync::Mutex::new(Vec::new()),
             status_handlers: std::sync::Mutex::new(Vec::new()),
@@ -342,12 +392,60 @@ fn spawn_frame_loop(mesh: Arc<Mesh>) -> JoinHandle<()> {
                     let mut gossip = mesh.gossip.lock().await;
                     gossip.apply_membership_update(&msg.updates);
                 }
-                _ => {
-                    // User or PingReq not handled yet.
+                frame => {
+                    let subscribers = {
+                        let mut subscribers = mesh.frame_subscribers.lock().unwrap();
+                        subscribers.retain(|sender| !sender.is_closed());
+                        subscribers.clone()
+                    };
+                    for subscriber in subscribers {
+                        let _ = subscriber.send((from, frame.clone())).await;
+                    }
                 }
             }
         }
     })
+}
+
+struct MeshChunkStreamOpener {
+    backend: Arc<QuicBackend>,
+}
+
+#[async_trait::async_trait]
+impl ChunkStreamOpener for MeshChunkStreamOpener {
+    async fn open_chunk_stream(
+        &self,
+        target: NodeId,
+    ) -> Result<quinn::SendStream, FileTransferError> {
+        self.backend
+            .open_file_transfer_stream(target)
+            .await
+            .map_err(|error| FileTransferError::Transport(error.to_string()))
+    }
+}
+
+fn spawn_file_transfer_stream_loop(
+    mut receiver: mpsc::Receiver<(NodeId, quinn::RecvStream)>,
+    receive_handler: Arc<alopex_chirps_file_transfer::ops::ReceiveHandler>,
+    control: Arc<alopex_chirps_file_transfer::ControlDispatcher>,
+) {
+    let receive_handler = Arc::downgrade(&receive_handler);
+    let control = Arc::downgrade(&control);
+    tokio::spawn(async move {
+        while let Some((sender, mut stream)) = receiver.recv().await {
+            let (Some(receive_handler), Some(control)) =
+                (receive_handler.upgrade(), control.upgrade())
+            else {
+                break;
+            };
+            if let Err(error) = receive_handler
+                .handle_chunk_stream(sender, &control, &mut stream)
+                .await
+            {
+                tracing::warn!(peer = ?sender, %error, "file transfer chunk stream failed");
+            }
+        }
+    });
 }
 
 /// Adapter to reuse the existing MessageBackend inside the gossip engine.

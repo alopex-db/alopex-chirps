@@ -31,6 +31,7 @@ tracing = "0.1"
 openraft = { version = "=0.9.17", features = ["serde"] }
 prometheus = "0.14"
 http = "0.2"
+quinn = "0.11"
 
 [dev-dependencies]
 alopex-chirps-mock.workspace = true
