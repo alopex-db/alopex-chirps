@@ -12,6 +12,8 @@ pub enum MultiRaftError {
     UnknownGroup { group_id: GroupId },
     #[error("group {group_id:?} is not accepting new work")]
     GroupUnavailable { group_id: GroupId },
+    #[error("the configured Raft group limit ({limit}) has been reached")]
+    GroupLimitExceeded { limit: usize },
     #[error("invalid group identifier or namespace: {value}")]
     InvalidGroupId { value: String },
     #[error("storage creation failed for group {group_id:?}: {reason}")]

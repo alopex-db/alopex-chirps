@@ -105,8 +105,9 @@
 - `group_id` / `node_id`: WAL の識別子にも使われるため、重複しないようにする。
 
 ## メトリクスとログ
-- `RaftMetricsCollector` で Prometheus メトリクスを生成し、`serve_metrics` を HTTP ハンドラから返せば `/metrics` に公開できる。
-- 主要メトリクス: `raft_state`, `raft_term`, `raft_commit_index`, `raft_applied_index`, `raft_last_log_index`, `raft_leader_id`, `raft_log_entries_count`, `raft_snapshot_total`, `raft_proposals_total`, `raft_proposals_failed_total`。
+- `RaftMetricsCollector` で Prometheus メトリクスを生成する。本番の `/metrics` ハンドラは bearer token を検証する `serve_metrics_authorized` を使い、TLS はサービスまたは ingress で終端する。外部で保護済みの環境では互換ラッパー `serve_metrics` も利用できる。
+- 主要メトリクス: `chirps_raft_groups_total`, `chirps_raft_state`, `chirps_raft_term`, `chirps_raft_commit_index`, `chirps_raft_applied_index`, `chirps_raft_proposals_total`, `chirps_raft_proposals_latency_seconds`, `chirps_raft_messages_sent_total`, `chirps_raft_messages_received_total`, `chirps_raft_log_entries`, `chirps_raft_snapshot_total`, `chirps_raft_snapshot_size_bytes`。
+- 全metric、認証、cardinality方針は [`../../../docs/observability/v0_6_metrics.md`](../../../docs/observability/v0_6_metrics.md)、旧`raft_*`名からの移行は [`../../../docs/migration/v0_5_to_v0_6.md`](../../../docs/migration/v0_5_to_v0_6.md) を参照する。
 - 構造化ログイベント（`target="raft"`）:
   - `raft_initialized`, `raft_state_changed`, `raft_leader_elected`, `raft_membership_changed`, `raft_snapshot_created`, `raft_snapshot_installed`, `raft_log_compacted`, `raft_propose_failed`。
 

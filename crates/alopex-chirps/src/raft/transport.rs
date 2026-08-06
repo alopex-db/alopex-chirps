@@ -1,4 +1,5 @@
 use crate::backend::MessageBackend;
+use crate::raft::metrics::RaftMetricsCollector;
 use crate::raft::{RaftError, RaftMessage};
 use alopex_chirps_core::error::TransportError;
 use alopex_chirps_raft_storage::types::{
@@ -78,6 +79,7 @@ pub struct ChirpsRaftTransport {
     next_corr: AtomicU64,
     accepting_rpcs: AtomicBool,
     pending: Arc<Mutex<HashMap<u64, PendingRpc>>>,
+    metrics_collector: Mutex<Option<Arc<RaftMetricsCollector>>>,
 }
 
 impl ChirpsRaftTransport {
@@ -90,6 +92,7 @@ impl ChirpsRaftTransport {
             next_corr: AtomicU64::new(1),
             accepting_rpcs: AtomicBool::new(true),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            metrics_collector: Mutex::new(None),
         }
     }
 
@@ -98,11 +101,41 @@ impl ChirpsRaftTransport {
     /// Correlation IDs and pending RPC state are deliberately not shared
     /// between groups.
     pub fn fork_for_group(&self, group_id: GroupId) -> Self {
-        Self::new(Arc::clone(&self.backend), group_id, self.node_id)
+        let fork = Self::new(Arc::clone(&self.backend), group_id, self.node_id);
+        if let Some(collector) = self.metrics_collector() {
+            fork.set_metrics_collector(collector);
+        }
+        fork
     }
 
     pub fn node_id(&self) -> ChirpsNodeId {
         self.node_id
+    }
+
+    pub(crate) fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
+        *self
+            .metrics_collector
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(collector);
+    }
+
+    fn metrics_collector(&self) -> Option<Arc<RaftMetricsCollector>> {
+        self.metrics_collector
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn record_sent(&self, message_type: &'static str) {
+        if let Some(collector) = self.metrics_collector() {
+            collector.record_raft_message_sent(self.group_id, message_type, 1);
+        }
+    }
+
+    pub(crate) fn record_received(&self, message_type: &'static str) {
+        if let Some(collector) = self.metrics_collector() {
+            collector.record_raft_message_received(self.group_id, message_type, 1);
+        }
     }
 
     /// RaftNetworkFactoryをwrapした型を取得する。
@@ -145,6 +178,7 @@ impl ChirpsRaftTransport {
         if payload.message.group_id() != self.group_id {
             return None;
         }
+        self.record_received(payload.message.metric_type());
         let mut guard = self
             .pending
             .lock()
@@ -172,6 +206,7 @@ impl ChirpsRaftTransport {
                 self.group_id.0, group_id.0
             )));
         }
+        self.record_received(payload.message.metric_type());
         if !is_response(&payload.message) {
             return Ok(Some(payload));
         }
@@ -212,6 +247,7 @@ impl ChirpsRaftTransport {
         correlation_id: u64,
         message: RaftMessage,
     ) -> Result<(), TransportError> {
+        let message_type = message.metric_type();
         let frame = self
             .encode_frame(RaftFramePayload {
                 correlation_id,
@@ -219,7 +255,11 @@ impl ChirpsRaftTransport {
             })
             .map_err(|e| TransportError::Send(e.to_string()))?;
         let target = encode_node_id(target);
-        self.backend.send(target, frame).await
+        let result = self.backend.send(target, frame).await;
+        if result.is_ok() {
+            self.record_sent(message_type);
+        }
+        result
     }
 
     /// Stops admission of new outbound RPCs while keeping already pending
@@ -255,6 +295,7 @@ impl ChirpsRaftTransport {
                 anyhow::anyhow!("Raft transport is shutting down"),
             ))));
         }
+        let message_type = message.metric_type();
         let correlation_id = self.next_corr.fetch_add(1, Ordering::Relaxed);
         let frame = self
             .encode_frame(RaftFramePayload {
@@ -298,6 +339,7 @@ impl ChirpsRaftTransport {
             });
 
         send_res?;
+        self.record_sent(message_type);
 
         match time::timeout(option.hard_ttl(), rx).await {
             Ok(Ok(msg)) => Ok(msg),
@@ -593,6 +635,61 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn successful_transport_io_updates_message_metrics() {
+        let network = MockNetwork::new();
+        let backend = network
+            .add_node(encode_node_id(1), MockBackend::ephemeral_addr())
+            .await;
+        let peer = network
+            .add_node(encode_node_id(2), MockBackend::ephemeral_addr())
+            .await;
+        let mut peer_rx = peer.subscribe().await.unwrap();
+        let backend: Arc<dyn MessageBackend> = Arc::new(backend);
+        let transport = ChirpsRaftTransport::new(backend, GroupId(4), 1);
+        let collector = Arc::new(RaftMetricsCollector::new());
+        transport.set_metrics_collector(Arc::clone(&collector));
+
+        transport
+            .send_response(
+                2,
+                7,
+                RaftMessage::VoteResponse {
+                    group_id: GroupId(4),
+                    response: VoteResponse {
+                        vote: Vote::new(1, 1),
+                        vote_granted: true,
+                        last_log_id: None,
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        peer_rx.recv().await.expect("peer receives response");
+
+        let request = RaftFramePayload {
+            correlation_id: 8,
+            message: RaftMessage::Vote {
+                group_id: GroupId(4),
+                request: VoteRequest {
+                    vote: Vote::new(2, 2),
+                    last_log_id: None,
+                },
+            },
+        };
+        assert!(transport.consume_incoming(request).await.is_some());
+
+        let body = collector.encode().unwrap();
+        assert!(body.contains(
+            "chirps_raft_messages_sent_total{group_id=\"4\",msg_type=\"vote_response\"} 1"
+        ));
+        assert!(
+            body.contains(
+                "chirps_raft_messages_received_total{group_id=\"4\",msg_type=\"vote\"} 1"
+            )
+        );
     }
 
     #[tokio::test]

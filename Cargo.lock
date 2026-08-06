@@ -45,6 +45,8 @@ dependencies = [
  "rcgen",
  "serde",
  "serde_json",
+ "sha2",
+ "subtle",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",

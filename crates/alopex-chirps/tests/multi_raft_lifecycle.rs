@@ -1,7 +1,9 @@
 #![cfg(feature = "multi-raft")]
 
-use alopex_chirps::multi_raft::{GroupId, MultiRaftError, MultiRaftManager, WalRaftStorageFactory};
-use alopex_chirps::{ChirpsRaftTransport, RaftConfig};
+use alopex_chirps::multi_raft::{
+    GroupId, MultiRaftConfig, MultiRaftError, MultiRaftManager, WalRaftStorageFactory,
+};
+use alopex_chirps::{ChirpsRaftTransport, RaftConfig, RaftMetricsCollector};
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_mock::{MockBackend, MockNetwork};
 use alopex_chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
@@ -43,6 +45,14 @@ async fn manager(
     root: &std::path::Path,
     raft_config: RaftConfig,
 ) -> Arc<MultiRaftManager<WalRaftStorageFactory<EchoStateMachine>>> {
+    manager_with_config(root, raft_config, MultiRaftConfig::default()).await
+}
+
+async fn manager_with_config(
+    root: &std::path::Path,
+    raft_config: RaftConfig,
+    multi_raft_config: MultiRaftConfig,
+) -> Arc<MultiRaftManager<WalRaftStorageFactory<EchoStateMachine>>> {
     let factory = Arc::new(WalRaftStorageFactory::new(
         WalStorageConfig {
             wal_dir: root.join("wal"),
@@ -57,7 +67,112 @@ async fn manager(
         .await;
     let backend: Arc<dyn MessageBackend> = Arc::new(backend);
     let transport = Arc::new(ChirpsRaftTransport::new(backend, GroupId(0), 1));
-    Arc::new(MultiRaftManager::new(transport, factory, raft_config))
+    Arc::new(MultiRaftManager::new_with_config(
+        transport,
+        factory,
+        raft_config,
+        multi_raft_config,
+    ))
+}
+
+#[test]
+fn default_configuration_supports_one_hundred_groups() {
+    assert_eq!(MultiRaftConfig::default().max_groups, 100);
+}
+
+#[tokio::test]
+async fn collector_registration_races_creation_without_losing_current_state() {
+    let root = tempfile::tempdir().unwrap();
+    let manager = manager(root.path(), RaftConfig::default()).await;
+    let collector = Arc::new(RaftMetricsCollector::new());
+    let (created, ()) = tokio::join!(
+        manager.create_group(GroupId(8), BTreeSet::from([1]), EchoStateMachine),
+        manager.set_metrics_collector(Arc::clone(&collector)),
+    );
+    created.unwrap();
+
+    let body = collector.encode().unwrap();
+    assert!(body.contains("chirps_raft_groups_total 1"));
+    assert!(body.contains("chirps_raft_state{group_id=\"8\""));
+    manager.shutdown_all().await.unwrap();
+}
+
+#[tokio::test]
+async fn configured_group_limit_rejects_before_allocating_another_group() {
+    let root = tempfile::tempdir().unwrap();
+    let manager = manager_with_config(
+        root.path(),
+        RaftConfig::default(),
+        MultiRaftConfig { max_groups: 1 },
+    )
+    .await;
+    let collector = Arc::new(RaftMetricsCollector::new());
+    manager.set_metrics_collector(Arc::clone(&collector)).await;
+    manager
+        .create_group(GroupId(1), BTreeSet::from([1]), EchoStateMachine)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        manager
+            .create_group(GroupId(2), BTreeSet::from([1]), EchoStateMachine)
+            .await,
+        Err(MultiRaftError::GroupLimitExceeded { limit: 1 })
+    );
+    assert_eq!(manager.list_groups(), vec![GroupId(1)]);
+    assert!(!root.path().join("wal/groups/0000000000000002").exists());
+    assert!(
+        collector
+            .encode()
+            .unwrap()
+            .contains("chirps_raft_groups_total 1")
+    );
+    let group = manager.get_group(GroupId(1)).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if group.metrics().state == openraft::ServerState::Leader {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("single voter becomes leader");
+    assert_eq!(
+        group.propose(b"metrics-state".to_vec()).await.unwrap(),
+        b"metrics-state"
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let body = collector.encode().unwrap();
+            if body.contains("chirps_raft_proposals_total{group_id=\"1\",result=\"success\"} 1")
+                && metric_value(&body, "chirps_raft_commit_index{group_id=\"1\"}")
+                    == metric_value(&body, "chirps_raft_applied_index{group_id=\"1\"}")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("proposal updates commit/applied registry state");
+    manager.shutdown_all().await.unwrap();
+    let after_shutdown = collector.encode().unwrap();
+    assert!(after_shutdown.contains("chirps_raft_groups_total 0"));
+    assert!(!after_shutdown.contains("group_id=\"1\""));
+    assert!(after_shutdown.contains("chirps_raft_group_states_total{state=\"leader\"} 0"));
+    assert!(after_shutdown.contains("chirps_raft_group_states_total{state=\"follower\"} 0"));
+}
+
+fn metric_value(body: &str, name: &str) -> u64 {
+    body.lines()
+        .find_map(|line| {
+            line.strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix(' '))
+                .and_then(|value| value.parse::<f64>().ok())
+                .map(|value| value as u64)
+        })
+        .unwrap_or(0)
 }
 
 #[tokio::test]

@@ -1,5 +1,7 @@
 use super::{GroupHandle, GroupId, MultiRaftError, RaftStorageFactory};
-use crate::raft::{ChirpsRaftTransport, RaftConfig, RaftFramePayload, RaftMessage, RaftNode};
+use crate::raft::{
+    ChirpsRaftTransport, RaftConfig, RaftFramePayload, RaftMessage, RaftMetricsCollector, RaftNode,
+};
 use alopex_chirps_wire::frame::Frame;
 use alopex_chirps_wire::node_id::NodeId;
 use std::collections::{BTreeSet, HashMap};
@@ -11,8 +13,23 @@ pub struct MultiRaftManager<F> {
     transport: Arc<ChirpsRaftTransport>,
     factory: Arc<F>,
     raft_config: RaftConfig,
+    config: MultiRaftConfig,
     lifecycle: Mutex<()>,
     groups: RwLock<HashMap<GroupId, Arc<GroupHandle>>>,
+    metrics_collector: RwLock<Option<Arc<RaftMetricsCollector>>>,
+}
+
+/// Operational limits for one Multi-Raft manager.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultiRaftConfig {
+    /// Maximum number of simultaneously managed groups.
+    pub max_groups: usize,
+}
+
+impl Default for MultiRaftConfig {
+    fn default() -> Self {
+        Self { max_groups: 100 }
+    }
 }
 
 #[derive(Debug)]
@@ -36,16 +53,40 @@ where
     pub fn new(
         transport: Arc<ChirpsRaftTransport>,
         factory: Arc<F>,
+        raft_config: RaftConfig,
+    ) -> Self {
+        Self::new_with_config(transport, factory, raft_config, MultiRaftConfig::default())
+    }
+
+    pub fn new_with_config(
+        transport: Arc<ChirpsRaftTransport>,
+        factory: Arc<F>,
         mut raft_config: RaftConfig,
+        config: MultiRaftConfig,
     ) -> Self {
         raft_config.node_id = transport.node_id();
         Self {
             transport,
             factory,
             raft_config,
+            config,
             lifecycle: Mutex::new(()),
             groups: RwLock::new(HashMap::new()),
+            metrics_collector: RwLock::new(None),
         }
+    }
+
+    /// Registers one collector for all existing and subsequently-created groups.
+    pub async fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
+        let _lifecycle = self.lifecycle.lock().await;
+        *self
+            .metrics_collector
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&collector));
+        for group in self.groups_read().values() {
+            group.set_metrics_collector(Arc::clone(&collector));
+        }
+        collector.set_groups_total(self.groups_count());
     }
 
     pub async fn create_group(
@@ -79,6 +120,11 @@ where
         let _lifecycle = self.lifecycle.lock().await;
         if self.groups_read().contains_key(&group_id) {
             return Err(MultiRaftError::GroupAlreadyExists { group_id });
+        }
+        if self.groups_count() >= self.config.max_groups {
+            return Err(MultiRaftError::GroupLimitExceeded {
+                limit: self.config.max_groups,
+            });
         }
 
         let transaction = self.factory.begin_storage(group_id, state_machine).await?;
@@ -124,6 +170,14 @@ where
         // respect to duplicate creation.
         drop(transaction.commit());
         let handle = Arc::new(GroupHandle::new(group_id, Arc::clone(&node)));
+        if let Some(collector) = self
+            .metrics_collector
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
+            handle.set_metrics_collector(collector);
+        }
         let replaced = self.groups_write().insert(group_id, handle);
         if let Some(previous) = replaced {
             let inserted = self
@@ -134,6 +188,14 @@ where
             drop(inserted);
             drop(node);
             return Err(MultiRaftError::GroupAlreadyExists { group_id });
+        }
+        if let Some(collector) = self
+            .metrics_collector
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            collector.set_groups_total(self.groups_count());
         }
         Ok(())
     }
@@ -160,6 +222,15 @@ where
 
         group.shutdown().await?;
         self.groups_write().remove(&group_id);
+        if let Some(collector) = self
+            .metrics_collector
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            collector.remove_group(group_id);
+            collector.set_groups_total(self.groups_count());
+        }
         Ok(true)
     }
 
@@ -187,6 +258,7 @@ where
         let group = self
             .get_group(group_id)
             .ok_or(MultiRaftError::UnknownGroup { group_id })?;
+        group.record_received(&payload.message);
         let correlation_id = payload.correlation_id;
         let message = group.handle_message(payload).await?;
         if message.group_id() != group_id {
@@ -201,6 +273,34 @@ where
             correlation_id,
             message,
         })
+    }
+
+    /// Sends a routed response through the same group transport that produced it.
+    /// Successful sends are included in the per-group message metrics.
+    pub async fn send_routed_response(
+        &self,
+        response: RoutedRaftResponse,
+    ) -> Result<(), MultiRaftError> {
+        if response.source != self.transport.node_id() {
+            return Err(MultiRaftError::InvalidTransportRoute {
+                reason: format!(
+                    "response source mismatch: expected {}, got {}",
+                    self.transport.node_id(),
+                    response.source
+                ),
+            });
+        }
+        let group_id = response.message.group_id();
+        let group = self
+            .get_group(group_id)
+            .ok_or(MultiRaftError::UnknownGroup { group_id })?;
+        group
+            .send_response(
+                response.destination,
+                response.correlation_id,
+                response.message,
+            )
+            .await
     }
 
     /// Decodes and routes one request frame for compatibility callers.

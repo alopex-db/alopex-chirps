@@ -20,8 +20,9 @@ pub use crate::profile::{
     resolve_profile,
 };
 pub use crate::raft::{
-    ChirpsRaftTransport, MetricsError, RaftConfig, RaftError, RaftMessage, RaftMetricsCollector,
-    RaftMetricsUpdate, RaftNode, serve_metrics,
+    ChirpsRaftTransport, HlcMetricsUpdate, MetricsAuthError, MetricsEndpointAuth, MetricsError,
+    RaftConfig, RaftError, RaftMessage, RaftMessageMetric, RaftMetricsCollector, RaftMetricsUpdate,
+    RaftNode, TsoMetricsUpdate, serve_metrics, serve_metrics_authorized,
 };
 pub use alopex_chirps_file_transfer::{
     BroadcastHandle, CompressionAlgorithm, ConflictResolution, FileInfo, FileMetadata,

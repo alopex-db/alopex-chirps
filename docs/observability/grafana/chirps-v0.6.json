@@ -1,0 +1,187 @@
+{
+  "annotations": {"list": []},
+  "description": "Chirps v0.6 Multi-Raft, TSO, HLC, and snapshot overview",
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [{"expr": "chirps_raft_groups_total", "legendFormat": "groups", "refId": "A"}],
+      "title": "Managed Raft groups",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "targets": [{"expr": "chirps_raft_group_states_total", "legendFormat": "{{state}}", "refId": "A"}],
+      "title": "Groups by state",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "targets": [{"expr": "sum by (result) (rate(chirps_raft_proposals_total{group_id=~\"$group_id\"}[5m]))", "legendFormat": "{{result}}", "refId": "A"}],
+      "title": "Raft proposals",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "id": 4,
+      "targets": [{"expr": "histogram_quantile(0.99, sum by (le) (rate(chirps_raft_proposals_latency_seconds_bucket{group_id=~\"$group_id\"}[5m])))", "legendFormat": "p99", "refId": "A"}],
+      "title": "Proposal latency P99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "id": 5,
+      "targets": [{"expr": "chirps_raft_snapshot_size_bytes{group_id=~\"$group_id\"}", "legendFormat": "group {{group_id}}", "refId": "A"}],
+      "title": "Latest snapshot size",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "id": 6,
+      "targets": [
+        {"expr": "sum(rate(chirps_raft_messages_sent_total{group_id=~\"$group_id\"}[5m]))", "legendFormat": "sent", "refId": "A"},
+        {"expr": "sum(rate(chirps_raft_messages_received_total{group_id=~\"$group_id\"}[5m]))", "legendFormat": "received", "refId": "B"}
+      ],
+      "title": "Raft message rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "id": 7,
+      "targets": [{"expr": "rate(chirps_tso_allocated_total[5m])", "legendFormat": "allocated", "refId": "A"}],
+      "title": "TSO allocation rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "id": 8,
+      "targets": [{"expr": "histogram_quantile(0.99, rate(chirps_tso_request_latency_seconds_bucket[5m]))", "legendFormat": "p99", "refId": "A"}],
+      "title": "TSO latency P99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "id": 9,
+      "targets": [{"expr": "histogram_quantile(0.99, rate(chirps_hlc_clock_skew_seconds_bucket[5m]))", "legendFormat": "p99", "refId": "A"}],
+      "title": "HLC observed skew P99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+      "id": 10,
+      "targets": [{"expr": "chirps_raft_term{group_id=~\"$group_id\"}", "legendFormat": "group {{group_id}}", "refId": "A"}],
+      "title": "Raft term by group",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+      "id": 11,
+      "targets": [{"expr": "chirps_raft_commit_index{group_id=~\"$group_id\"} - chirps_raft_applied_index{group_id=~\"$group_id\"}", "legendFormat": "group {{group_id}}", "refId": "A"}],
+      "title": "Commit to apply lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+      "id": 12,
+      "targets": [{"expr": "sum by (group_id) (rate(chirps_raft_snapshot_total{group_id=~\"$group_id\"}[5m]))", "legendFormat": "group {{group_id}}", "refId": "A"}],
+      "title": "Snapshot completion rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 32},
+      "id": 13,
+      "targets": [{"expr": "sum by (result) (rate(chirps_tso_requests_total[5m]))", "legendFormat": "{{result}}", "refId": "A"}],
+      "title": "TSO request results",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 32},
+      "id": 14,
+      "targets": [
+        {"expr": "chirps_tso_physical_time", "legendFormat": "physical", "refId": "A"},
+        {"expr": "chirps_tso_logical_counter", "legendFormat": "logical", "refId": "B"},
+        {"expr": "rate(chirps_tso_batch_size_sum[5m]) / rate(chirps_tso_batch_size_count[5m])", "legendFormat": "mean batch", "refId": "C"}
+      ],
+      "title": "TSO clock and batch state",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 32},
+      "id": 15,
+      "targets": [
+        {"expr": "rate(chirps_hlc_ticks_total[5m])", "legendFormat": "ticks", "refId": "A"},
+        {"expr": "sum by (result) (rate(chirps_hlc_receives_total[5m]))", "legendFormat": "receive {{result}}", "refId": "B"}
+      ],
+      "title": "HLC operations",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+      "id": 16,
+      "targets": [
+        {"expr": "rate(chirps_hlc_logical_advances_total[5m])", "legendFormat": "logical", "refId": "A"},
+        {"expr": "rate(chirps_hlc_physical_advances_total[5m])", "legendFormat": "physical", "refId": "B"}
+      ],
+      "title": "HLC advances",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+      "id": 17,
+      "targets": [{"expr": "chirps_raft_log_entries{group_id=~\"$group_id\"}", "legendFormat": "group {{group_id}}", "refId": "A"}],
+      "title": "Raft log entries",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["chirps", "v0.6"],
+  "templating": {
+    "list": [
+      {"current": {}, "hide": 0, "includeAll": false, "label": "Prometheus", "multi": false, "name": "datasource", "query": "prometheus", "refresh": 1, "type": "datasource"},
+      {"current": {}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(chirps_raft_state, group_id)", "includeAll": true, "label": "Raft group", "multi": true, "name": "group_id", "query": {"query": "label_values(chirps_raft_state, group_id)", "refId": "StandardVariableQuery"}, "refresh": 1, "type": "query"}
+    ]
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "timezone": "browser",
+  "title": "Chirps v0.6 Overview",
+  "uid": "chirps-v0-6",
+  "version": 1
+}

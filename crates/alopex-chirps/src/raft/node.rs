@@ -16,6 +16,7 @@ use openraft::{Config, ConfigError, LogId, MessageSummary, ServerState, Snapshot
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -74,6 +75,17 @@ impl RaftMessage {
             | RaftMessage::VoteResponse { group_id, .. }
             | RaftMessage::InstallSnapshot { group_id, .. }
             | RaftMessage::InstallSnapshotResponse { group_id, .. } => *group_id,
+        }
+    }
+
+    pub(crate) fn metric_type(&self) -> &'static str {
+        match self {
+            Self::AppendEntries { .. } => "append_entries",
+            Self::AppendEntriesResponse { .. } => "append_entries_response",
+            Self::Vote { .. } => "vote",
+            Self::VoteResponse { .. } => "vote_response",
+            Self::InstallSnapshot { .. } => "install_snapshot",
+            Self::InstallSnapshotResponse { .. } => "install_snapshot_response",
         }
     }
 }
@@ -176,6 +188,11 @@ impl RaftNode {
 
     /// メトリクスコレクタを登録する。登録後は状態変化に応じて自動更新される。
     pub fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
+        self.transport.set_metrics_collector(Arc::clone(&collector));
+        collector.update(&RaftMetricsUpdate::from((
+            self.config.group_id,
+            self.raft.metrics().borrow().clone(),
+        )));
         if let Ok(mut slot) = self.metrics_collector.lock() {
             *slot = Some(collector);
         }
@@ -183,15 +200,30 @@ impl RaftNode {
 
     /// クライアントコマンドを提案する。NotLeaderの場合はリーダーIDを返す。
     pub async fn propose(&self, command: Vec<u8>) -> RaftResult<Vec<u8>> {
+        let started = Instant::now();
         match self.raft.client_write(command).await {
-            Ok(ClientWriteResponse { data, .. }) => {
-                self.push_metrics_update(RaftMetricsUpdate {
-                    proposals_total: 1,
-                    ..Default::default()
-                });
+            Ok(ClientWriteResponse { data, log_id, .. }) => {
+                if let Some(collector) = self.metrics_collector() {
+                    collector.record_raft_proposal(
+                        self.config.group_id,
+                        "success",
+                        None,
+                        started.elapsed().as_secs_f64(),
+                        Some(log_id.index),
+                    );
+                }
                 Ok(data)
             }
             Err(OpenRaftError::APIError(ClientWriteError::ForwardToLeader(fwd))) => {
+                if let Some(collector) = self.metrics_collector() {
+                    collector.record_raft_proposal(
+                        self.config.group_id,
+                        "failed",
+                        Some("not leader"),
+                        started.elapsed().as_secs_f64(),
+                        None,
+                    );
+                }
                 Err(RaftError::NotLeader(fwd.leader_id))
             }
             Err(other) => {
@@ -205,11 +237,15 @@ impl RaftNode {
                     reason = %reason,
                     "Proposal failed"
                 );
-                self.push_metrics_update(RaftMetricsUpdate {
-                    proposals_failed_total: 1,
-                    proposals_failed_reason: Some(reason.clone()),
-                    ..Default::default()
-                });
+                if let Some(collector) = self.metrics_collector() {
+                    collector.record_raft_proposal(
+                        self.config.group_id,
+                        "failed",
+                        Some(&reason),
+                        started.elapsed().as_secs_f64(),
+                        None,
+                    );
+                }
                 Err(RaftError::Internal(anyhow!(reason)))
             }
         }
@@ -230,7 +266,7 @@ impl RaftNode {
         self.raft
             .change_membership(members, false)
             .await
-            .map(|_| ())
+            .map(|response| self.record_committed_index(response.log_id.index))
             .map_err(RaftError::from)
     }
 
@@ -239,7 +275,7 @@ impl RaftNode {
         self.raft
             .add_learner(node_id, node, true)
             .await
-            .map(|_| ())
+            .map(|response| self.record_committed_index(response.log_id.index))
             .map_err(RaftError::from)
     }
 
@@ -254,11 +290,15 @@ impl RaftNode {
         }
         match payload.message {
             RaftMessage::AppendEntries { request, .. } => {
+                let leader_commit = request.leader_commit.map(|log_id| log_id.index);
                 let resp = self
                     .raft
                     .append_entries(request)
                     .await
                     .map_err(RaftError::from)?;
+                if let Some(commit_index) = leader_commit {
+                    self.record_committed_index(commit_index);
+                }
                 Ok(RaftMessage::AppendEntriesResponse {
                     group_id: self.config.group_id,
                     response: resp,
@@ -272,11 +312,15 @@ impl RaftNode {
                 })
             }
             RaftMessage::InstallSnapshot { request, .. } => {
+                let snapshot_index = request.meta.last_log_id.map(|log_id| log_id.index);
                 let resp = self
                     .raft
                     .install_snapshot(request)
                     .await
                     .map_err(RaftError::from)?;
+                if let Some(commit_index) = snapshot_index {
+                    self.record_committed_index(commit_index);
+                }
                 Ok(RaftMessage::InstallSnapshotResponse {
                     group_id: self.config.group_id,
                     response: resp,
@@ -333,12 +377,8 @@ impl RaftNode {
             group_id = %self.config.group_id.0,
             node_id = %self.config.node_id,
             log_id = ?last_log,
-            "Snapshot triggered"
+            "Snapshot generation requested"
         );
-        self.push_metrics_update(RaftMetricsUpdate {
-            snapshot_total: 1,
-            ..Default::default()
-        });
         Ok(())
     }
 
@@ -398,11 +438,12 @@ fn spawn_metrics_observer(
         loop {
             {
                 let metrics = rx.borrow().clone();
-                if let Ok(slot) = collector.lock()
-                    && let Some(col) = slot.as_ref()
-                {
-                    let update = RaftMetricsUpdate::from((group_id, metrics.clone()));
-                    col.update(&update);
+                let metrics_collector = collector
+                    .lock()
+                    .ok()
+                    .and_then(|slot| slot.as_ref().cloned());
+                if let Some(col) = metrics_collector {
+                    col.update(&RaftMetricsUpdate::from((group_id, metrics.clone())));
                 }
                 obs_state.handle(group_id, &metrics);
             }
@@ -514,19 +555,16 @@ impl ObservationState {
 }
 
 impl RaftNode {
-    fn push_metrics_update(&self, update: RaftMetricsUpdate) {
-        if let Ok(slot) = self.metrics_collector.lock()
-            && let Some(col) = slot.as_ref()
-        {
-            let mut base = RaftMetricsUpdate::from((
-                self.config.group_id,
-                self.raft.metrics().borrow().clone(),
-            ));
-            base.snapshot_total = update.snapshot_total;
-            base.proposals_total = update.proposals_total;
-            base.proposals_failed_total = update.proposals_failed_total;
-            base.proposals_failed_reason = update.proposals_failed_reason;
-            col.update(&base);
+    fn metrics_collector(&self) -> Option<Arc<RaftMetricsCollector>> {
+        self.metrics_collector
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    }
+
+    fn record_committed_index(&self, commit_index: u64) {
+        if let Some(collector) = self.metrics_collector() {
+            collector.set_raft_commit_index(self.config.group_id, commit_index);
         }
     }
 }

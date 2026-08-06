@@ -1,5 +1,5 @@
 use super::{GroupId, MultiRaftError};
-use crate::raft::{BasicNode, ChirpsNodeId};
+use crate::raft::{BasicNode, ChirpsNodeId, RaftMetricsCollector};
 use crate::raft::{RaftFramePayload, RaftMessage, RaftNode};
 use openraft::metrics::RaftMetrics;
 use std::future::Future;
@@ -38,6 +38,30 @@ impl GroupHandle {
     /// and cross-group isolation checks.
     pub fn metrics(&self) -> RaftMetrics<ChirpsNodeId, BasicNode> {
         self.node.metrics()
+    }
+
+    pub(crate) fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
+        self.node.set_metrics_collector(collector);
+    }
+
+    pub(crate) fn record_received(&self, message: &RaftMessage) {
+        self.node.transport.record_received(message.metric_type());
+    }
+
+    pub(crate) async fn send_response(
+        &self,
+        target: ChirpsNodeId,
+        correlation_id: u64,
+        message: RaftMessage,
+    ) -> Result<(), MultiRaftError> {
+        self.node
+            .transport
+            .send_response(target, correlation_id, message)
+            .await
+            .map_err(|error| MultiRaftError::Routing {
+                group_id: self.group_id,
+                reason: error.to_string(),
+            })
     }
 
     pub async fn propose(&self, command: Vec<u8>) -> Result<Vec<u8>, MultiRaftError> {
