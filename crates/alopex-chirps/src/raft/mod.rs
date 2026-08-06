@@ -10,8 +10,8 @@ pub mod transport;
 pub use config::RaftConfig;
 pub use error::{RaftError, RaftResult};
 pub use metrics::{
-    HlcMetricsUpdate, MetricsAuthError, MetricsEndpointAuth, MetricsError, RaftMessageMetric,
-    RaftMetricsCollector, RaftMetricsUpdate, TsoMetricsUpdate, serve_metrics,
+    ChirpsMetricsCollector, HlcMetricsUpdate, MetricsAuthError, MetricsEndpointAuth, MetricsError,
+    RaftMessageMetric, RaftMetricsCollector, RaftMetricsUpdate, TsoMetricsUpdate, serve_metrics,
     serve_metrics_authorized,
 };
 pub use node::{RaftMessage, RaftNode};

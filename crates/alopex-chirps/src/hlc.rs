@@ -1,6 +1,8 @@
 //! Public Hybrid Logical Clock API.
 
-pub use alopex_chirps_gossip_swim::hlc::{Clock, HlcError, LocalHlc, SystemClock};
+pub use alopex_chirps_gossip_swim::hlc::{
+    Clock, HlcAdvance, HlcError, HlcMetricsSink, HlcReceiveResult, LocalHlc, SystemClock,
+};
 pub use alopex_chirps_wire::hlc::HybridTimestamp;
 
 #[cfg(test)]

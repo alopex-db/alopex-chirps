@@ -247,6 +247,29 @@ pub struct MeshMetricsSnapshot {
 impl Mesh {
     /// 指定された設定でメッシュを起動する。NodeId永続化→トランスポート→ゴシップの順に初期化する。
     pub async fn start(config: NodeConfig) -> Result<MeshHandle, MeshError> {
+        #[cfg(feature = "hlc")]
+        {
+            Self::start_inner(config, None).await
+        }
+        #[cfg(not(feature = "hlc"))]
+        {
+            Self::start_inner(config).await
+        }
+    }
+
+    /// Starts a mesh with HLC events wired to the shared Prometheus registry.
+    #[cfg(feature = "hlc")]
+    pub async fn start_with_metrics(
+        config: NodeConfig,
+        metrics: Arc<crate::raft::ChirpsMetricsCollector>,
+    ) -> Result<MeshHandle, MeshError> {
+        Self::start_inner(config, Some(metrics)).await
+    }
+
+    async fn start_inner(
+        config: NodeConfig,
+        #[cfg(feature = "hlc")] metrics: Option<Arc<crate::raft::ChirpsMetricsCollector>>,
+    ) -> Result<MeshHandle, MeshError> {
         let config = Arc::new(config);
         let (node_id, incarnation) = load_or_create_node_id(&config.node_id_path)?;
 
@@ -278,12 +301,17 @@ impl Mesh {
             membership,
         )));
         #[cfg(feature = "hlc")]
+        let local_hlc = match metrics {
+            Some(metrics) => LocalHlc::with_metrics(config.max_clock_skew, metrics),
+            None => LocalHlc::new(config.max_clock_skew),
+        };
+        #[cfg(feature = "hlc")]
         let gossip = Arc::new(Mutex::new(GossipEngine::new_with_hlc(
             node_id,
             gossip_cfg,
             gossip_backend,
             membership,
-            LocalHlc::new(config.max_clock_skew),
+            local_hlc,
         )));
 
         let mesh = Arc::new(Mesh {

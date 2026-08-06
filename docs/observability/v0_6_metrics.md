@@ -1,8 +1,9 @@
 # Chirps v0.6 Prometheus metrics
 
-`RaftMetricsCollector` is the single registry for Multi-Raft, TSO, HLC, and
-snapshot observations. `serve_metrics_authorized` adapts that registry to an
-HTTP `/metrics` handler and returns Prometheus text format 0.0.4.
+`ChirpsMetricsCollector` is the canonical name for the single registry for
+Multi-Raft, TSO, HLC, and snapshot observations. `RaftMetricsCollector` remains
+as a backward-compatible alias. `serve_metrics_authorized` adapts that registry
+to an HTTP `/metrics` handler and returns Prometheus text format 0.0.4.
 
 ## Endpoint policy
 
@@ -10,9 +11,9 @@ Production deployments should use bearer authentication and TLS at the server
 or ingress boundary:
 
 ```rust,ignore
-use alopex_chirps::{MetricsEndpointAuth, RaftMetricsCollector, serve_metrics_authorized};
+use alopex_chirps::{ChirpsMetricsCollector, MetricsEndpointAuth, serve_metrics_authorized};
 
-let collector = RaftMetricsCollector::new();
+let collector = ChirpsMetricsCollector::new();
 let policy = MetricsEndpointAuth::bearer(load_secret_from_runtime())?;
 let response = serve_metrics_authorized(
     &collector,
@@ -32,6 +33,26 @@ The public names are the Requirement 7 `chirps_raft_*`, `chirps_tso_*`, and
 and `state`. Proposal results, message types, TSO results, HLC results, and
 failure reasons are mapped to finite label sets; arbitrary error strings are
 never used as labels.
+
+## HLC production wiring
+
+Enable the `hlc` feature and pass the shared registry when starting the mesh:
+
+```rust,ignore
+use alopex_chirps::{ChirpsMetricsCollector, NodeConfig, start_with_metrics};
+use std::sync::Arc;
+
+let metrics = Arc::new(ChirpsMetricsCollector::new());
+let mesh = start_with_metrics(NodeConfig::default(), Arc::clone(&metrics)).await?;
+```
+
+This connects actual `LocalHlc::tick` and `LocalHlc::receive` outcomes,
+including rejected future skew, to the `chirps_hlc_*` families. Receive labels
+are selected from bounded enums (`success` or `skew_error`); clock skew is a
+numeric histogram observation. `start` and `LocalHlc::new` remain uninstrumented
+and avoid Prometheus locking and dynamic dispatch on their hot paths. Direct HLC
+users can opt in with `LocalHlc::with_metrics` or inject both a clock and a sink
+with `LocalHlc::with_clock_and_metrics`.
 
 `chirps_raft_groups_total` and `chirps_raft_group_states_total{state=...}` are
 low-cardinality summaries. The default `MultiRaftConfig::max_groups` is 100.
@@ -54,9 +75,12 @@ P99 latency, Raft traffic, snapshot size, TSO allocation/latency, and HLC skew.
 
 ```sh
 cargo test -p alopex-chirps --test metrics_api
+cargo test -p alopex-chirps --features hlc --test hlc_metrics
 cargo test -p alopex-chirps --features multi-raft --test multi_raft_lifecycle
 ```
 
 The first test compares registry text with explicit Raft, TSO, HLC, and snapshot
-updates and verifies authorization. The second attaches the collector to a real
-`MultiRaftManager` and checks group-count changes at create/shutdown boundaries.
+updates and verifies authorization. The HLC component test drives actual tick,
+receive, and skew-rejection paths through the registry. The final test attaches
+the collector to a real `MultiRaftManager` and checks group-count changes at
+create/shutdown boundaries.

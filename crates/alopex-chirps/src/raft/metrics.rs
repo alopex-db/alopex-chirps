@@ -15,6 +15,9 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use thiserror::Error;
 
+#[cfg(feature = "hlc")]
+use alopex_chirps_gossip_swim::hlc::{HlcAdvance, HlcMetricsSink, HlcReceiveResult};
+
 use crate::raft::{BasicNode, ChirpsNodeId, GroupId};
 
 const RAFT_STATES: [&str; 4] = ["follower", "candidate", "leader", "other"];
@@ -236,6 +239,11 @@ pub struct RaftMetricsCollector {
     #[cfg(test)]
     fail_next_encode: AtomicBool,
 }
+
+/// Canonical name for the unified Chirps metrics registry.
+///
+/// `RaftMetricsCollector` remains available for backward compatibility.
+pub type ChirpsMetricsCollector = RaftMetricsCollector;
 
 impl Default for RaftMetricsCollector {
     fn default() -> Self {
@@ -753,6 +761,47 @@ impl RaftMetricsCollector {
     #[cfg(test)]
     pub fn inject_encode_error(&self) {
         self.fail_next_encode.store(true, Ordering::SeqCst);
+    }
+}
+
+#[cfg(feature = "hlc")]
+impl HlcMetricsSink for RaftMetricsCollector {
+    fn record_tick(&self, advance: HlcAdvance) {
+        let (logical_advances, physical_advances) = advance_counts(advance);
+        self.update_hlc(&HlcMetricsUpdate {
+            ticks: 1,
+            logical_advances,
+            physical_advances,
+            ..Default::default()
+        });
+    }
+
+    fn record_receive(
+        &self,
+        result: HlcReceiveResult,
+        clock_skew: std::time::Duration,
+        advance: Option<HlcAdvance>,
+    ) {
+        let (logical_advances, physical_advances) = advance.map_or((0, 0), advance_counts);
+        self.update_hlc(&HlcMetricsUpdate {
+            receive_result: Some(match result {
+                HlcReceiveResult::Success => "success",
+                HlcReceiveResult::SkewError => "skew_error",
+            }),
+            receives: 1,
+            clock_skew_seconds: Some(clock_skew.as_secs_f64()),
+            logical_advances,
+            physical_advances,
+            ..Default::default()
+        });
+    }
+}
+
+#[cfg(feature = "hlc")]
+fn advance_counts(advance: HlcAdvance) -> (u64, u64) {
+    match advance {
+        HlcAdvance::Logical => (1, 0),
+        HlcAdvance::Physical => (0, 1),
     }
 }
 

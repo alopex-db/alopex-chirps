@@ -54,3 +54,8 @@ harness = false
 name = "hlc_bench"
 harness = false
 required-features = ["hlc"]
+
+[[test]]
+name = "hlc_metrics"
+path = "tests/hlc_metrics.rs"
+required-features = ["hlc"]
