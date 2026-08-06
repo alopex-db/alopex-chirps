@@ -1,6 +1,8 @@
 use alopex_chirps::backend::MessageBackend;
 use alopex_chirps::config::NodeConfig;
 use alopex_chirps_gossip_swim::engine::{GossipConfig, GossipEngine, Transport, TransportError};
+#[cfg(feature = "hlc")]
+use alopex_chirps_gossip_swim::hlc::LocalHlc;
 use alopex_chirps_gossip_swim::types::{MembershipView, Status};
 use alopex_chirps_transport_quic::{QuicBackend, init_test_tracing};
 use alopex_chirps_wire::frame::{
@@ -116,9 +118,17 @@ impl TestNode {
             inner: Arc::clone(&backend),
         });
         let membership = MembershipView::new();
-        let engine = Arc::new(Mutex::new(GossipEngine::new(
-            id, gossip_cfg, transport, membership,
-        )));
+        #[cfg(not(feature = "hlc"))]
+        let engine = GossipEngine::new(id, gossip_cfg, transport, membership);
+        #[cfg(feature = "hlc")]
+        let engine = GossipEngine::new_with_hlc(
+            id,
+            gossip_cfg,
+            transport,
+            membership,
+            LocalHlc::new(config.max_clock_skew),
+        );
+        let engine = Arc::new(Mutex::new(engine));
 
         let (user_tx, user_rx) = mpsc::channel(64);
         let (shutdown, _) = broadcast::channel(4);
@@ -155,6 +165,13 @@ impl TestNode {
                                 Frame::Gossip(msg) => {
                                     let mut g = frame_engine.lock().await;
                                     g.apply_membership_update(&msg.updates);
+                                }
+                                #[cfg(feature = "hlc")]
+                                Frame::HlcGossip(msg) => {
+                                    let mut g = frame_engine.lock().await;
+                                    if let Err(err) = g.apply_hlc_gossip(&msg) {
+                                        eprintln!("HLC gossip を拒否しました: {err}");
+                                    }
                                 }
                                 Frame::User(user) => {
                                     let _ = user_tx.send((from, user.payload)).await;

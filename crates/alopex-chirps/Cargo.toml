@@ -14,6 +14,7 @@ documentation = "https://docs.rs/alopex-chirps"
 default = []
 multi-raft = ["openraft/storage-v2"]
 tso = ["multi-raft"]
+hlc = ["alopex-chirps-gossip-swim/hlc", "alopex-chirps-wire/hlc"]
 
 [dependencies]
 alopex-chirps-core.workspace = true
@@ -48,3 +49,8 @@ rand = "0.8"
 [[bench]]
 name = "raft_bench"
 harness = false
+
+[[bench]]
+name = "hlc_bench"
+harness = false
+required-features = ["hlc"]

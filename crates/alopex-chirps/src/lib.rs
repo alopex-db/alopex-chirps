@@ -3,6 +3,8 @@
 pub mod backend;
 pub mod config;
 pub mod error;
+#[cfg(feature = "hlc")]
+pub mod hlc;
 pub mod mesh;
 #[cfg(feature = "multi-raft")]
 pub mod multi_raft;
@@ -14,6 +16,8 @@ pub mod tso;
 
 use crate::config::NodeConfig;
 use crate::error::MeshError;
+#[cfg(feature = "hlc")]
+pub use crate::hlc::{Clock, HlcError, HybridTimestamp, LocalHlc, SystemClock};
 use crate::mesh::Mesh;
 pub use crate::mesh::MeshHandle;
 pub use crate::node_id::NodeId;

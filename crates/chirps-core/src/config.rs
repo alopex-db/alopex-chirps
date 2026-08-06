@@ -35,6 +35,8 @@ pub struct NodeConfig {
     pub suspect_to_dead_timeout: Duration,
     /// Interval for periodic gossip ticks.
     pub gossip_interval: Duration,
+    /// Maximum accepted future skew for HLC-stamped gossip messages.
+    pub max_clock_skew: Duration,
     /// Timeout for send/broadcast operations.
     pub broadcast_timeout: Duration,
     /// Maximum number of in-flight send/broadcast requests.
@@ -59,6 +61,7 @@ impl Default for NodeConfig {
             indirect_ping_timeout: Duration::from_secs(3),
             suspect_to_dead_timeout: Duration::from_secs(6),
             gossip_interval: Duration::from_millis(200),
+            max_clock_skew: Duration::from_secs(1),
             broadcast_timeout: Duration::from_millis(200),
             send_queue_capacity: 1024,
             fanout: None,

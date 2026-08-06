@@ -28,12 +28,42 @@ pub enum Frame {
     RaftSnapshot(RaftFrame),
     /// ファイル転送制御フレーム。
     FileTransfer(FileTransferFrame),
+    /// Versioned HLC gossip. Appending this feature-gated variant preserves
+    /// every existing bincode enum discriminant.
+    #[cfg(feature = "hlc")]
+    HlcGossip(HlcGossipMessage),
 }
 
 /// A gossip message containing membership updates.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GossipMessage {
     pub updates: Vec<MembershipUpdate>,
+}
+
+/// Stable identity for an HLC-stamped event.
+#[cfg(feature = "hlc")]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HlcEventId {
+    pub source: NodeId,
+    pub sequence: u64,
+}
+
+/// A membership event carrying its origin identity and causal timestamp.
+#[cfg(feature = "hlc")]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct StampedMembershipUpdate {
+    pub event_id: HlcEventId,
+    pub timestamp: crate::hlc::HybridTimestamp,
+    pub update: MembershipUpdate,
+}
+
+/// Gossip envelope stamped at send time.
+#[cfg(feature = "hlc")]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct HlcGossipMessage {
+    pub event_id: HlcEventId,
+    pub timestamp: crate::hlc::HybridTimestamp,
+    pub updates: Vec<StampedMembershipUpdate>,
 }
 
 /// A user-defined message.
@@ -52,7 +82,7 @@ pub struct RaftFrame {
 }
 
 /// An update to the membership list.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct MembershipUpdate {
     pub node_id: NodeId,
     pub incarnation: u64,
@@ -105,5 +135,47 @@ mod tests {
             }
             _ => panic!("Expected a PingReq frame"),
         }
+    }
+
+    #[cfg(feature = "hlc")]
+    #[test]
+    fn hlc_gossip_roundtrips_without_changing_legacy_gossip() {
+        let source = NodeId::new();
+        let peer = NodeId::new();
+        let event_id = HlcEventId {
+            source,
+            sequence: 7,
+        };
+        let timestamp = crate::hlc::HybridTimestamp::new(100, 3);
+        let frame = Frame::HlcGossip(HlcGossipMessage {
+            event_id,
+            timestamp,
+            updates: vec![StampedMembershipUpdate {
+                event_id,
+                timestamp,
+                update: MembershipUpdate {
+                    node_id: peer,
+                    incarnation: 1,
+                    addr: "127.0.0.1:9000".parse().unwrap(),
+                    status: MemberStatus::Alive,
+                },
+            }],
+        });
+
+        let bytes = bincode::serialize(&frame).unwrap();
+        let decoded: Frame = bincode::deserialize(&bytes).unwrap();
+
+        let Frame::HlcGossip(message) = decoded else {
+            panic!("expected HLC gossip frame")
+        };
+        assert_eq!(message.event_id, event_id);
+        assert_eq!(message.timestamp, timestamp);
+        assert_eq!(message.updates.len(), 1);
+
+        let legacy = bincode::serialize(&Frame::Gossip(GossipMessage {
+            updates: Vec::new(),
+        }))
+        .unwrap();
+        assert_eq!(&legacy[..4], &3u32.to_le_bytes());
     }
 }

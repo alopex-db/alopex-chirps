@@ -10,6 +10,7 @@ mod tests {
         let config = NodeConfig::default();
         assert_eq!(config.bind_addr, "127.0.0.1:0".parse().unwrap());
         assert_eq!(config.ping_timeout, std::time::Duration::from_secs(1));
+        assert_eq!(config.max_clock_skew, std::time::Duration::from_secs(1));
         assert!(config.validate().is_ok());
     }
 

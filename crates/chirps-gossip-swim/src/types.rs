@@ -38,6 +38,12 @@ pub struct PeerState {
     pub status: Status,
     pub last_seen: Instant,
     pub suspect_since: Option<Instant>,
+    /// Identity of the last membership event applied for this peer.
+    #[cfg(feature = "hlc")]
+    pub event_id: Option<alopex_chirps_wire::frame::HlcEventId>,
+    /// Causal timestamp of the last membership event applied for this peer.
+    #[cfg(feature = "hlc")]
+    pub timestamp: Option<alopex_chirps_wire::hlc::HybridTimestamp>,
 }
 
 impl PeerState {
@@ -47,6 +53,10 @@ impl PeerState {
             status,
             last_seen: Instant::now(),
             suspect_since: None,
+            #[cfg(feature = "hlc")]
+            event_id: None,
+            #[cfg(feature = "hlc")]
+            timestamp: None,
         }
     }
 }

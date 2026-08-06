@@ -1,6 +1,7 @@
 # HLC finite-state model
 
-This model is the production-before contract for CHIRPS v0.6 Requirement 5.
+This model was the production-before contract and is now refined by the
+CHIRPS v0.6 Requirement 5 production implementation mapped in `catalog.yaml`.
 It captures the canonical Hybrid Logical Clock local tick and receive rules,
 future-clock-skew rejection without mutation, physical clock rollback,
 out-of-order SWIM/Gossip delivery, and duplicate application.
@@ -30,8 +31,9 @@ duplicate Gossip delivery. Skew covers a future timestamp beyond the bound.
 The profiles prove configured invariants only within these finite bounds. They
 do not prove gossip convergence, SWIM failure-detection semantics, persistence,
 arbitrary networks, past-skew policy, logical overflow, malicious peers,
-unbounded liveness/fairness, or performance. Production paths and tests in
-`catalog.yaml` are planned targets and do not claim existing implementation.
+unbounded liveness/fairness, or performance. Production paths, tests, and the
+host-qualified Criterion evidence are mapped in `catalog.yaml`; the bounded
+model still makes no unbounded or cross-host performance claim.
 
 The root `formal/compose.yml` is the canonical runner for new models. Existing
 model-local Compose files remain unchanged and may be migrated separately.

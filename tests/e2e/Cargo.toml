@@ -8,6 +8,14 @@ repository.workspace = true
 homepage.workspace = true
 publish = false
 
+[features]
+default = []
+hlc = [
+    "alopex-chirps/hlc",
+    "alopex-chirps-gossip-swim/hlc",
+    "alopex-chirps-wire/hlc",
+]
+
 [dependencies]
 alopex-chirps = { workspace = true }
 alopex-chirps-transport-quic = { workspace = true }

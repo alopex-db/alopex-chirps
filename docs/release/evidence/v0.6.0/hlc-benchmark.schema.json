@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alopex-db/alopex-chirps/docs/release/evidence/v0.6.0/hlc-benchmark.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "release_version", "source_tree_sha256", "command", "host", "benchmark", "result"],
+  "properties": {
+    "schema": {"const": "chirps.hlc-benchmark/v1"},
+    "release_version": {"const": "0.6.0"},
+    "source_tree_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "command": {"const": "cargo bench -p alopex-chirps --features hlc --bench hlc_bench -- --noplot"},
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kernel", "machine", "rustc"],
+      "properties": {
+        "kernel": {"type": "string"},
+        "machine": {"type": "string"},
+        "rustc": {"type": "string"}
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "unit", "mean", "median", "threshold_upper_ns"],
+      "properties": {
+        "id": {"const": "local_hlc_tick"},
+        "unit": {"const": "ns"},
+        "mean": {"$ref": "#/$defs/estimate"},
+        "median": {"$ref": "#/$defs/estimate"},
+        "threshold_upper_ns": {"const": 100.0}
+      }
+    },
+    "result": {"enum": ["pass", "fail"]}
+  },
+  "$defs": {
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["point", "lower", "upper", "confidence_level"],
+      "properties": {
+        "point": {"type": "number", "minimum": 0},
+        "lower": {"type": "number", "minimum": 0},
+        "upper": {"type": "number", "minimum": 0},
+        "confidence_level": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }
+  }
+}

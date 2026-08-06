@@ -10,6 +10,8 @@ use alopex_chirps_gossip_swim::engine::{
     GossipConfig, GossipEngine, Transport as GossipTransport,
     TransportError as GossipTransportError,
 };
+#[cfg(feature = "hlc")]
+use alopex_chirps_gossip_swim::hlc::LocalHlc;
 use alopex_chirps_gossip_swim::types::{MembershipView, Status};
 use alopex_chirps_gossip_swim::util::StatusChange;
 use alopex_chirps_transport_quic::QuicBackend;
@@ -268,11 +270,20 @@ impl Mesh {
         };
 
         let membership = MembershipView::new();
+        #[cfg(not(feature = "hlc"))]
         let gossip = Arc::new(Mutex::new(GossipEngine::new(
             node_id,
             gossip_cfg,
             gossip_backend,
             membership,
+        )));
+        #[cfg(feature = "hlc")]
+        let gossip = Arc::new(Mutex::new(GossipEngine::new_with_hlc(
+            node_id,
+            gossip_cfg,
+            gossip_backend,
+            membership,
+            LocalHlc::new(config.max_clock_skew),
         )));
 
         let mesh = Arc::new(Mesh {
@@ -391,6 +402,13 @@ fn spawn_frame_loop(mesh: Arc<Mesh>) -> JoinHandle<()> {
                 Frame::Gossip(msg) => {
                     let mut gossip = mesh.gossip.lock().await;
                     gossip.apply_membership_update(&msg.updates);
+                }
+                #[cfg(feature = "hlc")]
+                Frame::HlcGossip(msg) => {
+                    let mut gossip = mesh.gossip.lock().await;
+                    if let Err(error) = gossip.apply_hlc_gossip(&msg) {
+                        tracing::warn!(peer = ?from, %error, "rejected HLC gossip message");
+                    }
                 }
                 frame => {
                     let subscribers = {
