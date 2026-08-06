@@ -24,13 +24,25 @@ claim. v0.5.2 FileTransfer evidence is unrelated and must not be reused.
 - 15 s warm-up, 60 s measured interval, 5 s drain. Run five independent samples
   for both Multi-Raft and single-group baseline, alternating their order.
 - Single-group baseline uses the same 3 nodes, payload, 300 clients, RTT,
-  duration, binary, and storage configuration. Only the group count changes.
+  duration, binary, and storage configuration. Assign 100 clients on each node
+  to group 1, so the client count remains 300 while only the group count changes.
 
 The runner must bootstrap each group on one node and join the other two as
 learners/voters; initializing three independent single-member groups is invalid.
-Until the repository has an executable three-node bootstrap/join runner, the
-controlled local performance gate is BLOCKED rather than skipped. Absence of
-three physical hosts is not a blocker and must not be reported as one.
+Before that runner is valid, production must provide all three missing seams:
+
+1. creation and publication of an uninitialized replica on nodes 2 and 3;
+2. lifecycle-safe learner addition, catch-up, and promotion to the common
+   voter set `{1, 2, 3}`; and
+3. inbound dispatch which distinguishes requests from responses and delivers a
+   response to the group transport's pending correlation instead of treating it
+   as a new request.
+
+The current `create_group()` always initializes its local replica, and the
+manager frame route does not wake pending group RPC responses. Until those seams
+and an executable runner exist, the controlled local performance gate is
+BLOCKED rather than skipped. Absence of three physical hosts is not a blocker
+and must not be reported as one.
 
 ## Host and process controls
 
@@ -87,13 +99,24 @@ The release artifact path is
   "runner_command": ["argv", "without", "shell-expansion"],
   "execution_environment": {"class": "native|container|wsl", "host_count": 1, "logical_nodes": 3, "process_or_container_ids": ["..."], "cpu": "...", "cores": 0, "ram_bytes": 0, "kernel": "...", "storage": "...", "network_shaper": "...", "physical_deployment": false},
   "resolved_config": {"nodes": 3, "groups": 100, "payload_bytes": 1024, "rtt_ms": 1.0, "clients": 300, "warmup_seconds": 15, "measure_seconds": 60, "samples": 5},
-  "samples": [{"mode": "multi_raft", "index": 0, "committed": 0, "throughput_per_sec": 0.0, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}, "errors": 0, "timeouts": 0, "cpu_seconds": 0.0, "peak_rss_bytes": 0}],
-  "per_group": [{"group_id": 1, "committed": 0, "throughput_per_sec": 0.0}],
-  "raw_metrics_artifacts": ["relative/path"],
+  "network_rtt_ms": [{"source": 1, "destination": 2, "unloaded": {"p50": 0.0, "p95": 0.0}, "shaped": {"p50": 0.0, "p95": 0.0}}],
+  "group_membership": [{"group_id": 1, "replicas": [{"node_id": 1, "voters": [1, 2, 3], "leader_id": 1, "last_applied": 0, "committed_digest": "64-hex"}]}],
+  "samples": [{"mode": "multi_raft", "index": 0, "group_count": 100, "clients": 300, "committed": 0, "throughput_per_sec": 0.0, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}, "errors": 0, "timeouts": 0, "cpu_seconds": 0.0, "peak_rss_bytes": 0}],
+  "per_group": [{"mode": "multi_raft", "sample_index": 0, "group_id": 1, "committed": 0, "throughput_per_sec": 0.0}],
+  "raw_metrics_artifacts": [{"path": "relative/path", "sha256": "64-hex"}],
+  "raw_artifact_set_sha256": "64-hex",
   "statistics": {"seed": "0x0000000000000600", "resamples": 10000, "multi_raft_median": 0.0, "multi_raft_ci95_lower": 0.0, "single_group_median": 0.0, "overhead_ratio": 0.0},
   "verdict": {"throughput": "pass|fail", "overhead": "pass|fail", "integrity": "pass|fail", "overall": "pass|fail"}
 }
 ```
+
+The verifier must reject an artifact unless every Multi-Raft sample covers
+exactly groups `1..=100`, every baseline sample covers only group 1 with 300
+clients, and every per-group row belongs to an existing `(mode, sample_index)`.
+It must also verify all six directed node-pair RTT observations, identical
+voter set `{1, 2, 3}` on every replica, exactly one leader per group, matching
+commit position/digest after drain, each raw file digest, and the aggregate raw
+artifact-set digest.
 
 Absolute temporary paths and wall-clock timestamps are metadata, not identity.
 The artifact identity is commit SHA, binary digest, resolved configuration,
@@ -102,8 +125,10 @@ ordered samples, raw artifact digests, statistics seed, and verdict.
 ## Current evidence status
 
 No controlled local throughput or overhead claim has been made. The missing
-evidence is an executable three-logical-node bootstrap/join runner and its
-60-second artifact, not physical host availability. The deterministic harness
+production prerequisites are uninitialized replica creation, lifecycle-safe
+learner promotion, and correlated inbound response dispatch; after those, the
+missing evidence is an executable three-logical-node bootstrap/join runner and
+its 60-second artifact, not physical host availability. The deterministic harness
 evidence in `docs/release/evidence/v0.6.0/multi-raft-fault-v2.json` proves local
 replay/lifecycle/routing/isolation behavior only and cannot satisfy this
 performance gate. Optional multi-host runs must be labeled deployment evidence
