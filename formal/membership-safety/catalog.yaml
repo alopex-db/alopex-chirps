@@ -1,0 +1,25 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-membership-safety-v0-6
+  language: TLA+
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    type_features: no-rows
+    max_steps: 8
+  scope: "SWIM alive/suspect/dead/rejoin transitions separated from explicitly authorized Raft voter changes."
+  exclusions: ["Unbounded gossip convergence", "Automatic orchestration policy"]
+requirements:
+  - id: MEMBERSHIP-VOTER-SEPARATION
+    classification: concurrent/distributed
+    failure_mode: "A SWIM suspicion alone removes a Raft voter or stale incarnation overrides a rejoin."
+    properties: [SuspicionCannotRemoveVoter, QuorumPreserved, IncarnationNonNegative]
+    refinement:
+      - crates/chirps-gossip-swim/src/engine.rs
+      - crates/alopex-chirps/src/multi_raft/manager.rs
+    local_component_test:
+      - crates/chirps-gossip-swim/tests/resilience.rs
+      - crates/alopex-chirps/tests/membership_safety.rs
+    release_evidence:
+      - docs/release/evidence/v0.6.0/membership-resilience-v0.6.json
