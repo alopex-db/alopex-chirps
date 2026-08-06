@@ -111,7 +111,7 @@ for item in "${ORDER[@]}"; do
     compose exec --user root --no-TTY "$node" sh -ceu '
       iface=$(ip -o -4 addr show | awk '\''$4 ~ /^192[.]168[.]128[.]/{print $2; exit}'\'')
       test -n "$iface"
-      tc qdisc replace dev "$iface" root netem delay 375us
+      tc qdisc replace dev "$iface" root netem delay 300us
       tc -s qdisc show dev "$iface"
     ' >"$output/$sample/${node}-qdisc.txt"
   done
