@@ -607,7 +607,7 @@ async fn handle_connection(
                     payload_len,
                     msg.frame.clone(),
                 );
-                if let Err(err) = send_envelope(&connection, envelope, true).await {
+                if let Err(err) = send_envelope(&connection, envelope).await {
                     failed += 1;
                     warn!(peer=?remote_id, seq=msg.seq, "retransmit failed: {err}");
                 } else {
@@ -740,7 +740,6 @@ async fn send_wire_message(
 async fn send_envelope(
     connection: &Connection,
     envelope: FrameEnvelopeV2,
-    await_peer_stop: bool,
 ) -> Result<(), TransportError> {
     let bytes = envelope.encode();
     let mut stream = connection
@@ -754,14 +753,6 @@ async fn send_envelope(
     stream
         .finish()
         .map_err(|e| TransportError::Send(e.to_string()))?;
-    // Raft already has correlated responses, timeouts, and retries. Once QUIC
-    // has accepted the complete reliable stream, waiting for its peer-stop
-    // acknowledgement adds another RTT without strengthening commit
-    // acknowledgement. Other profiles retain the close-after-send guarantee
-    // required by FileTransfer control messages.
-    if !await_peer_stop {
-        return Ok(());
-    }
     match stream
         .stopped()
         .await
@@ -832,10 +823,6 @@ fn stream_kind_for_frame(frame: &Frame) -> StreamKind {
         Frame::FileTransfer(_) => StreamKind::FileTransfer,
         _ => StreamKind::Gossip,
     }
-}
-
-fn requires_peer_stop(kind: StreamKind) -> bool {
-    !matches!(kind, StreamKind::Raft | StreamKind::RaftSnapshot)
 }
 
 fn map_queue_error(err: mpsc::error::TrySendError<SendCommand>) -> TransportError {
@@ -1142,8 +1129,7 @@ async fn send_to_peer(
         frame,
     );
     let start = tokio::time::Instant::now();
-    let await_peer_stop = requires_peer_stop(kind);
-    let res = send_envelope(&conn, envelope, await_peer_stop).await;
+    let res = send_envelope(&conn, envelope).await;
     if let Ok(()) = res {
         let elapsed = start.elapsed();
         metrics.sent.fetch_add(1, Ordering::Relaxed);
@@ -1226,18 +1212,4 @@ fn build_tls_configs(config: &NodeConfig) -> anyhow::Result<(ServerConfig, Clien
 
     let client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
     Ok((server_config, client_config))
-}
-
-#[cfg(test)]
-mod delivery_contract_tests {
-    use super::*;
-
-    #[test]
-    fn raft_uses_correlated_response_instead_of_transport_stop_wait() {
-        assert!(!requires_peer_stop(StreamKind::Raft));
-        assert!(!requires_peer_stop(StreamKind::RaftSnapshot));
-        assert!(requires_peer_stop(StreamKind::FileTransfer));
-        assert!(requires_peer_stop(StreamKind::Control));
-        assert!(requires_peer_stop(StreamKind::User));
-    }
 }
