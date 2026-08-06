@@ -1,3 +1,4 @@
+use crate::controller::call;
 use crate::node::monotonic_ns;
 use crate::protocol::{Request, Response, read_frame, write_frame};
 use crate::schema::{LoadgenReport, Mode};
@@ -13,7 +14,7 @@ use tokio::time::{sleep, timeout};
 #[derive(Clone, Debug)]
 pub struct LoadgenArgs {
     pub origin_node: u64,
-    pub leader_control: SocketAddr,
+    pub nodes: [SocketAddr; 3],
     pub mode: Mode,
     pub sample_index: u64,
     pub start_at_ns: u64,
@@ -50,53 +51,30 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
     for client_index in 0..100u64 {
         let counters = Arc::clone(&counters);
         let mode = args.mode;
-        let address = args.leader_control;
+        let nodes = args.nodes;
         let origin = args.origin_node;
         tasks.push(tokio::spawn(async move {
             let group_id = match mode {
                 Mode::MultiRaft => client_index + 1,
                 Mode::SingleGroup => 1,
             };
-            let payload = payload(origin, client_index, group_id);
-            let mut stream = match TcpStream::connect(address).await {
-                Ok(stream) => stream,
-                Err(_) => {
-                    counters.lock().await.errors += 1;
-                    return;
-                }
-            };
+            let mut session = ClientSession::new(nodes, group_id);
+            let mut sequence = 0;
             loop {
                 let started = monotonic_ns();
                 if started >= measure_end {
                     break;
                 }
                 let during_measure = started >= measure_start;
-                let operation = async {
-                    write_frame(
-                        &mut stream,
-                        &Request::Propose {
-                            group_id,
-                            payload: payload.clone(),
-                        },
-                    )
-                    .await?;
-                    let response = read_frame::<_, Response>(&mut stream)
-                        .await?
-                        .ok_or_else(|| anyhow::anyhow!("proposal connection closed"))?;
-                    match response {
-                        Response::Proposal(response) if response == payload => Ok(()),
-                        Response::Error(error) => Err(anyhow::anyhow!(error)),
-                        _ => Err(anyhow::anyhow!("unexpected proposal response")),
-                    }
-                };
-                let remaining = Duration::from_nanos(drain_end.saturating_sub(started).max(1));
-                let outcome = timeout(remaining.min(Duration::from_secs(5)), operation).await;
-                let timed_out = outcome.is_err();
+                let payload = payload(origin, client_index, group_id, sequence);
+                sequence = sequence.wrapping_add(1);
+                let deadline = started.saturating_add(5_000_000_000).min(drain_end);
+                let outcome = session.propose(payload, deadline).await;
                 let ended = monotonic_ns();
                 if during_measure {
                     let mut counters = counters.lock().await;
                     match outcome {
-                        Ok(Ok(())) if ended <= measure_end => {
+                        Ok(()) if ended <= measure_end => {
                             counters.committed += 1;
                             *counters.per_group.entry(group_id).or_default() += 1;
                             *counters
@@ -104,13 +82,10 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
                                 .entry((ended - started) / 1_000)
                                 .or_default() += 1;
                         }
-                        Err(_) => counters.timeouts += 1,
-                        Ok(Err(_)) => counters.errors += 1,
-                        Ok(Ok(())) => {}
+                        Err(AttemptFailure::Timeout) => counters.timeouts += 1,
+                        Err(AttemptFailure::Error) => counters.errors += 1,
+                        Ok(()) => {}
                     }
-                }
-                if timed_out {
-                    break;
                 }
             }
         }));
@@ -150,13 +125,117 @@ async fn wait_until(deadline: u64) {
     }
 }
 
-fn payload(origin: u64, client: u64, group: u64) -> Vec<u8> {
+struct ClientSession {
+    nodes: [SocketAddr; 3],
+    group_id: u64,
+    leader: usize,
+    stream: Option<TcpStream>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AttemptFailure {
+    Timeout,
+    Error,
+}
+
+impl ClientSession {
+    fn new(nodes: [SocketAddr; 3], group_id: u64) -> Self {
+        Self {
+            nodes,
+            group_id,
+            leader: 0,
+            stream: None,
+        }
+    }
+
+    async fn propose(&mut self, payload: Vec<u8>, deadline: u64) -> Result<(), AttemptFailure> {
+        let mut observed_error = false;
+        loop {
+            let now = monotonic_ns();
+            if now >= deadline {
+                return Err(if observed_error {
+                    AttemptFailure::Error
+                } else {
+                    AttemptFailure::Timeout
+                });
+            }
+            if self.stream.is_none() && self.connect(deadline).await.is_err() {
+                sleep(Duration::from_millis(1)).await;
+                continue;
+            }
+            let remaining = Duration::from_nanos(deadline.saturating_sub(monotonic_ns()).max(1));
+            let stream = self.stream.as_mut().expect("connected stream");
+            let operation = async {
+                write_frame(
+                    &mut *stream,
+                    &Request::Propose {
+                        group_id: self.group_id,
+                        payload: payload.clone(),
+                    },
+                )
+                .await?;
+                read_frame::<_, Response>(&mut *stream)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("proposal connection closed"))
+            };
+            match timeout(remaining, operation).await {
+                Ok(Ok(Response::Proposal(response))) if response == payload => return Ok(()),
+                Ok(Ok(Response::Error(_))) | Ok(Ok(_)) | Ok(Err(_)) => {
+                    observed_error = true;
+                    self.stream = None;
+                    if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await
+                    {
+                        self.leader = leader;
+                    }
+                }
+                Err(_) => {
+                    self.stream = None;
+                    return Err(AttemptFailure::Timeout);
+                }
+            }
+        }
+    }
+
+    async fn connect(&mut self, deadline: u64) -> Result<(), ()> {
+        let remaining = Duration::from_nanos(deadline.saturating_sub(monotonic_ns()).max(1));
+        match timeout(remaining, TcpStream::connect(self.nodes[self.leader])).await {
+            Ok(Ok(stream)) => {
+                self.stream = Some(stream);
+                Ok(())
+            }
+            _ => {
+                if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await {
+                    self.leader = leader;
+                }
+                Err(())
+            }
+        }
+    }
+}
+
+async fn resolve_leader(nodes: &[SocketAddr; 3], group_id: u64, deadline: u64) -> Option<usize> {
+    for address in nodes {
+        let remaining = Duration::from_nanos(deadline.saturating_sub(monotonic_ns()).max(1))
+            .min(Duration::from_millis(200));
+        let response = timeout(remaining, call(*address, Request::State { group_id })).await;
+        if let Ok(Ok(Response::State(state))) = response
+            && (1..=3).contains(&state.leader_id)
+        {
+            return Some((state.leader_id - 1) as usize);
+        }
+    }
+    None
+}
+
+fn payload(origin: u64, client: u64, group: u64, sequence: u64) -> Vec<u8> {
     let mut result = vec![0x5a; 1024];
     result[..8].copy_from_slice(&origin.to_be_bytes());
     result[8..16].copy_from_slice(&client.to_be_bytes());
     result[16..24].copy_from_slice(&group.to_be_bytes());
-    let mut state = origin ^ client.rotate_left(17) ^ group.rotate_left(33) ^ 0x600;
-    for byte in &mut result[24..] {
+    result[24..32].copy_from_slice(&sequence.to_be_bytes());
+    let mut state =
+        origin ^ client.rotate_left(17) ^ group.rotate_left(33) ^ sequence.rotate_left(49) ^ 0x600;
+    for byte in &mut result[32..] {
         state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
         *byte = (state >> 56) as u8;
     }
@@ -171,4 +250,83 @@ fn write_json_atomic(path: &std::path::Path, value: &impl serde::Serialize) -> a
     std::fs::write(&temporary, bytes)?;
     std::fs::rename(temporary, path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::ReplicaState;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use tokio::net::TcpListener;
+
+    async fn fake_node(
+        node_id: u64,
+        leader_id: u64,
+        committed: Arc<AtomicU64>,
+    ) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let committed = Arc::clone(&committed);
+                tokio::spawn(async move {
+                    loop {
+                        let Ok(Some(request)) = read_frame::<_, Request>(&mut stream).await else {
+                            break;
+                        };
+                        let response = match request {
+                            Request::State { .. } => Response::State(ReplicaState {
+                                node_id,
+                                voters: vec![1, 2, 3],
+                                leader_id,
+                                last_applied: 1,
+                                committed_digest: "00".repeat(32),
+                            }),
+                            Request::Propose { payload, .. } if node_id == leader_id => {
+                                committed.fetch_add(1, Ordering::Relaxed);
+                                Response::Proposal(payload)
+                            }
+                            Request::Propose { .. } => {
+                                Response::Error(format!("forward to leader {leader_id}"))
+                            }
+                            _ => Response::Error("unsupported fake request".to_owned()),
+                        };
+                        if write_frame(&mut stream, &response).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        (address, task)
+    }
+
+    #[tokio::test]
+    async fn proposal_re_resolves_the_current_leader() {
+        let committed = Arc::new(AtomicU64::new(0));
+        let (node1, task1) = fake_node(1, 2, Arc::clone(&committed)).await;
+        let (node2, task2) = fake_node(2, 2, Arc::clone(&committed)).await;
+        let (node3, task3) = fake_node(3, 2, Arc::clone(&committed)).await;
+        let mut session = ClientSession::new([node1, node2, node3], 7);
+        let value = payload(1, 2, 7, 11);
+
+        assert_eq!(
+            session.propose(value, monotonic_ns() + 2_000_000_000).await,
+            Ok(())
+        );
+        assert_eq!(session.leader, 1);
+        assert_eq!(committed.load(Ordering::Relaxed), 1);
+
+        task1.abort();
+        task2.abort();
+        task3.abort();
+    }
+
+    #[test]
+    fn proposal_payload_includes_the_sequence() {
+        assert_ne!(payload(1, 2, 3, 4), payload(1, 2, 3, 5));
+    }
 }

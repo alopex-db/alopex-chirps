@@ -111,7 +111,7 @@ for item in "${ORDER[@]}"; do
     compose exec --user root --no-TTY "$node" sh -ceu '
       iface=$(ip -o -4 addr show | awk '\''$4 ~ /^192[.]168[.]128[.]/{print $2; exit}'\'')
       test -n "$iface"
-      tc qdisc replace dev "$iface" root netem delay 300us
+      tc qdisc replace dev "$iface" root netem delay 250us
       tc -s qdisc show dev "$iface"
     ' >"$output/$sample/${node}-qdisc.txt"
   done
@@ -122,7 +122,7 @@ for item in "${ORDER[@]}"; do
   pids=()
   for node in 1 2 3; do
     compose run --rm --no-deps "loadgen${node}" loadgen \
-      --origin-node "$node" --leader-control 192.168.129.11:7101 \
+      --origin-node "$node" --nodes "$NODES" \
       --mode "$mode" --sample-index "$index" --start-at-ns "$start_at" \
       --output "/evidence/$sample/loadgen${node}.json" \
       >"$output/$sample/loadgen${node}.log" 2>&1 &
@@ -210,7 +210,7 @@ class=container
 jq -n --arg schema 'chirps.multi-raft-performance/v1' --arg commit "$source_sha" --arg binary "$binary_sha" \
   --arg class "$class" --argjson ids "$ids_json" --arg cpu "$cpu_model" --argjson cores "$cores" \
   --argjson ram "$ram" --arg kernel "$kernel" \
-  --arg governor "$governor" --arg shaper 'tc netem 500us per node data egress; verified six directed RTT pairs' \
+  --arg governor "$governor" --arg shaper 'tc netem 250us per node data egress; verified six directed RTT pairs' \
   --argjson swap_before "$swap_before" --argjson swap_after "$swap_after" \
   --slurpfile samples "$output/samples.json" --slurpfile per_group "$output/per-group.json" \
   --slurpfile raw "$output/raw-artifacts.json" --arg raw_digest "$raw_set_digest" \

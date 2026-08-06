@@ -63,7 +63,7 @@ fn parse_node(args: &[String]) -> anyhow::Result<NodeArgs> {
 fn parse_loadgen(args: &[String]) -> anyhow::Result<LoadgenArgs> {
     Ok(LoadgenArgs {
         origin_node: required(args, "--origin-node")?.parse()?,
-        leader_control: required(args, "--leader-control")?.parse()?,
+        nodes: parse_nodes(required(args, "--nodes")?)?,
         mode: parse_mode(required(args, "--mode")?)?,
         sample_index: required(args, "--sample-index")?.parse()?,
         start_at_ns: required(args, "--start-at-ns")?.parse()?,

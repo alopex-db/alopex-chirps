@@ -417,7 +417,7 @@ fn verify_raw_artifacts(base: &Path, artifact: &Artifact) -> anyhow::Result<()> 
             RawArtifactKind::ShaperConfig => {
                 let text = String::from_utf8(bytes)?;
                 ensure!(
-                    text.contains("netem") && text.contains("delay 500us"),
+                    text.contains("netem") && text.contains("delay 250us"),
                     "shaper evidence mismatch in {}",
                     raw.path
                 );
@@ -1364,7 +1364,7 @@ mod tests {
                     &mut raw,
                     RawArtifactKind::ShaperConfig,
                     format!("{directory_name}/node{node}-qdisc.txt"),
-                    b"netem delay 500us\n",
+                    b"netem delay 250us\n",
                 );
 
                 let origin_committed = committed / 3;
