@@ -1,0 +1,95 @@
+services:
+  node1: &node
+    image: ${CHIRPS_PERF_IMAGE:?set CHIRPS_PERF_IMAGE}
+    user: root
+    cap_add: [NET_ADMIN]
+    cpuset: ${NODE1_CPU:-0}
+    networks:
+      data: { ipv4_address: 172.31.60.11 }
+      control: { ipv4_address: 172.31.61.11 }
+    volumes:
+      - ${PERF_OUTPUT:?set PERF_OUTPUT}:/evidence
+      - ${PERF_TLS:?set PERF_TLS}:/run/chirps/tls:ro
+    tmpfs: ["/work:size=8g,mode=0700"]
+    entrypoint: [/bin/sh, -ceu]
+    command:
+      - |
+        mkdir -p /work/tls
+        cp /run/chirps/tls/cert.der /run/chirps/tls/key.der /work/tls/
+        touch /evidence/${SAMPLE_DIR}/node1-metrics.jsonl
+        chown -R chirps:chirps /work /evidence/${SAMPLE_DIR}/node1-metrics.jsonl
+        exec setpriv --reuid=10001 --regid=10001 --clear-groups /usr/local/bin/chirps-multi-raft-perf node \
+          --node-id 1 --raft-bind 172.31.60.11:7001 \
+          --seeds '' \
+          --control-bind 172.31.61.11:7101 --storage-root /work \
+          --cert /work/tls/cert.der --key /work/tls/key.der \
+          --trust /work/tls/cert.der --metrics /evidence/${SAMPLE_DIR}/node1-metrics.jsonl
+    mem_limit: 8g
+    memswap_limit: 8g
+    restart: "no"
+  node2:
+    <<: *node
+    cpuset: ${NODE2_CPU:-2}
+    networks:
+      data: { ipv4_address: 172.31.60.12 }
+      control: { ipv4_address: 172.31.61.12 }
+    command:
+      - |
+        mkdir -p /work/tls
+        cp /run/chirps/tls/cert.der /run/chirps/tls/key.der /work/tls/
+        touch /evidence/${SAMPLE_DIR}/node2-metrics.jsonl
+        chown -R chirps:chirps /work /evidence/${SAMPLE_DIR}/node2-metrics.jsonl
+        exec setpriv --reuid=10001 --regid=10001 --clear-groups /usr/local/bin/chirps-multi-raft-perf node \
+          --node-id 2 --raft-bind 172.31.60.12:7002 \
+          --seeds 172.31.60.11:7001 \
+          --control-bind 172.31.61.12:7102 --storage-root /work \
+          --cert /work/tls/cert.der --key /work/tls/key.der \
+          --trust /work/tls/cert.der --metrics /evidence/${SAMPLE_DIR}/node2-metrics.jsonl
+  node3:
+    <<: *node
+    cpuset: ${NODE3_CPU:-4}
+    networks:
+      data: { ipv4_address: 172.31.60.13 }
+      control: { ipv4_address: 172.31.61.13 }
+    command:
+      - |
+        mkdir -p /work/tls
+        cp /run/chirps/tls/cert.der /run/chirps/tls/key.der /work/tls/
+        touch /evidence/${SAMPLE_DIR}/node3-metrics.jsonl
+        chown -R chirps:chirps /work /evidence/${SAMPLE_DIR}/node3-metrics.jsonl
+        exec setpriv --reuid=10001 --regid=10001 --clear-groups /usr/local/bin/chirps-multi-raft-perf node \
+          --node-id 3 --raft-bind 172.31.60.13:7003 \
+          --seeds 172.31.60.11:7001,172.31.60.12:7002 \
+          --control-bind 172.31.61.13:7103 --storage-root /work \
+          --cert /work/tls/cert.der --key /work/tls/key.der \
+          --trust /work/tls/cert.der --metrics /evidence/${SAMPLE_DIR}/node3-metrics.jsonl
+  controller:
+    image: ${CHIRPS_PERF_IMAGE:?set CHIRPS_PERF_IMAGE}
+    user: root
+    cpuset: ${CONTROLLER_CPU:-6}
+    networks: [control]
+    volumes:
+      - ${PERF_OUTPUT:?set PERF_OUTPUT}:/evidence
+    profiles: [tools]
+  loadgen1: &loadgen
+    image: ${CHIRPS_PERF_IMAGE:?set CHIRPS_PERF_IMAGE}
+    user: root
+    cpuset: ${LOADGEN1_CPU:-1}
+    networks: [control]
+    volumes:
+      - ${PERF_OUTPUT:?set PERF_OUTPUT}:/evidence
+    profiles: [tools]
+  loadgen2:
+    <<: *loadgen
+    cpuset: ${LOADGEN2_CPU:-3}
+  loadgen3:
+    <<: *loadgen
+    cpuset: ${LOADGEN3_CPU:-5}
+
+networks:
+  data:
+    internal: true
+    ipam: { config: [{ subnet: 172.31.60.0/24 }] }
+  control:
+    internal: true
+    ipam: { config: [{ subnet: 172.31.61.0/24 }] }

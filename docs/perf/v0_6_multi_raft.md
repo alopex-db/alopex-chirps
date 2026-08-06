@@ -1,6 +1,6 @@
 # Chirps v0.6 Multi-Raft performance procedure
 
-Status: PROCEDURE LOCKED — CONTROLLED LOCAL MEASUREMENT PENDING
+Status: PROCEDURE LOCKED — CONTROLLED RUNNER IMPLEMENTED, MEASUREMENT PENDING
 
 This document fixes the measurement contract before any v0.6 performance
 claim. v0.5.2 FileTransfer evidence is unrelated and must not be reused.
@@ -27,9 +27,10 @@ claim. v0.5.2 FileTransfer evidence is unrelated and must not be reused.
   duration, binary, and storage configuration. Assign 100 clients on each node
   to group 1, so the client count remains 300 while only the group count changes.
 
-The runner must bootstrap each group on one node and join the other two as
-learners/voters; initializing three independent single-member groups is invalid.
-Before that runner is valid, production must provide all three missing seams:
+The runner bootstraps each group on node 1 and joins nodes 2 and 3 sequentially
+as learners before promoting the common voter set. Initializing three
+independent single-member groups is invalid. The implementation uses the public
+production seams for:
 
 1. creation and publication of an uninitialized replica on nodes 2 and 3;
 2. lifecycle-safe learner addition, catch-up, and promotion to the common
@@ -38,11 +39,13 @@ Before that runner is valid, production must provide all three missing seams:
    response to the group transport's pending correlation instead of treating it
    as a new request.
 
-The current `create_group()` always initializes its local replica, and the
-manager frame route does not wake pending group RPC responses. Until those seams
-and an executable runner exist, the controlled local performance gate is
-BLOCKED rather than skipped. Absence of three physical hosts is not a blocker
-and must not be reported as one.
+The executable controlled-local implementation is
+`scripts/perf/run-controlled-container-multi-raft.sh`. It starts one
+`QuicBackend` per node container, routes inbound Raft request/response frames
+through `MultiRaftManager::dispatch_frame`, and uses
+`create_group_uninitialized`, `add_learner`, and `change_membership` for the
+sequential bootstrap. Absence of three physical hosts is not a blocker and must
+not be reported as one.
 
 ## Host and process controls
 
@@ -59,6 +62,37 @@ and must not be reported as one.
   defaults.
 - Sample process CPU, RSS, disk bytes/fsync, network bytes, retransmits, and
   per-group queue depth once per second. Preserve raw samples.
+
+The controlled container profile uses a fresh 8 GiB `tmpfs` at `/work` for each
+node and sample. `fsync_calls` is the count of completed locked
+`alopex-core` WAL appends; that implementation invokes `sync_all` exactly once
+per successful append. It is operational evidence, not a claim about when a
+physical device persisted the bytes. `/proc/self/io` disk bytes may therefore
+legitimately be zero on this profile and are still preserved verbatim.
+
+## Controlled-local execution
+
+Run only from a clean committed revision; the script builds from `git archive`
+and rejects an image whose revision label does not match the source SHA.
+
+```bash
+scripts/perf/run-controlled-container-multi-raft.sh \
+  --output /absolute/empty/evidence-directory
+```
+
+The run needs Docker Compose, OpenSSL, `jq`, `tc`, seven disjoint available CPU
+IDs (defaults `0..=6`), and enough RAM for three 8 GiB container limits. It runs
+ten fresh-storage samples in the fixed order
+`M0,S0,S1,M1,M2,S2,S3,M3,M4,S4`. Each sample preserves three node JSONL metric
+streams, three exact load-generator histograms, container/network inspection,
+the six-pair unloaded and shaped network RTT probes (200 ICMP samples per
+direction), qdisc state, and post-drain
+membership/digest observations. The final `assemble` command recomputes all
+statistics and the final `verify` command re-reads and hashes every raw input.
+
+This implementation does not create release evidence merely by existing. The
+canonical release path is populated only after the full controlled run succeeds
+and its artifact is independently reviewed.
 
 ## Statistics and gates
 
@@ -97,11 +131,11 @@ The release artifact path is
   "commit_sha": "40-hex",
   "binary_sha256": "64-hex",
   "runner_command": ["argv", "without", "shell-expansion"],
-  "execution_environment": {"class": "native|container|wsl", "host_count": 1, "logical_nodes": 3, "process_or_container_ids": ["..."], "cpu": "...", "cores": 0, "ram_bytes": 0, "kernel": "...", "storage": "...", "network_shaper": "...", "physical_deployment": false},
-  "resolved_config": {"nodes": 3, "groups": 100, "payload_bytes": 1024, "rtt_ms": 1.0, "clients": 300, "warmup_seconds": 15, "measure_seconds": 60, "samples": 5},
-  "samples": [{"mode": "multi_raft", "index": 0, "group_count": 100, "clients": 300, "actual_measure_duration_ms": 60000, "monotonic_start_ns": 0, "monotonic_end_ns": 0, "network_rtt_ms": [{"source": 1, "destination": 2, "unloaded": {"p50": 0.0, "p95": 0.0}, "shaped": {"p50": 0.0, "p95": 0.0}}], "group_membership_after_drain": [{"group_id": 1, "replicas": [{"node_id": 1, "voters": [1, 2, 3], "leader_id": 1, "last_applied": 0, "committed_digest": "64-hex"}]}], "committed": 0, "throughput_per_sec": 0.0, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}, "errors": 0, "timeouts": 0, "cpu_seconds": 0.0, "peak_rss_bytes": 0}],
+  "execution_environment": {"class": "container", "host_count": 1, "logical_nodes": 3, "process_or_container_ids": ["..."], "node_cpu_sets": {"1": "0", "2": "2", "3": "4"}, "loadgen_cpu_sets": {"1": "1", "2": "3", "3": "5"}, "cpu": "...", "cores": 0, "ram_bytes": 0, "kernel": "...", "rust_version": "...", "storage": "...", "filesystem": "tmpfs", "network_shaper": "...", "governor": "...", "physical_deployment": false, "swap_bytes_before": 0, "swap_bytes_after": 0},
+  "resolved_config": {"nodes": 3, "groups": 100, "payload_bytes": 1024, "rtt_ms": 1.0, "clients": 300, "clients_per_node": 100, "warmup_seconds": 15, "measure_seconds": 60, "drain_seconds": 5, "samples": 5, "fsync_interval": 0, "snapshot_threshold": 1000000000, "send_queue_capacity": 65536},
+  "samples": [{"mode": "multi_raft", "index": 0, "group_count": 100, "clients": 300, "process_or_container_ids": ["..."], "actual_measure_duration_ms": 60000, "monotonic_start_ns": 0, "monotonic_end_ns": 0, "network_rtt_ms": [{"source": 1, "destination": 2, "unloaded": {"p50": 0.0, "p95": 0.0}, "shaped": {"p50": 0.0, "p95": 0.0}}], "group_membership_after_drain": [{"group_id": 1, "replicas": [{"node_id": 1, "voters": [1, 2, 3], "leader_id": 1, "last_applied": 0, "committed_digest": "64-hex"}]}], "committed": 0, "throughput_per_sec": 0.0, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}, "errors": 0, "timeouts": 0, "cpu_seconds": 0.0, "peak_rss_bytes": 0, "disk_bytes": 0, "fsync_calls": 0, "network_bytes": 0, "oom_killed": false, "process_restarted": false, "shaper_mismatch": false}],
   "per_group": [{"mode": "multi_raft", "sample_index": 0, "group_id": 1, "committed": 0, "throughput_per_sec": 0.0}],
-  "raw_metrics_artifacts": [{"path": "relative/path", "sha256": "64-hex"}],
+  "raw_metrics_artifacts": [{"kind": "node_metrics_jsonl", "path": "relative/path", "sha256": "64-hex"}],
   "raw_artifact_set_sha256": "64-hex",
   "statistics": {"seed": "0x0000000000000600", "resamples": 10000, "multi_raft_median": 0.0, "multi_raft_ci95_lower": 0.0, "single_group_median": 0.0, "overhead_ratio": 0.0},
   "verdict": {"throughput": "pass|fail", "overhead": "pass|fail", "integrity": "pass|fail", "overall": "pass|fail"}
@@ -123,12 +157,11 @@ ordered samples, raw artifact digests, statistics seed, and verdict.
 
 ## Current evidence status
 
-No controlled local throughput or overhead claim has been made. The missing
-production prerequisites are uninitialized replica creation, lifecycle-safe
-learner promotion, and correlated inbound response dispatch; after those, the
-missing evidence is an executable three-logical-node bootstrap/join runner and
-its 60-second artifact, not physical host availability. The deterministic harness
-evidence in `docs/release/evidence/v0.6.0/multi-raft-fault-v2.json` proves local
-replay/lifecycle/routing/isolation behavior only and cannot satisfy this
-performance gate. Optional multi-host runs must be labeled deployment evidence
-and cannot replace or invalidate the controlled local profile.
+No controlled local throughput or overhead claim has been made. The production
+bootstrap/dispatch seams and executable three-container runner now exist; the
+remaining evidence is a successful ten-sample controlled run and independent
+verification of its artifact, not physical host availability. The deterministic
+harness evidence in `docs/release/evidence/v0.6.0/multi-raft-fault-v2.json`
+proves local replay/lifecycle/routing/isolation behavior only and cannot satisfy
+this performance gate. Optional multi-host runs must be labeled deployment
+evidence and cannot replace or invalidate the controlled local profile.

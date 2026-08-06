@@ -528,6 +528,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "chirps-multi-raft-perf"
+version = "0.6.0"
+dependencies = [
+ "alopex-chirps",
+ "alopex-chirps-core",
+ "alopex-chirps-raft-storage",
+ "alopex-chirps-transport-quic",
+ "alopex-chirps-wire",
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"

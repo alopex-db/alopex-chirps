@@ -17,6 +17,7 @@ use std::io::{self, Cursor};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 
@@ -32,6 +33,18 @@ const WAL_KEY: &[u8] = b"raft";
 const SNAP_MAGIC: [u8; 4] = *b"SNAP";
 /// スナップショットファイルバージョン。
 const SNAP_VERSION: u32 = 1;
+
+/// Process-wide count of completed WAL appends that call `sync_all`.
+///
+/// The controlled-local runner uses one process per logical node, so this is
+/// an exact per-node count without coupling storage instances to the runner.
+/// The locked `alopex-core` WAL implementation performs one `sync_all` in each
+/// successful append. This is not a physical-media persistence claim.
+static PROCESS_FSYNC_CALLS: AtomicU64 = AtomicU64::new(0);
+
+pub fn process_fsync_calls() -> u64 {
+    PROCESS_FSYNC_CALLS.load(Ordering::Relaxed)
+}
 
 /// WALストレージの設定値。
 ///
@@ -140,6 +153,7 @@ impl WalSink for RealWalSink {
     fn append(&mut self, record: &CoreWalRecord, _sync: bool) -> Result<()> {
         let mut guard = self.inner.lock().unwrap();
         guard.append(record)?;
+        PROCESS_FSYNC_CALLS.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 

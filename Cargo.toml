@@ -10,6 +10,7 @@ members = [
     "crates/chirps-raft-storage",
     "tests/e2e",
     "tools/chirps-deterministic-harness",
+    "tools/chirps-multi-raft-perf",
 ]
 resolver = "2"
 
