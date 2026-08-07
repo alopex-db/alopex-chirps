@@ -26,6 +26,11 @@ claim. v0.5.2 FileTransfer evidence is unrelated and must not be reused.
 - Single-group baseline uses the same 3 nodes, payload, 300 clients, RTT,
   duration, binary, and storage configuration. Assign 100 clients on each node
   to group 1, so the client count remains 300 while only the group count changes.
+- Each `GroupHandle` admits at most eight concurrent proposals. This is a
+  correctness/backpressure contract: without it, a 300-client single-group
+  flood can starve heartbeats and cause leader churn. The regression is covered
+  by `three_voters_survive_baseline_level_single_group_concurrency` before any
+  controlled performance run.
 
 The runner bootstraps each group on node 1 and joins nodes 2 and 3 sequentially
 as learners before promoting the common voter set. Initializing three

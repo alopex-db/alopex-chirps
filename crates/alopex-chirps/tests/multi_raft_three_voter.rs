@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
@@ -685,5 +685,94 @@ async fn three_voters_elect_one_leader_and_commit_consistently() {
     for state in cluster.states.values() {
         assert_eq!(state.values().await, expected);
     }
+    cluster.shutdown().await;
+}
+
+#[tokio::test]
+async fn concurrent_single_group_proposals_converge_on_all_voters() {
+    let cluster = TestCluster::new(GroupId(13)).await;
+    cluster.bootstrap_three_voters().await;
+    let seed = cluster.managers[&1].get_group(GroupId(13)).unwrap();
+
+    let proposals = (0..32)
+        .map(|index| {
+            let seed = Arc::clone(&seed);
+            tokio::spawn(async move {
+                let command = format!("concurrent-{index}").into_bytes();
+                let deadline = Instant::now() + Duration::from_secs(10);
+                loop {
+                    match seed.propose(command.clone()).await {
+                        Ok(response) => break Ok(response),
+                        Err(_error) if Instant::now() < deadline => {
+                            sleep(Duration::from_millis(10)).await;
+                        }
+                        Err(error) => break Err(error),
+                    }
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for proposal in proposals {
+        proposal.await.unwrap().unwrap();
+    }
+
+    cluster.wait_for_applied_len(33).await;
+    let observations = cluster
+        .managers
+        .values()
+        .map(|manager| manager.get_group(GroupId(13)).unwrap().metrics())
+        .collect::<Vec<_>>();
+    let expected_last_applied = observations[0].last_applied;
+    assert!(observations.iter().all(|metrics| {
+        metrics.current_leader.is_some()
+            && voters(metrics) == BTreeSet::from([1, 2, 3])
+            && metrics.last_applied == expected_last_applied
+    }));
+    let expected_len = cluster.states[&1].values().await.len();
+    assert_eq!(expected_len, 33);
+    for state in cluster.states.values() {
+        assert_eq!(state.values().await.len(), expected_len);
+    }
+    cluster.shutdown().await;
+}
+
+#[tokio::test]
+async fn three_voters_survive_baseline_level_single_group_concurrency() {
+    let cluster = TestCluster::new(GroupId(14)).await;
+    cluster.bootstrap_three_voters().await;
+    let seed = cluster.managers[&1].get_group(GroupId(14)).unwrap();
+
+    let proposals = (0..300)
+        .map(|index| {
+            let seed = Arc::clone(&seed);
+            tokio::spawn(async move {
+                let command = format!("baseline-{index}").into_bytes();
+                let deadline = Instant::now() + Duration::from_secs(10);
+                loop {
+                    match seed.propose(command.clone()).await {
+                        Ok(_) => break Ok(()),
+                        Err(_error) if Instant::now() < deadline => {
+                            sleep(Duration::from_millis(10)).await;
+                        }
+                        Err(error) => break Err(error),
+                    }
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for proposal in proposals {
+        proposal.await.unwrap().unwrap();
+    }
+    cluster.wait_for_applied_len(301).await;
+    let observations = cluster
+        .managers
+        .values()
+        .map(|manager| manager.get_group(GroupId(14)).unwrap().metrics())
+        .collect::<Vec<_>>();
+    assert!(observations.iter().all(|metrics| {
+        metrics.current_leader.is_some()
+            && voters(metrics) == BTreeSet::from([1, 2, 3])
+            && metrics.last_applied == observations[0].last_applied
+    }));
     cluster.shutdown().await;
 }

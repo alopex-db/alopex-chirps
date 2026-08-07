@@ -5,7 +5,7 @@ use openraft::metrics::RaftMetrics;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::{OnceCell, RwLock, RwLockReadGuard};
+use tokio::sync::{OnceCell, RwLock, RwLockReadGuard, Semaphore};
 
 /// Clone-safe access point for one managed Raft group.
 ///
@@ -15,6 +15,7 @@ pub struct GroupHandle {
     group_id: GroupId,
     node: Arc<RaftNode>,
     lifecycle: GroupLifecycle,
+    proposal_gate: Semaphore,
 }
 
 impl GroupHandle {
@@ -23,6 +24,9 @@ impl GroupHandle {
             group_id,
             node,
             lifecycle: GroupLifecycle::new(),
+            // Bound client_write concurrency per group so proposal floods do
+            // not starve OpenRaft heartbeats/elections on the same runtime.
+            proposal_gate: Semaphore::new(8),
         }
     }
 
@@ -66,6 +70,13 @@ impl GroupHandle {
 
     pub async fn propose(&self, command: Vec<u8>) -> Result<Vec<u8>, MultiRaftError> {
         let _permit = self.lifecycle.acquire(self.group_id).await?;
+        let _proposal_permit =
+            self.proposal_gate
+                .acquire()
+                .await
+                .map_err(|_| MultiRaftError::GroupUnavailable {
+                    group_id: self.group_id,
+                })?;
         self.node
             .propose(command)
             .await
