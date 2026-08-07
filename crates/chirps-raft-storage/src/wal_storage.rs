@@ -47,6 +47,27 @@ const SNAP_VERSION: u32 = 1;
 /// successful append. This is not a physical-media persistence claim.
 static PROCESS_FSYNC_CALLS: AtomicU64 = AtomicU64::new(0);
 
+/// WAL access is synchronous because `alopex-core` exposes a synchronous
+/// writer.  Keep that I/O off Tokio worker threads in the multi-threaded
+/// runtime used by the node; otherwise one busy Raft group can stall every
+/// group's mailbox and heartbeat task.  Unit tests may use a current-thread
+/// runtime, where `block_in_place` is unavailable, so retain a safe fallback.
+fn with_blocking_wal_io<T>(operation: impl FnOnce() -> T) -> T {
+    let use_blocking_pool = tokio::runtime::Handle::try_current()
+        .ok()
+        .is_some_and(|handle| {
+            matches!(
+                handle.runtime_flavor(),
+                tokio::runtime::RuntimeFlavor::MultiThread
+            )
+        });
+    if use_blocking_pool {
+        tokio::task::block_in_place(operation)
+    } else {
+        operation()
+    }
+}
+
 pub fn process_fsync_calls() -> u64 {
     PROCESS_FSYNC_CALLS.load(Ordering::Relaxed)
 }
@@ -662,8 +683,7 @@ where
             })
             .collect();
 
-        let wal_entries = self
-            .read_entries_from_wal(range.clone())
+        let wal_entries = with_blocking_wal_io(|| self.read_entries_from_wal(range.clone()))
             .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Read))?;
 
         for entry in wal_entries {
@@ -687,15 +707,17 @@ where
             return;
         }
 
-        let res = (|| -> Result<()> {
-            for entry in collected {
-                self.append_entry(entry)?;
-            }
-            if self.config.fsync_interval > 0 && self.pending_unsynced > 0 {
-                self.sync_wal()?;
-            }
-            Ok(())
-        })();
+        let res = with_blocking_wal_io(|| {
+            (|| -> Result<()> {
+                for entry in collected {
+                    self.append_entry(entry)?;
+                }
+                if self.config.fsync_interval > 0 && self.pending_unsynced > 0 {
+                    self.sync_wal()?;
+                }
+                Ok(())
+            })()
+        });
 
         match res {
             Ok(()) => callback.log_io_completed(Ok(())),
@@ -707,8 +729,10 @@ where
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(&WalFrame::Record(RaftWalRecord::Truncate(log_id)), true)
-            .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
+        with_blocking_wal_io(|| {
+            self.write_frame(&WalFrame::Record(RaftWalRecord::Truncate(log_id)), true)
+        })
+        .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
         self.truncate_cache(log_id.index);
         Ok(())
     }
@@ -717,8 +741,10 @@ where
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(&WalFrame::Record(RaftWalRecord::Purge(log_id)), true)
-            .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
+        with_blocking_wal_io(|| {
+            self.write_frame(&WalFrame::Record(RaftWalRecord::Purge(log_id)), true)
+        })
+        .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
         self.purge_cache(log_id.index);
         self.last_purged_log_id = Some(log_id);
         Ok(())
@@ -766,8 +792,10 @@ where
         &mut self,
         vote: &Vote<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(&WalFrame::Record(RaftWalRecord::Vote(*vote)), true)
-            .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Vote, ErrorVerb::Write))?;
+        with_blocking_wal_io(|| {
+            self.write_frame(&WalFrame::Record(RaftWalRecord::Vote(*vote)), true)
+        })
+        .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Vote, ErrorVerb::Write))?;
         self.vote = Some(*vote);
         Ok(())
     }
