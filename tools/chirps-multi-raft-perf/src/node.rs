@@ -336,7 +336,9 @@ fn spawn_sampler(runtime: Arc<Runtime>, path: PathBuf) -> tokio::task::JoinHandl
             Ok(file) => file,
             Err(_) => return,
         };
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        // Keep enough samples inside every 60 s measurement window even when
+        // one scheduler tick is delayed by the phase telemetry probes.
+        let mut interval = tokio::time::interval(Duration::from_millis(250));
         loop {
             interval.tick().await;
             let metric = collect_metrics(&runtime).await;
