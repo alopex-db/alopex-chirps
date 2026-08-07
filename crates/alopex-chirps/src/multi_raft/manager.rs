@@ -466,16 +466,7 @@ fn decode_wire_node_id(node_id: NodeId) -> Option<u64> {
 }
 
 fn is_response(message: &RaftMessage) -> bool {
-    let standard = matches!(
-        message,
-        RaftMessage::AppendEntriesResponse { .. }
-            | RaftMessage::VoteResponse { .. }
-            | RaftMessage::InstallSnapshotResponse { .. }
-    );
-    #[cfg(feature = "snapshot")]
-    return standard || matches!(message, RaftMessage::SnapshotTransferResponse { .. });
-    #[cfg(not(feature = "snapshot"))]
-    standard
+    message.is_response()
 }
 
 fn node_initialization_error(

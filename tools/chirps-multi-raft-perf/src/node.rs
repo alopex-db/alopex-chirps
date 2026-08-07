@@ -1,7 +1,7 @@
 use crate::protocol::{Request, Response, read_frame, write_frame};
 use crate::schema::{RawMetricsLine, ReplicaState};
 use alopex_chirps::multi_raft::{GroupId, MultiRaftManager, WalRaftStorageFactory};
-use alopex_chirps::raft::BasicNode;
+use alopex_chirps::raft::{BasicNode, RaftFramePayload};
 use alopex_chirps::{ChirpsRaftTransport, RaftConfig};
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
@@ -212,6 +212,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
 async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHandle<()>> {
     let mut incoming = runtime.backend.subscribe().await?;
     let probe_slots = Arc::new(Semaphore::new(1024));
+    let response_slots = Arc::new(Semaphore::new(4096));
     let dispatch_slots = Arc::new(Semaphore::new(DISPATCH_BACKLOG_CAPACITY));
     Ok(tokio::spawn(async move {
         let mut group_queues: BTreeMap<u64, GroupDispatchQueue> = BTreeMap::new();
@@ -231,6 +232,20 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                     let Some(group_id) = frame_group_id(&frame) else {
                         continue;
                     };
+                    // Correlated responses only wake a pending transport RPC;
+                    // bypass the per-group state-mutating queue so a slow
+                    // AppendEntries handler cannot create response HOL blocking.
+                    if frame_is_response(&frame) {
+                        let Ok(slot) = Arc::clone(&response_slots).acquire_owned().await else {
+                            break;
+                        };
+                        let runtime = Arc::clone(&runtime);
+                        tokio::spawn(async move {
+                            let _slot = slot;
+                            dispatch_raft_frame(&runtime, source, frame).await;
+                        });
+                        continue;
+                    }
                     let queue = if let Some(queue) = group_queues.get(&group_id) {
                         queue.clone()
                     } else {
@@ -387,6 +402,11 @@ fn frame_group_id(frame: &Frame) -> Option<u64> {
         Frame::Raft(frame) | Frame::RaftSnapshot(frame) => Some(frame.group_id),
         _ => None,
     }
+}
+
+fn frame_is_response(frame: &Frame) -> bool {
+    ChirpsRaftTransport::decode_frame(frame.clone())
+        .is_some_and(|payload: RaftFramePayload| payload.message.is_response())
 }
 
 async fn dispatch_raft_frame(runtime: &Runtime, source: NodeId, frame: Frame) {

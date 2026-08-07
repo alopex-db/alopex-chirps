@@ -94,6 +94,24 @@ pub enum RaftMessage {
 }
 
 impl RaftMessage {
+    /// Returns whether this message completes an already-issued RPC.
+    /// Responses may be delivered directly to the transport correlation map;
+    /// they do not need to wait behind state-mutating request frames.
+    pub fn is_response(&self) -> bool {
+        let standard = matches!(
+            self,
+            Self::AppendEntriesResponse { .. }
+                | Self::VoteResponse { .. }
+                | Self::InstallSnapshotResponse { .. }
+        );
+        #[cfg(feature = "snapshot")]
+        return standard || matches!(self, Self::SnapshotTransferResponse { .. });
+        #[cfg(not(feature = "snapshot"))]
+        standard
+    }
+}
+
+impl RaftMessage {
     pub fn group_id(&self) -> GroupId {
         match self {
             RaftMessage::AppendEntries { group_id, .. }
