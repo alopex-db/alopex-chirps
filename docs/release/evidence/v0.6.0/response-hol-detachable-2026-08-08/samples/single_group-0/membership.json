@@ -1,0 +1,40 @@
+[
+  {
+    "group_id": 1,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 7295,
+        "committed_digest": "a3ac9e91e9408eebd78870d122d511c3fb71400670d181f165f4618a47d32bde"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 7295,
+        "committed_digest": "a3ac9e91e9408eebd78870d122d511c3fb71400670d181f165f4618a47d32bde"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 7295,
+        "committed_digest": "a3ac9e91e9408eebd78870d122d511c3fb71400670d181f165f4618a47d32bde"
+      }
+    ]
+  }
+]

@@ -1,0 +1,74 @@
+[
+  {
+    "source": 1,
+    "destination": 2,
+    "unloaded": {
+      "p50": 0.093,
+      "p95": 0.134
+    },
+    "shaped": {
+      "p50": 0.85,
+      "p95": 1.16
+    }
+  },
+  {
+    "source": 1,
+    "destination": 3,
+    "unloaded": {
+      "p50": 0.098,
+      "p95": 0.135
+    },
+    "shaped": {
+      "p50": 0.871,
+      "p95": 1.16
+    }
+  },
+  {
+    "source": 2,
+    "destination": 1,
+    "unloaded": {
+      "p50": 0.093,
+      "p95": 0.135
+    },
+    "shaped": {
+      "p50": 0.882,
+      "p95": 1.18
+    }
+  },
+  {
+    "source": 2,
+    "destination": 3,
+    "unloaded": {
+      "p50": 0.094,
+      "p95": 0.139
+    },
+    "shaped": {
+      "p50": 0.854,
+      "p95": 1.2
+    }
+  },
+  {
+    "source": 3,
+    "destination": 1,
+    "unloaded": {
+      "p50": 0.098,
+      "p95": 0.145
+    },
+    "shaped": {
+      "p50": 0.882,
+      "p95": 1.17
+    }
+  },
+  {
+    "source": 3,
+    "destination": 2,
+    "unloaded": {
+      "p50": 0.096,
+      "p95": 0.143
+    },
+    "shaped": {
+      "p50": 0.885,
+      "p95": 1.17
+    }
+  }
+]
