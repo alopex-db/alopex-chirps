@@ -1,6 +1,6 @@
 # Chirps v0.6 Multi-Raft performance procedure
 
-Status: PROCEDURE LOCKED — CONTROLLED RUNNER IMPLEMENTED, MEASUREMENT PENDING
+Status: PROCEDURE LOCKED — CONTROLLED NATIVE RUN COMPLETE; TIKV-COMPATIBLE CONTRACT ADDED
 
 This document fixes the measurement contract before any v0.6 performance
 claim. v0.5.2 FileTransfer evidence is unrelated and must not be reused.
@@ -121,6 +121,32 @@ values (fixed statistics seed `0x0000000000000600`, 10,000 resamples) for the
 confidence interval. Do not treat individual proposal latencies as independent
 throughput samples.
 
+## TiKV-compatible comparison lane
+
+The native Chirps gate above remains the product-facing Multi-Raft contract:
+it counts only 1 KiB proposals that receive a quorum commit acknowledgement.
+It must not be relabeled as YCSB OPS.
+
+For cross-project comparison, the performance tool fixes a TiKV/YCSB Workload A
+contract: 50% READ / 50% UPDATE, RawKV semantics, 10 million records, at least
+30 million operations, and 1 KiB values. The comparison metrics are READ OPS,
+UPDATE OPS, total OPS, average/min/max latency, and p99/p99.9/p99.99 latency.
+The contract is represented by `TikvWorkloadA::reference()` and validated by
+unit tests in `tools/chirps-multi-raft-perf/src/tikv.rs`.
+
+This lane is comparison evidence, not a replacement for the native committed-
+proposal gate. A READ is not a Raft proposal, and UPDATE OPS is not automatically
+equivalent to committed proposals/s. A future RawKV-compatible service runner
+must implement the same read/update semantics before its measurements are used
+for a numerical cross-project claim.
+
+Reference material:
+
+- TiKV Benchmark Instructions: <https://tikv.org/docs/6.5/deploy/performance/instructions/>
+- TiKV 3-node performance overview: <https://tikv.org/docs/6.1/deploy/performance/overview/>
+- TiKV Multi-Raft design and WriteBatch batching: <https://www.pingcap.com/blog/design-and-implementation-of-multi-raft/>
+- TiKV architecture and three-peer replication: <https://docs.pingcap.com/tidb/v8.1/tikv-overview/>
+
 ## Required artifact schema
 
 The release artifact path is
@@ -158,11 +184,13 @@ ordered samples, raw artifact digests, statistics seed, and verdict.
 
 ## Current evidence status
 
-No controlled local throughput or overhead claim has been made. The production
-bootstrap/dispatch seams and executable three-container runner now exist; the
-remaining evidence is a successful ten-sample controlled run and independent
-verification of its artifact, not physical host availability. The deterministic
-harness evidence in `docs/release/evidence/v0.6.0/multi-raft-fault-v2.json`
-proves local replay/lifecycle/routing/isolation behavior only and cannot satisfy
-this performance gate. Optional multi-host runs must be labeled deployment
-evidence and cannot replace or invalidate the controlled local profile.
+The controlled local native run was executed with three logical nodes in three
+containers on one host. Its artifact and result summary are recorded under
+`docs/release/evidence/v0.6.0/multi-raft-native-2026-08-07/`. Physical host
+availability was not used as a prerequisite. The native result is a measured
+engineering result, not a claim that the 100,000/s release target passed.
+
+The TiKV-compatible contract and validation tests are present, but no
+RawKV/YCSB-compatible read/update service runner has been claimed or used as a
+release gate. This distinction is intentional: the current Chirps runner
+counts committed proposals, while TiKV reports YCSB operation classes.
