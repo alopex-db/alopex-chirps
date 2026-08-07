@@ -51,9 +51,13 @@ pub fn summarize(observation: SampleObservation, base: &Path) -> anyhow::Result<
     let timeouts = reports.iter().map(|report| report.timeouts).sum();
     let server_errors = reports.iter().map(|report| report.server_errors).sum();
     let transport_errors = reports.iter().map(|report| report.transport_errors).sum();
+    let mut server_error_reasons = BTreeMap::new();
     let mut per_group_counts = BTreeMap::new();
     let mut histogram = BTreeMap::new();
     for report in &reports {
+        for (reason, count) in &report.server_error_reasons {
+            *server_error_reasons.entry(reason.clone()).or_insert(0) += count;
+        }
         for (group, count) in &report.per_group_committed {
             *per_group_counts.entry(*group).or_insert(0) += count;
         }
@@ -116,6 +120,7 @@ pub fn summarize(observation: SampleObservation, base: &Path) -> anyhow::Result<
             timeouts,
             server_errors,
             transport_errors,
+            server_error_reasons,
             cpu_seconds,
             peak_rss_bytes,
             disk_bytes,

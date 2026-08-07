@@ -33,6 +33,7 @@ struct Counters {
     timeouts: u64,
     server_errors: u64,
     transport_errors: u64,
+    server_error_reasons: BTreeMap<String, u64>,
     per_group: BTreeMap<u64, u64>,
     latency_us: BTreeMap<u64, u64>,
 }
@@ -125,9 +126,10 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
                                 .or_default() += 1;
                         }
                         Err(AttemptFailure::Timeout) => counters.timeouts += 1,
-                        Err(AttemptFailure::ServerError) => {
+                        Err(AttemptFailure::ServerError(reason)) => {
                             counters.errors += 1;
                             counters.server_errors += 1;
+                            *counters.server_error_reasons.entry(reason).or_default() += 1;
                         }
                         Err(AttemptFailure::TransportError) => {
                             counters.errors += 1;
@@ -162,6 +164,7 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
         timeouts: counters.timeouts,
         server_errors: counters.server_errors,
         transport_errors: counters.transport_errors,
+        server_error_reasons: counters.server_error_reasons,
         per_group_committed: counters.per_group,
         latency_us: counters.latency_us,
         peak_rss_bytes: peak_rss_bytes.load(Ordering::Relaxed),
@@ -221,10 +224,10 @@ struct ClientSession {
     stream: Option<TcpStream>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum AttemptFailure {
     Timeout,
-    ServerError,
+    ServerError(String),
     TransportError,
 }
 
@@ -266,8 +269,9 @@ impl ClientSession {
             };
             match timeout(remaining, operation).await {
                 Ok(Ok(Response::Proposal(response))) if response == payload => return Ok(()),
-                Ok(Ok(Response::Error(_))) => {
-                    observed_failure = Some(AttemptFailure::ServerError);
+                Ok(Ok(Response::Error(reason))) => {
+                    let reason = reason.chars().take(256).collect();
+                    observed_failure = Some(AttemptFailure::ServerError(reason));
                     self.stream = None;
                     if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await
                     {
