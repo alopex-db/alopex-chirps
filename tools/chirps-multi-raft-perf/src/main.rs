@@ -55,7 +55,11 @@ fn parse_node(args: &[String]) -> anyhow::Result<NodeArgs> {
             .unwrap_or("4096")
             .parse()?,
         snapshot_threshold: option(args, "--snapshot-threshold")
-            .unwrap_or("1000000000")
+            .unwrap_or("512")
+            .parse()?,
+        resource_audit: has_flag(args, "--resource-audit"),
+        metrics_interval_ms: option(args, "--metrics-interval-ms")
+            .unwrap_or("1000")
             .parse()?,
     })
 }
@@ -71,6 +75,7 @@ fn parse_loadgen(args: &[String]) -> anyhow::Result<LoadgenArgs> {
         warmup_seconds: option(args, "--warmup-seconds").unwrap_or("15").parse()?,
         measure_seconds: option(args, "--measure-seconds").unwrap_or("60").parse()?,
         drain_seconds: option(args, "--drain-seconds").unwrap_or("5").parse()?,
+        resource_audit: has_flag(args, "--resource-audit"),
     })
 }
 
@@ -231,5 +236,9 @@ fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
     args.windows(2)
         .find(|pair| pair[0] == name)
         .map(|pair| pair[1].as_str())
+}
+
+fn has_flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|arg| arg == name)
 }
 use chirps_multi_raft_perf::controller;

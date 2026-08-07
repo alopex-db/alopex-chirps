@@ -104,3 +104,19 @@ The fixed full run improved Multi-Raft median from 296.72/s to 408.85/s and
 reduced maximum node RSS from 2.03 GiB to 1.76 GiB. Timeout failures remain,
 including a zero-commit sample, so the release gate stays BLOCKED. Detailed
 after-fix evidence is in `../wal-range-fix-2026-08-07/RESULT.md`.
+
+## Diagnostic instrumentation detachability
+
+The detailed bottleneck instrumentation is explicitly opt-in. Normal node and
+load-generator paths do not start the node metrics sampler, the 100-ms RSS
+sampler, or shell-level phase snapshots. The controlled diagnostic runner
+enables them only with `--resource-audit`; that mode also selects the 250-ms
+node interval with `--metrics-interval-ms 250`. The default interval is 1 s,
+and the diagnostic tasks are behind a single runtime flag, so they can be
+removed without changing proposal, transport, WAL, or snapshot behavior.
+
+This is a release constraint: numbers without `--resource-audit` represent the
+normal harness path, while phase/RSS evidence must record the audit flag. The
+detachability UT/build gate passed (`chirps-multi-raft-perf`: 14/14). The
+post-retention full three-node run is still required for the final performance
+verdict.

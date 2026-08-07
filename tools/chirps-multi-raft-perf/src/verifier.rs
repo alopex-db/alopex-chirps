@@ -198,7 +198,7 @@ fn verify_config(config: &ResolvedConfig) -> anyhow::Result<()> {
     ensure!(config.samples == 5, "sample count must be 5 per mode");
     ensure!(config.fsync_interval == 0, "fsync_interval must be zero");
     ensure!(
-        config.snapshot_threshold == 1_000_000_000,
+        config.snapshot_threshold == 512,
         "snapshot threshold mismatch"
     );
     ensure!(
@@ -1499,7 +1499,7 @@ mod tests {
                 drain_seconds: 5,
                 samples: 5,
                 fsync_interval: 0,
-                snapshot_threshold: 1_000_000_000,
+                snapshot_threshold: 512,
                 send_queue_capacity: 4_096,
             },
             samples,

@@ -27,6 +27,7 @@ use tokio::time::{sleep, timeout};
 
 const PROBE_MAGIC: &[u8; 8] = b"MRPROBE1";
 const GROUP_QUEUE_CAPACITY: usize = 32;
+const PERF_LOG_CACHE_SIZE: usize = 256;
 
 #[derive(Clone, Debug)]
 pub struct NodeArgs {
@@ -41,6 +42,8 @@ pub struct NodeArgs {
     pub metrics_path: PathBuf,
     pub send_queue_capacity: usize,
     pub snapshot_threshold: u64,
+    pub resource_audit: bool,
+    pub metrics_interval_ms: u64,
 }
 
 #[derive(Clone, Default, serde::Deserialize, serde::Serialize)]
@@ -143,6 +146,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
             wal_dir: args.storage_root.join("wal"),
             snapshot_dir: args.storage_root.join("snapshot"),
             fsync_interval: 0,
+            log_cache_size: PERF_LOG_CACHE_SIZE,
             ..WalStorageConfig::default()
         },
         args.node_id,
@@ -154,8 +158,9 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
             node_id: args.node_id,
             election_timeout_ms: 2_000,
             heartbeat_interval_ms: 250,
+            max_batch_size: 256,
             snapshot_threshold: args.snapshot_threshold,
-            max_in_snapshot_log_to_keep: args.snapshot_threshold,
+            max_in_snapshot_log_to_keep: (args.snapshot_threshold / 4).max(1),
             ..RaftConfig::default()
         },
     ));
@@ -174,7 +179,13 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
 
     let pump = spawn_pump(Arc::clone(&runtime)).await?;
     let ticker = spawn_ticker(Arc::clone(&runtime));
-    let sampler = spawn_sampler(Arc::clone(&runtime), args.metrics_path);
+    let sampler = args.resource_audit.then(|| {
+        spawn_sampler(
+            Arc::clone(&runtime),
+            args.metrics_path,
+            args.metrics_interval_ms.max(1),
+        )
+    });
     let listener = TcpListener::bind(args.control_bind).await?;
     let mut shutdown_rx = runtime.shutdown.subscribe();
     loop {
@@ -190,7 +201,9 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
     runtime.backend.close().await?;
     pump.abort();
     ticker.abort();
-    sampler.abort();
+    if let Some(sampler) = sampler {
+        sampler.abort();
+    }
     Ok(())
 }
 
@@ -325,7 +338,11 @@ fn spawn_ticker(runtime: Arc<Runtime>) -> tokio::task::JoinHandle<()> {
     })
 }
 
-fn spawn_sampler(runtime: Arc<Runtime>, path: PathBuf) -> tokio::task::JoinHandle<()> {
+fn spawn_sampler(
+    runtime: Arc<Runtime>,
+    path: PathBuf,
+    interval_ms: u64,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut file = match tokio::fs::OpenOptions::new()
             .create(true)
@@ -338,7 +355,7 @@ fn spawn_sampler(runtime: Arc<Runtime>, path: PathBuf) -> tokio::task::JoinHandl
         };
         // Keep enough samples inside every 60 s measurement window even when
         // one scheduler tick is delayed by the phase telemetry probes.
-        let mut interval = tokio::time::interval(Duration::from_millis(250));
+        let mut interval = tokio::time::interval(Duration::from_millis(interval_ms));
         loop {
             interval.tick().await;
             let metric = collect_metrics(&runtime).await;

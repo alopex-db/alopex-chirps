@@ -23,6 +23,7 @@ pub struct LoadgenArgs {
     pub warmup_seconds: u64,
     pub measure_seconds: u64,
     pub drain_seconds: u64,
+    pub resource_audit: bool,
 }
 
 #[derive(Default)]
@@ -48,17 +49,21 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
     let drain_end = measure_end + args.drain_seconds * 1_000_000_000;
     wait_until(args.start_at_ns).await;
     let counters = Arc::new(Mutex::new(Counters::default()));
-    let peak_rss_bytes = Arc::new(AtomicU64::new(current_rss_bytes()));
+    let peak_rss_bytes = Arc::new(AtomicU64::new(if args.resource_audit {
+        current_rss_bytes()
+    } else {
+        0
+    }));
     let rss_warmup_peak_bytes = Arc::new(AtomicU64::new(0));
     let rss_measure_peak_bytes = Arc::new(AtomicU64::new(0));
     let rss_drain_peak_bytes = Arc::new(AtomicU64::new(0));
     let rss_start_bytes = peak_rss_bytes.load(Ordering::Relaxed);
-    let rss_sampler = {
+    let rss_sampler = if args.resource_audit {
         let peak_rss_bytes = Arc::clone(&peak_rss_bytes);
         let rss_warmup_peak_bytes = Arc::clone(&rss_warmup_peak_bytes);
         let rss_measure_peak_bytes = Arc::clone(&rss_measure_peak_bytes);
         let rss_drain_peak_bytes = Arc::clone(&rss_drain_peak_bytes);
-        tokio::spawn(async move {
+        Some(tokio::spawn(async move {
             loop {
                 let rss = current_rss_bytes();
                 peak_rss_bytes.fetch_max(rss, Ordering::Relaxed);
@@ -78,7 +83,9 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
                 }
                 sleep(Duration::from_millis(100)).await;
             }
-        })
+        }))
+    } else {
+        None
     };
     let mut tasks = Vec::with_capacity(100);
     for client_index in 0..100u64 {
@@ -127,7 +134,9 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
         task.await?;
     }
     wait_until(drain_end).await;
-    rss_sampler.await?;
+    if let Some(sampler) = rss_sampler {
+        sampler.await?;
+    }
     let counters = Arc::try_unwrap(counters)
         .map_err(|_| anyhow::anyhow!("loadgen counters still shared"))?
         .into_inner();
