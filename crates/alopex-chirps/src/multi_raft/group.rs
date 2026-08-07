@@ -16,6 +16,7 @@ pub struct GroupHandle {
     node: Arc<RaftNode>,
     lifecycle: GroupLifecycle,
     proposal_gate: Semaphore,
+    tick_gate: Arc<Semaphore>,
 }
 
 impl GroupHandle {
@@ -27,6 +28,7 @@ impl GroupHandle {
             // Bound client_write concurrency per group so proposal floods do
             // not starve OpenRaft heartbeats/elections on the same runtime.
             proposal_gate: Semaphore::new(8),
+            tick_gate: Arc::new(Semaphore::new(1)),
         }
     }
 
@@ -175,6 +177,17 @@ impl GroupHandle {
                 group_id: self.group_id,
                 reason: error.to_string(),
             })
+    }
+
+    pub(crate) fn spawn_tick(self: &Arc<Self>) {
+        let Ok(permit) = Arc::clone(&self.tick_gate).try_acquire_owned() else {
+            return;
+        };
+        let group = Arc::clone(self);
+        tokio::spawn(async move {
+            let _permit = permit;
+            let _ = group.tick().await;
+        });
     }
 
     pub async fn shutdown(&self) -> Result<(), MultiRaftError> {

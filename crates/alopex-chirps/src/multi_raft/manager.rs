@@ -428,6 +428,15 @@ where
         results
     }
 
+    /// Triggers one independent heartbeat task per group without making a
+    /// slow group stall heartbeats for unrelated groups. A per-group gate
+    /// suppresses overlapping ticks while preserving bounded task count.
+    pub fn tick_all_background(&self) {
+        for group in self.groups_read().values() {
+            group.spawn_tick();
+        }
+    }
+
     pub async fn shutdown_all(&self) -> Result<(), MultiRaftError> {
         for group_id in self.list_groups() {
             self.remove_group(group_id).await?;

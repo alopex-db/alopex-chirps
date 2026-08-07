@@ -776,3 +776,96 @@ async fn three_voters_survive_baseline_level_single_group_concurrency() {
     }));
     cluster.shutdown().await;
 }
+
+#[tokio::test]
+async fn concurrent_multi_group_proposals_do_not_starve_each_other() {
+    let cluster = TestCluster::new(GroupId(20)).await;
+    let mut groups = Vec::new();
+    for raw_group_id in 20..23 {
+        let group_id = GroupId(raw_group_id);
+        cluster.managers[&1]
+            .create_group(group_id, BTreeSet::from([1]), EchoStateMachine::default())
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(3), async {
+            loop {
+                if cluster.managers[&1]
+                    .get_group(group_id)
+                    .unwrap()
+                    .metrics()
+                    .current_leader
+                    == Some(1)
+                {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("each concurrent seed must become leader");
+        for node_id in [2, 3] {
+            cluster.managers[&node_id]
+                .create_group_uninitialized(group_id, EchoStateMachine::default())
+                .await
+                .unwrap();
+            cluster.managers[&1]
+                .get_group(group_id)
+                .unwrap()
+                .add_learner(
+                    node_id,
+                    openraft::BasicNode {
+                        addr: format!("node-{node_id}"),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        cluster.managers[&1]
+            .get_group(group_id)
+            .unwrap()
+            .change_membership(BTreeSet::from([1, 2, 3]))
+            .await
+            .unwrap();
+        groups.push([
+            cluster.managers[&1].get_group(group_id).unwrap(),
+            cluster.managers[&2].get_group(group_id).unwrap(),
+            cluster.managers[&3].get_group(group_id).unwrap(),
+        ]);
+    }
+
+    let proposals = groups
+        .into_iter()
+        .enumerate()
+        .flat_map(|(group_index, replicas)| {
+            (0..3).map(move |proposal_index| {
+                let replicas = replicas.clone();
+                tokio::spawn(async move {
+                    let command =
+                        format!("multi-group-{group_index}-{proposal_index}").into_bytes();
+                    let deadline = Instant::now() + Duration::from_secs(3);
+                    loop {
+                        let mut last_error = None;
+                        for target in &replicas {
+                            match target.propose(command.clone()).await {
+                                Ok(_) => return Ok(()),
+                                Err(error) => last_error = Some(error),
+                            }
+                        }
+                        if Instant::now() < deadline {
+                            sleep(Duration::from_millis(10)).await;
+                        } else {
+                            break Err(last_error.expect("at least one replica must be present"));
+                        }
+                    }
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    for proposal in proposals {
+        proposal
+            .await
+            .expect("multi-group proposal task must join")
+            .expect("multi-group proposal must eventually commit");
+    }
+    cluster.shutdown().await;
+}

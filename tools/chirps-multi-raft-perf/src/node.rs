@@ -416,7 +416,7 @@ async fn dispatch_raft_frame(runtime: &Runtime, source: NodeId, frame: Frame) {
 fn spawn_ticker(runtime: Arc<Runtime>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            let _ = runtime.manager.tick_all().await;
+            runtime.manager.tick_all_background();
             sleep(Duration::from_millis(250)).await;
         }
     })
