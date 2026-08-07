@@ -52,3 +52,8 @@ the current metrics do not identify which of those components owns the bytes.
 
 The result is not release-ready: throughput is far below the TiKV-aligned
 measurement target and every controlled profile contains loadgen timeouts.
+
+The per-node raw stream was reduced to the auditable peak table
+`node-metrics-summary.tsv` after extraction; the full run remains reproducible
+from the recorded revision and runner configuration without committing
+145,000 lines of repetitive samples.
