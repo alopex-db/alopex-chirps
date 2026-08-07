@@ -26,27 +26,17 @@ pub async fn bootstrap(nodes: &[SocketAddr; 3], groups: u64) -> anyhow::Result<(
     anyhow::ensure!((1..=100).contains(&groups), "groups must be 1..=100");
     wait_healthy(nodes).await?;
     for group_id in 1..=groups {
-        expect_ok(call(nodes[0], Request::CreateSeed { group_id }).await?)?;
-        expect_ok(call(nodes[1], Request::CreateUninitialized { group_id }).await?)?;
+        let owner_index = bootstrap_owner(group_id);
+        let owner = nodes[owner_index];
+        expect_ok(call(owner, Request::CreateSeed { group_id }).await?)?;
+        let follower_ids = (1..=3u64).filter(|node_id| *node_id != (owner_index + 1) as u64);
+        for node_id in follower_ids {
+            let follower = nodes[(node_id - 1) as usize];
+            expect_ok(call(follower, Request::CreateUninitialized { group_id }).await?)?;
+            retry_membership(owner, Request::AddLearner { group_id, node_id }).await?;
+        }
         retry_membership(
-            nodes[0],
-            Request::AddLearner {
-                group_id,
-                node_id: 2,
-            },
-        )
-        .await?;
-        expect_ok(call(nodes[2], Request::CreateUninitialized { group_id }).await?)?;
-        retry_membership(
-            nodes[0],
-            Request::AddLearner {
-                group_id,
-                node_id: 3,
-            },
-        )
-        .await?;
-        retry_membership(
-            nodes[0],
+            owner,
             Request::Promote {
                 group_id,
                 voters: vec![1, 2, 3],
@@ -56,6 +46,10 @@ pub async fn bootstrap(nodes: &[SocketAddr; 3], groups: u64) -> anyhow::Result<(
         wait_group_ready(nodes, group_id).await?;
     }
     Ok(())
+}
+
+fn bootstrap_owner(group_id: u64) -> usize {
+    ((group_id - 1) % 3) as usize
 }
 
 async fn wait_group_ready(nodes: &[SocketAddr; 3], group_id: u64) -> anyhow::Result<()> {
@@ -194,7 +188,7 @@ fn percentile(values: &[u64], percentile: f64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::group_is_ready;
+    use super::{bootstrap_owner, group_is_ready};
     use crate::schema::ReplicaState;
 
     fn state(node_id: u64, leader_id: u64, last_applied: u64, digest: &str) -> ReplicaState {
@@ -222,5 +216,11 @@ mod tests {
             state(3, 0, 0, ""),
         ];
         assert!(!group_is_ready(&lagging));
+    }
+
+    #[test]
+    fn bootstrap_owner_round_robins_groups_across_three_nodes() {
+        let owners = (1..=6).map(bootstrap_owner).collect::<Vec<_>>();
+        assert_eq!(owners, vec![0, 1, 2, 0, 1, 2]);
     }
 }
