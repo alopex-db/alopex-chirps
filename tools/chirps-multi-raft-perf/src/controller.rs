@@ -5,6 +5,12 @@ use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
 
+// Bootstrap is intentionally sequential so learner catch-up and promotion are
+// observable per group. On a constrained container host, the final groups can
+// spend longer than the proposal lane's 30 s default waiting for WAL fsync and
+// Raft heartbeats; this timeout is harness readiness, not a performance gate.
+const GROUP_READY_TIMEOUT: Duration = Duration::from_secs(120);
+
 pub async fn wait_healthy(nodes: &[SocketAddr; 3]) -> anyhow::Result<()> {
     timeout(Duration::from_secs(30), async {
         loop {
@@ -53,7 +59,7 @@ fn bootstrap_owner(group_id: u64) -> usize {
 }
 
 async fn wait_group_ready(nodes: &[SocketAddr; 3], group_id: u64) -> anyhow::Result<()> {
-    timeout(Duration::from_secs(30), async {
+    timeout(GROUP_READY_TIMEOUT, async {
         loop {
             let mut states = Vec::with_capacity(nodes.len());
             for address in nodes {
