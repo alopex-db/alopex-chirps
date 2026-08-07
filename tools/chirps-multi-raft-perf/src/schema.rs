@@ -285,6 +285,8 @@ pub struct LoadgenReport {
     pub per_group_committed: BTreeMap<u64, u64>,
     /// Exact latency histogram: key is integer microseconds, value is count.
     pub latency_us: BTreeMap<u64, u64>,
+    #[serde(default)]
+    pub peak_rss_bytes: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

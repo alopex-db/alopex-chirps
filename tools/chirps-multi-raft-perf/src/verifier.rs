@@ -1391,6 +1391,7 @@ mod tests {
                     timeouts: 0,
                     per_group_committed,
                     latency_us: BTreeMap::from([(1_000, origin_committed)]),
+                    peak_rss_bytes: 1024,
                 };
                 add_raw(
                     root,

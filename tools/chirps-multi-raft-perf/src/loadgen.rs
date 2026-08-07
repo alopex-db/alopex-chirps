@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
@@ -47,6 +48,20 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
     let drain_end = measure_end + args.drain_seconds * 1_000_000_000;
     wait_until(args.start_at_ns).await;
     let counters = Arc::new(Mutex::new(Counters::default()));
+    let peak_rss_bytes = Arc::new(AtomicU64::new(current_rss_bytes()));
+    let rss_sampler = {
+        let peak_rss_bytes = Arc::clone(&peak_rss_bytes);
+        tokio::spawn(async move {
+            loop {
+                let rss = current_rss_bytes();
+                peak_rss_bytes.fetch_max(rss, Ordering::Relaxed);
+                if monotonic_ns() >= drain_end {
+                    break;
+                }
+                sleep(Duration::from_millis(100)).await;
+            }
+        })
+    };
     let mut tasks = Vec::with_capacity(100);
     for client_index in 0..100u64 {
         let counters = Arc::clone(&counters);
@@ -94,6 +109,7 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
         task.await?;
     }
     wait_until(drain_end).await;
+    rss_sampler.await?;
     let counters = Arc::try_unwrap(counters)
         .map_err(|_| anyhow::anyhow!("loadgen counters still shared"))?
         .into_inner();
@@ -110,9 +126,22 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
         timeouts: counters.timeouts,
         per_group_committed: counters.per_group,
         latency_us: counters.latency_us,
+        peak_rss_bytes: peak_rss_bytes.load(Ordering::Relaxed),
     };
     write_json_atomic(&args.output, &report)?;
     Ok(())
+}
+
+fn current_rss_bytes() -> u64 {
+    let Ok(status) = std::fs::read_to_string("/proc/self/status") else {
+        return 0;
+    };
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:")?.split_whitespace().next())
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(|kib| kib.saturating_mul(1024))
+        .unwrap_or(0)
 }
 
 async fn wait_until(deadline: u64) {
