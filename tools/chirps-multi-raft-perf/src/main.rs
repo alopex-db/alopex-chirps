@@ -52,7 +52,7 @@ fn parse_node(args: &[String]) -> anyhow::Result<NodeArgs> {
         trusted_certificate: required(args, "--trust")?.into(),
         metrics_path: required(args, "--metrics")?.into(),
         send_queue_capacity: option(args, "--send-queue-capacity")
-            .unwrap_or("65536")
+            .unwrap_or("4096")
             .parse()?,
         snapshot_threshold: option(args, "--snapshot-threshold")
             .unwrap_or("1000000000")

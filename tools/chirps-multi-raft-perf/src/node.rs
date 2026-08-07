@@ -26,6 +26,7 @@ use tokio::sync::{Mutex, Semaphore, broadcast, mpsc, oneshot};
 use tokio::time::{sleep, timeout};
 
 const PROBE_MAGIC: &[u8; 8] = b"MRPROBE1";
+const GROUP_QUEUE_CAPACITY: usize = 32;
 
 #[derive(Clone, Debug)]
 pub struct NodeArgs {
@@ -214,7 +215,7 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                     };
                     let send_result = {
                         let runtime = Arc::clone(&runtime);
-                        group_queues
+                        let sender = group_queues
                             .entry(group_id)
                             .or_insert_with(|| {
                                 spawn_fifo_queue(move |(source, frame)| {
@@ -224,7 +225,8 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                                     }
                                 })
                             })
-                            .send((source, frame))
+                            .clone();
+                        sender.send((source, frame)).await
                     };
                     if send_result.is_err() {
                         eprintln!(
@@ -240,13 +242,13 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
     }))
 }
 
-fn spawn_fifo_queue<T, H, Fut>(mut handler: H) -> mpsc::UnboundedSender<T>
+fn spawn_fifo_queue<T, H, Fut>(mut handler: H) -> mpsc::Sender<T>
 where
     T: Send + 'static,
     H: FnMut(T) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
-    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let (sender, mut receiver) = mpsc::channel(GROUP_QUEUE_CAPACITY);
     tokio::spawn(async move {
         while let Some(item) = receiver.recv().await {
             handler(item).await;
@@ -685,9 +687,9 @@ mod tests {
             }
         });
 
-        queue.send(1).unwrap();
-        queue.send(2).unwrap();
-        queue.send(3).unwrap();
+        queue.send(1).await.unwrap();
+        queue.send(2).await.unwrap();
+        queue.send(3).await.unwrap();
 
         assert_eq!(observed_rx.recv().await, Some(1));
         assert_eq!(observed_rx.recv().await, Some(2));
@@ -707,8 +709,8 @@ mod tests {
             }
         });
 
-        slow.send(()).unwrap();
-        fast.send(7).unwrap();
+        slow.send(()).await.unwrap();
+        fast.send(7).await.unwrap();
 
         assert_eq!(
             timeout(Duration::from_millis(50), fast_rx.recv())
@@ -716,6 +718,35 @@ mod tests {
                 .unwrap(),
             Some(7)
         );
+    }
+
+    #[tokio::test]
+    async fn group_queue_is_bounded_instead_of_accumulating_unbounded_frames() {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let started = Arc::new(tokio::sync::Notify::new());
+        let queue = spawn_fifo_queue({
+            let gate = Arc::clone(&gate);
+            let started = Arc::clone(&started);
+            move |_| {
+                let gate = Arc::clone(&gate);
+                let started = Arc::clone(&started);
+                async move {
+                    started.notify_one();
+                    gate.notified().await;
+                }
+            }
+        });
+
+        queue.send(0u8).await.unwrap();
+        started.notified().await;
+        for value in 1..=GROUP_QUEUE_CAPACITY {
+            queue.try_send(value as u8).unwrap();
+        }
+        assert!(
+            queue.try_send(255).is_err(),
+            "queue must apply backpressure"
+        );
+        gate.notify_waiters();
     }
 
     #[test]

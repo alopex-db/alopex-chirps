@@ -202,7 +202,7 @@ fn verify_config(config: &ResolvedConfig) -> anyhow::Result<()> {
         "snapshot threshold mismatch"
     );
     ensure!(
-        config.send_queue_capacity == 65_536,
+        config.send_queue_capacity == 4_096,
         "send queue capacity mismatch"
     );
     Ok(())
@@ -1489,7 +1489,7 @@ mod tests {
                 samples: 5,
                 fsync_interval: 0,
                 snapshot_threshold: 1_000_000_000,
-                send_queue_capacity: 65_536,
+                send_queue_capacity: 4_096,
             },
             samples,
             per_group,

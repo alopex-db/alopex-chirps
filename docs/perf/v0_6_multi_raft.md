@@ -31,6 +31,10 @@ claim. v0.5.2 FileTransfer evidence is unrelated and must not be reused.
   flood can starve heartbeats and cause leader churn. The regression is covered
   by `three_voters_survive_baseline_level_single_group_concurrency` before any
   controlled performance run.
+- The controlled harness uses a bounded 32-frame dispatch FIFO per group and a
+  4,096-entry QUIC send queue. The previous 65,536-entry default had a
+  theoretical multi-gigabyte envelope at the 64 KiB frame limit and was not a
+  defensible memory-bounded performance configuration.
 
 The runner bootstraps each group on node 1 and joins nodes 2 and 3 sequentially
 as learners before promoting the common voter set. Initializing three
@@ -164,7 +168,7 @@ The release artifact path is
   "binary_sha256": "64-hex",
   "runner_command": ["argv", "without", "shell-expansion"],
   "execution_environment": {"class": "container", "host_count": 1, "logical_nodes": 3, "process_or_container_ids": ["..."], "node_cpu_sets": {"1": "0", "2": "2", "3": "4"}, "loadgen_cpu_sets": {"1": "1", "2": "3", "3": "5"}, "cpu": "...", "cores": 0, "ram_bytes": 0, "kernel": "...", "rust_version": "...", "storage": "...", "filesystem": "tmpfs", "network_shaper": "...", "governor": "...", "physical_deployment": false, "swap_bytes_before": 0, "swap_bytes_after": 0},
-  "resolved_config": {"nodes": 3, "groups": 100, "payload_bytes": 1024, "rtt_ms": 1.0, "clients": 300, "clients_per_node": 100, "warmup_seconds": 15, "measure_seconds": 60, "drain_seconds": 5, "samples": 5, "fsync_interval": 0, "snapshot_threshold": 1000000000, "send_queue_capacity": 65536},
+  "resolved_config": {"nodes": 3, "groups": 100, "payload_bytes": 1024, "rtt_ms": 1.0, "clients": 300, "clients_per_node": 100, "warmup_seconds": 15, "measure_seconds": 60, "drain_seconds": 5, "samples": 5, "fsync_interval": 0, "snapshot_threshold": 1000000000, "send_queue_capacity": 4096},
   "samples": [{"mode": "multi_raft", "index": 0, "group_count": 100, "clients": 300, "process_or_container_ids": ["..."], "actual_measure_duration_ms": 60000, "monotonic_start_ns": 0, "monotonic_end_ns": 0, "network_rtt_ms": [{"source": 1, "destination": 2, "unloaded": {"p50": 0.0, "p95": 0.0}, "shaped": {"p50": 0.0, "p95": 0.0}}], "group_membership_after_drain": [{"group_id": 1, "replicas": [{"node_id": 1, "voters": [1, 2, 3], "leader_id": 1, "last_applied": 0, "committed_digest": "64-hex"}]}], "committed": 0, "throughput_per_sec": 0.0, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}, "errors": 0, "timeouts": 0, "cpu_seconds": 0.0, "peak_rss_bytes": 0, "disk_bytes": 0, "fsync_calls": 0, "network_bytes": 0, "oom_killed": false, "process_restarted": false, "shaper_mismatch": false}],
   "per_group": [{"mode": "multi_raft", "sample_index": 0, "group_id": 1, "committed": 0, "throughput_per_sec": 0.0}],
   "raw_metrics_artifacts": [{"kind": "node_metrics_jsonl", "path": "relative/path", "sha256": "64-hex"}],
