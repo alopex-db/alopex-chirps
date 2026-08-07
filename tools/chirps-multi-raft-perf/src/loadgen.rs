@@ -31,6 +31,8 @@ struct Counters {
     committed: u64,
     errors: u64,
     timeouts: u64,
+    server_errors: u64,
+    transport_errors: u64,
     per_group: BTreeMap<u64, u64>,
     latency_us: BTreeMap<u64, u64>,
 }
@@ -123,7 +125,14 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
                                 .or_default() += 1;
                         }
                         Err(AttemptFailure::Timeout) => counters.timeouts += 1,
-                        Err(AttemptFailure::Error) => counters.errors += 1,
+                        Err(AttemptFailure::ServerError) => {
+                            counters.errors += 1;
+                            counters.server_errors += 1;
+                        }
+                        Err(AttemptFailure::TransportError) => {
+                            counters.errors += 1;
+                            counters.transport_errors += 1;
+                        }
                         Ok(()) => {}
                     }
                 }
@@ -151,6 +160,8 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
         committed: counters.committed,
         errors: counters.errors,
         timeouts: counters.timeouts,
+        server_errors: counters.server_errors,
+        transport_errors: counters.transport_errors,
         per_group_committed: counters.per_group,
         latency_us: counters.latency_us,
         peak_rss_bytes: peak_rss_bytes.load(Ordering::Relaxed),
@@ -213,7 +224,8 @@ struct ClientSession {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AttemptFailure {
     Timeout,
-    Error,
+    ServerError,
+    TransportError,
 }
 
 impl ClientSession {
@@ -227,15 +239,11 @@ impl ClientSession {
     }
 
     async fn propose(&mut self, payload: Vec<u8>, deadline: u64) -> Result<(), AttemptFailure> {
-        let mut observed_error = false;
+        let mut observed_failure = None;
         loop {
             let now = monotonic_ns();
             if now >= deadline {
-                return Err(if observed_error {
-                    AttemptFailure::Error
-                } else {
-                    AttemptFailure::Timeout
-                });
+                return Err(observed_failure.unwrap_or(AttemptFailure::Timeout));
             }
             if self.stream.is_none() && self.connect(deadline).await.is_err() {
                 sleep(Duration::from_millis(1)).await;
@@ -258,8 +266,16 @@ impl ClientSession {
             };
             match timeout(remaining, operation).await {
                 Ok(Ok(Response::Proposal(response))) if response == payload => return Ok(()),
-                Ok(Ok(Response::Error(_))) | Ok(Ok(_)) | Ok(Err(_)) => {
-                    observed_error = true;
+                Ok(Ok(Response::Error(_))) => {
+                    observed_failure = Some(AttemptFailure::ServerError);
+                    self.stream = None;
+                    if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await
+                    {
+                        self.leader = leader;
+                    }
+                }
+                Ok(Ok(_)) | Ok(Err(_)) => {
+                    observed_failure = Some(AttemptFailure::TransportError);
                     self.stream = None;
                     if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await
                     {

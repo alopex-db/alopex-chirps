@@ -111,6 +111,10 @@ pub struct Sample {
     pub latency_ms: Latency,
     pub errors: u64,
     pub timeouts: u64,
+    #[serde(default)]
+    pub server_errors: u64,
+    #[serde(default)]
+    pub transport_errors: u64,
     pub cpu_seconds: f64,
     pub peak_rss_bytes: u64,
     pub disk_bytes: u64,
@@ -299,6 +303,10 @@ pub struct LoadgenReport {
     pub committed: u64,
     pub errors: u64,
     pub timeouts: u64,
+    #[serde(default)]
+    pub server_errors: u64,
+    #[serde(default)]
+    pub transport_errors: u64,
     pub per_group_committed: BTreeMap<u64, u64>,
     /// Exact latency histogram: key is integer microseconds, value is count.
     pub latency_us: BTreeMap<u64, u64>,

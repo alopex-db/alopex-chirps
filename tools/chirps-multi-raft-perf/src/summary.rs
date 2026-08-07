@@ -49,6 +49,8 @@ pub fn summarize(observation: SampleObservation, base: &Path) -> anyhow::Result<
     let committed = reports.iter().map(|report| report.committed).sum::<u64>();
     let errors = reports.iter().map(|report| report.errors).sum();
     let timeouts = reports.iter().map(|report| report.timeouts).sum();
+    let server_errors = reports.iter().map(|report| report.server_errors).sum();
+    let transport_errors = reports.iter().map(|report| report.transport_errors).sum();
     let mut per_group_counts = BTreeMap::new();
     let mut histogram = BTreeMap::new();
     for report in &reports {
@@ -112,6 +114,8 @@ pub fn summarize(observation: SampleObservation, base: &Path) -> anyhow::Result<
             },
             errors,
             timeouts,
+            server_errors,
+            transport_errors,
             cpu_seconds,
             peak_rss_bytes,
             disk_bytes,
