@@ -120,6 +120,7 @@ struct Runtime {
     dispatch_depth: Mutex<BTreeMap<u64, Arc<AtomicU64>>>,
     probes: Mutex<HashMap<u64, PendingProbe>>,
     next_probe: AtomicU64,
+    response_send_slots: Arc<Semaphore>,
     shutdown: broadcast::Sender<()>,
 }
 
@@ -176,6 +177,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
         dispatch_depth: Mutex::new(BTreeMap::new()),
         probes: Mutex::new(HashMap::new()),
         next_probe: AtomicU64::new(1),
+        response_send_slots: Arc::new(Semaphore::new(4096)),
         shutdown,
     });
 
@@ -416,13 +418,26 @@ async fn dispatch_raft_frame(runtime: &Runtime, source: NodeId, frame: Frame) {
         .await
     {
         Ok(Some(response)) => {
-            if let Err(error) = runtime.manager.send_routed_response(response).await {
+            let Ok(slot) = Arc::clone(&runtime.response_send_slots).try_acquire_owned() else {
                 eprintln!(
-                    "node {} failed to send routed Raft response to {}: {error}",
+                    "node {} dropped routed Raft response to {}: response send budget exhausted",
                     runtime.node_id,
                     decode_node_id(source)
                 );
-            }
+                return;
+            };
+            let manager = Arc::clone(&runtime.manager);
+            let node_id = runtime.node_id;
+            tokio::spawn(async move {
+                let _slot = slot;
+                if let Err(error) = manager.send_routed_response(response).await {
+                    eprintln!(
+                        "node {} failed to send routed Raft response to {}: {error}",
+                        node_id,
+                        decode_node_id(source)
+                    );
+                }
+            });
         }
         Ok(None) => {}
         Err(error) => eprintln!(
