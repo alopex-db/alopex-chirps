@@ -198,7 +198,7 @@ raw_set_digest="$(controller raw-set-digest --input /evidence/raw-artifacts.json
 
 jq -s '[.[].sample]' "$output/summaries.ndjson" >"$output/samples.json"
 jq -s '[.[].per_group[]]' "$output/summaries.ndjson" >"$output/per-group.json"
-mapfile -t all_ids < <(jq -r '.process_or_container_ids[]' "$output/samples.json" | LC_ALL=C sort -u)
+mapfile -t all_ids < <(jq -r '.[] | .process_or_container_ids[]' "$output/samples.json" | LC_ALL=C sort -u)
 ids_json="$(printf '%s\n' "${all_ids[@]}" | jq -R . | jq -s .)"
 cpu_model="$(lscpu | awk -F: '/Model name/{sub(/^[[:space:]]+/,"",$2);print $2;exit}')"
 cores="$(getconf _NPROCESSORS_ONLN)"
