@@ -58,3 +58,20 @@ single-group samples; its median was 324.45/s. The full per-node metrics for the
 high-RSS samples are preserved in the sibling `harness-bounded-2026-08-07`
 evidence directory. The harness is therefore materially safer but not yet
 validated as a non-interfering performance instrument.
+
+## Queue and load-generator RSS audit
+
+Revision `2011052` added explicit dispatch/retransmit/transport counters and a
+100 ms sampler for each loadgen process. In the fixed 10-sample run, loadgen
+peak RSS was 4.6–5.4 MiB per process (5.17 MiB maximum), whereas node RSS
+reached 1.86 GiB. Retransmission buffer/count, queue overflow, and backpressure
+were zero in all emitted node samples. Several high-RSS nodes had dispatch
+depth only 7–13; the largest observed depth (1,268) occurred on a separate
+1.43 GiB node. This rules out the loadgen and the currently measured queues as
+the dominant remaining RSS consumer, without proving whether the bytes are
+OpenRaft pending state, WAL/log cache, snapshots, or allocator retention.
+
+Complete diagnostic evidence is in
+`../queue-metrics-2026-08-07/RESULT.md`. The run's Multi-Raft median was
+373.13/s and every fixed profile still contained timeouts, so release remains
+blocked.
