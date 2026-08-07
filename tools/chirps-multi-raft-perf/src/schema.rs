@@ -255,6 +255,10 @@ pub struct RawMetricsLine {
     pub transport_dropped: u64,
     pub transport_retried: u64,
     pub per_group_queue_depth: BTreeMap<u64, u64>,
+    /// Proposal RPCs admitted by the control-plane load generator; kept
+    /// separate from the Raft dispatch queue to avoid conflating diagnostics.
+    #[serde(default)]
+    pub proposal_inflight: BTreeMap<u64, u64>,
     #[serde(default)]
     pub dispatch_queue_depth: u64,
     #[serde(default)]
@@ -267,6 +271,15 @@ pub struct RawMetricsLine {
     pub queue_overflow_total: u64,
     #[serde(default)]
     pub backpressure_triggered_total: u64,
+    /// Optional diagnostics for the detachable routed-response sender.
+    #[serde(default)]
+    pub response_send_inflight: u64,
+    #[serde(default)]
+    pub response_send_max_inflight: u64,
+    #[serde(default)]
+    pub response_send_dropped: u64,
+    #[serde(default)]
+    pub response_send_failed: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

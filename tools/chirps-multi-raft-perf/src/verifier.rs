@@ -1341,12 +1341,17 @@ mod tests {
                         transport_dropped: 0,
                         transport_retried: 0,
                         per_group_queue_depth: groups.iter().map(|group| (*group, 0)).collect(),
+                        proposal_inflight: BTreeMap::new(),
                         dispatch_queue_depth: 0,
                         transport_queue_utilization: BTreeMap::new(),
                         retransmission_total: 0,
                         retransmission_buffer_bytes: 0,
                         queue_overflow_total: 0,
                         backpressure_triggered_total: 0,
+                        response_send_inflight: 0,
+                        response_send_max_inflight: 0,
+                        response_send_dropped: 0,
+                        response_send_failed: 0,
                     };
                     lines.push_str(&serde_json::to_string(&metric).unwrap());
                     lines.push('\n');
