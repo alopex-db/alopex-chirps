@@ -422,8 +422,10 @@ where
 
     fn insert_entry(&mut self, entry: Entry<ChirpsTypeConfig>) {
         let index = entry.log_id.index;
-        self.log_cache.insert(index, entry);
-        self.log_order.push_back(index);
+        let replaced = self.log_cache.insert(index, entry).is_some();
+        if !replaced {
+            self.log_order.push_back(index);
+        }
         while self.log_cache.len() > self.config.log_cache_size {
             if let Some(oldest) = self.log_order.pop_front() {
                 self.log_cache.remove(&oldest);
@@ -513,7 +515,12 @@ where
             };
             match frame {
                 WalFrame::Record(RaftWalRecord::AppendLog(entry)) => {
-                    entries.insert(entry.log_id.index, entry);
+                    // Keep the WAL fallback range-bounded. TiKV's Raft
+                    // Engine indexes log locations and reads only requested
+                    // entries; never materialize the complete WAL here.
+                    if range_contains(&range, entry.log_id.index) {
+                        entries.insert(entry.log_id.index, entry);
+                    }
                 }
                 WalFrame::Record(RaftWalRecord::Truncate(log_id)) => {
                     let idx = log_id.index;
@@ -784,6 +791,8 @@ where
     ) -> Result<(), StorageError<ChirpsNodeId>> {
         let path = snapshot_path(&self.config.snapshot_dir, self.group_id, meta);
         let data = snapshot.into_inner();
+        let snapshot_size = data.len() as u64;
+        let snapshot_digest: [u8; 32] = Sha256::digest(&data).into();
         let encoded =
             encode_snapshot_file(meta, &data, self.config.snapshot_chunk_size).map_err(|e| {
                 self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
@@ -793,8 +802,9 @@ where
         durably_replace(&path, &encoded).map_err(|e| {
             self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
         })?;
+        drop(encoded);
         self.state_machine
-            .restore(Box::new(Cursor::new(data.clone())))
+            .restore(Box::new(Cursor::new(data)))
             .await
             .map_err(|e| {
                 self.to_storage_io_error(e, ErrorSubject::StateMachine, ErrorVerb::Write)
@@ -817,8 +827,8 @@ where
                 group_id: self.group_id,
                 node_id: self.node_id,
                 snapshot_id: meta.snapshot_id.clone(),
-                size_bytes: data.len() as u64,
-                digest: Sha256::digest(&data).into(),
+                size_bytes: snapshot_size,
+                digest: snapshot_digest,
                 kind: SnapshotCompletionKind::Installed,
             });
         Ok(())
@@ -1415,6 +1425,39 @@ mod tests {
         let entries = storage.try_get_log_entries(1..=1).await.unwrap();
         assert_eq!(entries.len(), 1, "evicted log should be fetched from WAL");
         assert_eq!(entries[0].log_id.index, 1);
+    }
+
+    #[tokio::test]
+    async fn wal_range_read_does_not_materialize_unrequested_entries() {
+        let dir = tempdir().unwrap();
+        let mut cfg = base_config(dir.path());
+        cfg.log_cache_size = 0;
+        let mut storage = WalRaftStorage::new(cfg, GroupId(50), 50, MockStateMachine).unwrap();
+        storage
+            .append_for_test((1..=256).map(sample_entry).collect())
+            .await
+            .unwrap();
+
+        let entries = storage.read_entries_from_wal(200..=200).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].log_id.index, 200);
+    }
+
+    #[tokio::test]
+    async fn replacing_a_log_index_does_not_grow_cache_order() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let mut storage = WalRaftStorage::new(cfg, GroupId(51), 51, MockStateMachine).unwrap();
+        storage
+            .append_for_test(vec![sample_entry(1)])
+            .await
+            .unwrap();
+        storage
+            .append_for_test(vec![sample_entry(1)])
+            .await
+            .unwrap();
+        assert_eq!(storage.log_cache.len(), 1);
+        assert_eq!(storage.log_order.len(), 1);
     }
 
     #[tokio::test]
