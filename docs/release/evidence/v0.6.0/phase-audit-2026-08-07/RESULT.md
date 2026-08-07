@@ -12,9 +12,9 @@ has exactly 13 records:
 `summary-complete`, `sample-end`.
 
 This is 130/130 phase records. Each record includes runner RSS/CPU and Docker
-node memory/CPU snapshots. Loadgen reports additionally include RSS for
-`warmup`, `measure`, and `drain`; all 30 loadgen reports contain all four
-phase values.
+node memory/CPU snapshots. The 30 loadgen reports were reduced to
+`loadgen-phase-summary.tsv`; every row contains RSS for `warmup`, `measure`,
+and `drain`, plus commit/error/timeout counters.
 
 Node metrics were sampled every 250 ms. The measurement-window counts are
 239–240 per node per sample (the old 1-second interval produced an occasional
@@ -47,4 +47,6 @@ container measurement.
 The run still fails the existing timeout verifier. The result is diagnostic
 evidence only and does not support release. The full per-node measurement
 summary is in `node-measurement-summary.tsv`; the complete phase boundary
-stream and all loadgen reports are retained beside this file.
+stream and lossless phase/counter summary are retained beside this file.
+Latency histograms and membership digests remain in the original runner output
+under `/tmp` only and are not used for this resource verdict.
