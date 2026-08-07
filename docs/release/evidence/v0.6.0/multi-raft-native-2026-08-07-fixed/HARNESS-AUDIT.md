@@ -117,6 +117,10 @@ removed without changing proposal, transport, WAL, or snapshot behavior.
 
 This is a release constraint: numbers without `--resource-audit` represent the
 normal harness path, while phase/RSS evidence must record the audit flag. The
-detachability UT/build gate passed (`chirps-multi-raft-perf`: 14/14). The
-post-retention full three-node run is still required for the final performance
-verdict.
+detachability UT/build gate passed (`chirps-multi-raft-perf`: 14/14).
+
+The post-retention run at revision `389bd32` completed all 10 fixed-order
+samples with 130/130 phase records, but Multi-Raft rates were 375.92, 0, 0,
+687.75, and 0/s (median 0/s), with 11,402 timeouts and 2,015 errors. The
+existing gate rejected the run, so retention tuning did not establish release
+readiness. See `../retention-tuning-detachable-2026-08-07/RESULT.md`.
