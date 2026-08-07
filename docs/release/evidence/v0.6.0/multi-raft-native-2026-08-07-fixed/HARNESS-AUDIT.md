@@ -75,3 +75,18 @@ Complete diagnostic evidence is in
 `../queue-metrics-2026-08-07/RESULT.md`. The run's Multi-Raft median was
 373.13/s and every fixed profile still contained timeouts, so release remains
 blocked.
+
+## Full phase and unit-level audit
+
+The first phase-instrumented run exposed a real observation gap: one node had
+59 one-second samples inside a 60-second window, so the existing verifier
+stopped. The gate was not weakened. Revision `b13fba2` changed node sampling to
+250 ms and reran the complete fixed order. It produced 130/130 phase boundary
+records (13 per sample), 239–240 node samples per 60-second window, and
+warmup/measure/drain RSS for all 30 loadgen reports. The UT suite expanded to
+14/14, including deterministic payload-budget and phase-boundary contracts.
+
+The rerun's Multi-Raft median was 296.72/s, with 13,493 timeouts and a maximum
+node RSS of 2.03 GiB. Loadgen remained at 5.03 MiB maximum. Evidence is in
+`../phase-audit-2026-08-07/RESULT.md`. This confirms measurement coverage, but
+not performance correctness or release readiness.

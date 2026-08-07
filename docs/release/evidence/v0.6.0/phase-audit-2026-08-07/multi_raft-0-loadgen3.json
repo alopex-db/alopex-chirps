@@ -1,0 +1,19 @@
+{
+  "mode": "multi_raft",
+  "sample_index": 0,
+  "origin_node": 3,
+  "clients": 100,
+  "payload_bytes": 1024,
+  "monotonic_start_ns": 14677554803420,
+  "monotonic_end_ns": 14737554803420,
+  "committed": 0,
+  "errors": 0,
+  "timeouts": 1200,
+  "per_group_committed": {},
+  "latency_us": {},
+  "peak_rss_bytes": 4984832,
+  "rss_start_bytes": 3989504,
+  "rss_warmup_peak_bytes": 4919296,
+  "rss_measure_peak_bytes": 4919296,
+  "rss_drain_peak_bytes": 4984832
+}
