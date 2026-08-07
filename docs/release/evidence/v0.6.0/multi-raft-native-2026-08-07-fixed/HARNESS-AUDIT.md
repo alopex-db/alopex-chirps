@@ -42,3 +42,19 @@ The harness unit suite is now 10/10 passing. This correction changes the
 measurement configuration, so the prior performance numbers must not be reused
 as evidence for the corrected profile. A new controlled run is required before
 any performance or release decision.
+
+## Bounded-profile rerun
+
+Revision `d7afda1` was measured with both corrections active. Peak RSS fell from
+`3,658,006,528 B` to `1,914,302,464 B` (about 47.7% lower), while
+single-group remained near 20 MiB. The remaining Multi-Raft RSS was concentrated
+on node 1: about 1.87 GiB in sample 0 and 1.42 GiB in sample 4, versus less than
+1 GiB on node 2 and less than 80 MiB on node 3. This is consistent with
+leader-side retention, but is not sufficient to distinguish OpenRaft pending
+proposals, WAL/log cache, retransmission, or allocator retention.
+
+The rerun still had timeouts in four of five Multi-Raft samples and all five
+single-group samples; its median was 324.45/s. The full per-node metrics for the
+high-RSS samples are preserved in the sibling `harness-bounded-2026-08-07`
+evidence directory. The harness is therefore materially safer but not yet
+validated as a non-interfering performance instrument.
