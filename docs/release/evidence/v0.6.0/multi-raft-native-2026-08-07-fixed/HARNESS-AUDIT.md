@@ -90,3 +90,17 @@ The rerun's Multi-Raft median was 296.72/s, with 13,493 timeouts and a maximum
 node RSS of 2.03 GiB. Loadgen remained at 5.03 MiB maximum. Evidence is in
 `../phase-audit-2026-08-07/RESULT.md`. This confirms measurement coverage, but
 not performance correctness or release readiness.
+
+## Node-side storage fix and remeasurement
+
+The code audit found that the WAL fallback built a `BTreeMap` of the entire
+WAL before applying the requested range. This was contrary to the bounded
+indexed-read approach used by TiKV Raft Engine. Revision `64f62b9` now filters
+entries while replaying, deduplicates cache-order indexes, and removes a full
+snapshot payload clone during install. New storage tests cover range-bounded
+reads and replacement-index cache order.
+
+The fixed full run improved Multi-Raft median from 296.72/s to 408.85/s and
+reduced maximum node RSS from 2.03 GiB to 1.76 GiB. Timeout failures remain,
+including a zero-commit sample, so the release gate stays BLOCKED. Detailed
+after-fix evidence is in `../wal-range-fix-2026-08-07/RESULT.md`.
