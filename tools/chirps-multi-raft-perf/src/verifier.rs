@@ -1352,6 +1352,8 @@ mod tests {
                         response_send_max_inflight: 0,
                         response_send_dropped: 0,
                         response_send_failed: 0,
+                        dispatch_budget_in_use_bytes: 0,
+                        dispatch_budget_waits: 0,
                     };
                     lines.push_str(&serde_json::to_string(&metric).unwrap());
                     lines.push('\n');

@@ -280,6 +280,10 @@ pub struct RawMetricsLine {
     pub response_send_dropped: u64,
     #[serde(default)]
     pub response_send_failed: u64,
+    #[serde(default)]
+    pub dispatch_budget_in_use_bytes: u64,
+    #[serde(default)]
+    pub dispatch_budget_waits: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -28,7 +28,7 @@ use tokio::time::{sleep, timeout};
 
 const PROBE_MAGIC: &[u8; 8] = b"MRPROBE1";
 const GROUP_QUEUE_CAPACITY: usize = 32;
-const DISPATCH_BACKLOG_BYTES: usize = 32 * 1024 * 1024;
+const DISPATCH_BACKLOG_BYTES: usize = 128 * 1024 * 1024;
 const DISPATCH_FRAME_OVERHEAD_BYTES: usize = 128;
 const RESPONSE_DISPATCH_CAPACITY: usize = 256;
 const RESPONSE_SEND_CONCURRENCY: usize = 64;
@@ -133,6 +133,8 @@ struct Runtime {
     next_probe: AtomicU64,
     response_send_slots: Arc<Semaphore>,
     response_send_audit: Arc<ResponseSendAudit>,
+    dispatch_budget: Arc<Semaphore>,
+    dispatch_budget_waits: AtomicU64,
     shutdown: broadcast::Sender<()>,
 }
 
@@ -191,6 +193,8 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
         next_probe: AtomicU64::new(1),
         response_send_slots: Arc::new(Semaphore::new(RESPONSE_SEND_CONCURRENCY)),
         response_send_audit: Arc::new(ResponseSendAudit::default()),
+        dispatch_budget: Arc::new(Semaphore::new(DISPATCH_BACKLOG_BYTES)),
+        dispatch_budget_waits: AtomicU64::new(0),
         shutdown,
     });
 
@@ -228,7 +232,7 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
     let mut incoming = runtime.backend.subscribe().await?;
     let probe_slots = Arc::new(Semaphore::new(1024));
     let response_slots = Arc::new(Semaphore::new(RESPONSE_DISPATCH_CAPACITY));
-    let dispatch_slots = Arc::new(Semaphore::new(DISPATCH_BACKLOG_BYTES));
+    let dispatch_slots = Arc::clone(&runtime.dispatch_budget);
     Ok(tokio::spawn(async move {
         let mut group_queues: BTreeMap<u64, GroupDispatchQueue> = BTreeMap::new();
         while let Some((source, frame)) = incoming.recv().await {
@@ -288,6 +292,9 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                         // The global admission bound is deliberately finite. When it is full,
                         // apply backpressure to the transport receive loop instead of allowing
                         // an unbounded per-group backlog to grow.
+                        runtime
+                            .dispatch_budget_waits
+                            .fetch_add(1, Ordering::Relaxed);
                         let Ok(slot) = Arc::clone(&dispatch_slots)
                             .acquire_many_owned(permits)
                             .await
@@ -824,6 +831,10 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
             .load(Ordering::Relaxed),
         response_send_dropped: runtime.response_send_audit.dropped.load(Ordering::Relaxed),
         response_send_failed: runtime.response_send_audit.failed.load(Ordering::Relaxed),
+        dispatch_budget_in_use_bytes: DISPATCH_BACKLOG_BYTES
+            .saturating_sub(runtime.dispatch_budget.available_permits())
+            as u64,
+        dispatch_budget_waits: runtime.dispatch_budget_waits.load(Ordering::Relaxed),
     }
 }
 
