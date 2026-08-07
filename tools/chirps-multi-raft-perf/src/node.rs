@@ -13,6 +13,7 @@ use alopex_chirps_wire::frame::{Frame, UserMessage};
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
+use std::collections::VecDeque;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Cursor;
 use std::net::SocketAddr;
@@ -27,6 +28,7 @@ use tokio::time::{sleep, timeout};
 
 const PROBE_MAGIC: &[u8; 8] = b"MRPROBE1";
 const GROUP_QUEUE_CAPACITY: usize = 32;
+const DISPATCH_BACKLOG_CAPACITY: usize = 4096;
 const PERF_LOG_CACHE_SIZE: usize = 256;
 
 #[derive(Clone, Debug)]
@@ -210,8 +212,9 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
 async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHandle<()>> {
     let mut incoming = runtime.backend.subscribe().await?;
     let probe_slots = Arc::new(Semaphore::new(1024));
+    let dispatch_slots = Arc::new(Semaphore::new(DISPATCH_BACKLOG_CAPACITY));
     Ok(tokio::spawn(async move {
-        let mut group_queues: BTreeMap<u64, mpsc::Sender<(NodeId, Frame)>> = BTreeMap::new();
+        let mut group_queues: BTreeMap<u64, GroupDispatchQueue> = BTreeMap::new();
         while let Some((source, frame)) = incoming.recv().await {
             match frame {
                 Frame::User(message) => {
@@ -228,54 +231,135 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                     let Some(group_id) = frame_group_id(&frame) else {
                         continue;
                     };
-                    let send_result = {
-                        let runtime = Arc::clone(&runtime);
-                        let sender = if let Some(sender) = group_queues.get(&group_id) {
-                            sender.clone()
-                        } else {
-                            let depth = Arc::new(AtomicU64::new(0));
-                            runtime
-                                .dispatch_depth
-                                .lock()
-                                .await
-                                .insert(group_id, Arc::clone(&depth));
-                            let queue_runtime = Arc::clone(&runtime);
-                            let sender = spawn_fifo_queue(
-                                Arc::clone(&depth),
-                                move |(source, frame)| {
-                                    let runtime = Arc::clone(&queue_runtime);
-                                    async move { dispatch_raft_frame(&runtime, source, frame).await }
-                                },
-                            );
-                            group_queues.insert(group_id, sender.clone());
-                            sender
-                        };
-                        let depth = runtime
+                    let queue = if let Some(queue) = group_queues.get(&group_id) {
+                        queue.clone()
+                    } else {
+                        let depth = Arc::new(AtomicU64::new(0));
+                        runtime
                             .dispatch_depth
                             .lock()
                             .await
-                            .get(&group_id)
-                            .cloned()
-                            .expect("dispatch depth registered with queue");
-                        depth.fetch_add(1, Ordering::Relaxed);
-                        let result = sender.send((source, frame)).await;
-                        if result.is_err() {
-                            depth.fetch_sub(1, Ordering::Relaxed);
-                        }
-                        result
+                            .insert(group_id, Arc::clone(&depth));
+                        let queue_runtime = Arc::clone(&runtime);
+                        let sender =
+                            spawn_fifo_queue(Arc::clone(&depth), move |(source, frame)| {
+                                let runtime = Arc::clone(&queue_runtime);
+                                async move { dispatch_raft_frame(&runtime, source, frame).await }
+                            });
+                        let queue = GroupDispatchQueue::new(sender, depth);
+                        group_queues.insert(group_id, queue.clone());
+                        queue
                     };
-                    if send_result.is_err() {
-                        eprintln!(
-                            "node {} Raft dispatch queue for group {group_id} stopped",
-                            runtime.node_id
-                        );
-                        group_queues.remove(&group_id);
-                    }
+                    let Some(slot) = Arc::clone(&dispatch_slots).try_acquire_owned().ok() else {
+                        // The global admission bound is deliberately finite. When it is full,
+                        // apply backpressure to the transport receive loop instead of allowing
+                        // an unbounded per-group backlog to grow.
+                        let Ok(slot) = Arc::clone(&dispatch_slots).acquire_owned().await else {
+                            break;
+                        };
+                        queue
+                            .enqueue(PendingFrame {
+                                source,
+                                frame,
+                                _slot: slot,
+                            })
+                            .await;
+                        continue;
+                    };
+                    queue
+                        .enqueue(PendingFrame {
+                            source,
+                            frame,
+                            _slot: slot,
+                        })
+                        .await;
                 }
                 _ => {}
             }
         }
     }))
+}
+
+struct PendingFrame {
+    source: NodeId,
+    frame: Frame,
+    _slot: tokio::sync::OwnedSemaphorePermit,
+}
+
+#[derive(Clone)]
+struct GroupDispatchQueue {
+    sender: mpsc::Sender<(NodeId, Frame)>,
+    depth: Arc<AtomicU64>,
+    state: Arc<Mutex<DispatchQueueState>>,
+}
+
+struct DispatchQueueState {
+    pending: VecDeque<PendingFrame>,
+    draining: bool,
+}
+
+impl GroupDispatchQueue {
+    fn new(sender: mpsc::Sender<(NodeId, Frame)>, depth: Arc<AtomicU64>) -> Self {
+        Self {
+            sender,
+            depth,
+            state: Arc::new(Mutex::new(DispatchQueueState {
+                pending: VecDeque::new(),
+                draining: false,
+            })),
+        }
+    }
+
+    async fn enqueue(&self, frame: PendingFrame) {
+        self.depth.fetch_add(1, Ordering::Relaxed);
+        let start_drainer = {
+            let mut state = self.state.lock().await;
+            state.pending.push_back(frame);
+            if state.draining {
+                false
+            } else {
+                state.draining = true;
+                true
+            }
+        };
+        if start_drainer {
+            let queue = self.clone();
+            tokio::spawn(async move { queue.drain().await });
+        }
+    }
+
+    async fn drain(self) {
+        loop {
+            let pending = {
+                let mut state = self.state.lock().await;
+                state.pending.pop_front()
+            };
+            let Some(pending) = pending else {
+                let restart = {
+                    let mut state = self.state.lock().await;
+                    if state.pending.is_empty() {
+                        state.draining = false;
+                        false
+                    } else {
+                        true
+                    }
+                };
+                if !restart {
+                    return;
+                }
+                continue;
+            };
+            if self
+                .sender
+                .send((pending.source, pending.frame))
+                .await
+                .is_err()
+            {
+                self.depth.fetch_sub(1, Ordering::Relaxed);
+            }
+            drop(pending._slot);
+        }
+    }
 }
 
 fn spawn_fifo_queue<T, H, Fut>(depth: Arc<AtomicU64>, mut handler: H) -> mpsc::Sender<T>
@@ -784,6 +868,64 @@ mod tests {
                 .unwrap(),
             Some(7)
         );
+    }
+
+    #[tokio::test]
+    async fn bounded_global_dispatch_backlog_does_not_block_other_groups() {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let started = Arc::new(tokio::sync::Notify::new());
+        let slow_sender = spawn_fifo_queue(Arc::new(AtomicU64::new(0)), {
+            let gate = Arc::clone(&gate);
+            let started = Arc::clone(&started);
+            move |(_source, frame): (NodeId, Frame)| {
+                let gate = Arc::clone(&gate);
+                let started = Arc::clone(&started);
+                async move {
+                    started.notify_one();
+                    gate.notified().await;
+                    drop(frame);
+                }
+            }
+        });
+        let (fast_tx, mut fast_rx) = mpsc::unbounded_channel();
+        let fast_sender = spawn_fifo_queue(Arc::new(AtomicU64::new(0)), move |(_source, frame)| {
+            let fast_tx = fast_tx.clone();
+            async move {
+                let _ = fast_tx.send(());
+                drop(frame);
+            }
+        });
+        let slow = GroupDispatchQueue::new(slow_sender, Arc::new(AtomicU64::new(0)));
+        let fast = GroupDispatchQueue::new(fast_sender, Arc::new(AtomicU64::new(0)));
+        let slots = Arc::new(Semaphore::new(64));
+        let frame = || Frame::User(UserMessage { payload: vec![1] });
+
+        slow.enqueue(PendingFrame {
+            source: wire_node_id(2),
+            frame: frame(),
+            _slot: slots.clone().acquire_owned().await.unwrap(),
+        })
+        .await;
+        started.notified().await;
+        for _ in 0..GROUP_QUEUE_CAPACITY {
+            slow.enqueue(PendingFrame {
+                source: wire_node_id(2),
+                frame: frame(),
+                _slot: slots.clone().acquire_owned().await.unwrap(),
+            })
+            .await;
+        }
+        fast.enqueue(PendingFrame {
+            source: wire_node_id(3),
+            frame: frame(),
+            _slot: slots.acquire_owned().await.unwrap(),
+        })
+        .await;
+        timeout(Duration::from_millis(50), fast_rx.recv())
+            .await
+            .expect("slow group backlog must not block another group's dispatch")
+            .expect("fast group handler must remain alive");
+        gate.notify_waiters();
     }
 
     #[tokio::test]
