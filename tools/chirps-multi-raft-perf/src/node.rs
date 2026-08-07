@@ -112,6 +112,7 @@ struct Runtime {
     backend: Arc<QuicBackend>,
     audit: Mutex<BTreeMap<u64, AuditStateMachine>>,
     inflight: Mutex<BTreeMap<u64, Arc<AtomicU64>>>,
+    dispatch_depth: Mutex<BTreeMap<u64, Arc<AtomicU64>>>,
     probes: Mutex<HashMap<u64, PendingProbe>>,
     next_probe: AtomicU64,
     shutdown: broadcast::Sender<()>,
@@ -165,6 +166,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
         backend,
         audit: Mutex::new(BTreeMap::new()),
         inflight: Mutex::new(BTreeMap::new()),
+        dispatch_depth: Mutex::new(BTreeMap::new()),
         probes: Mutex::new(HashMap::new()),
         next_probe: AtomicU64::new(1),
         shutdown,
@@ -196,7 +198,7 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
     let mut incoming = runtime.backend.subscribe().await?;
     let probe_slots = Arc::new(Semaphore::new(1024));
     Ok(tokio::spawn(async move {
-        let mut group_queues = BTreeMap::new();
+        let mut group_queues: BTreeMap<u64, mpsc::Sender<(NodeId, Frame)>> = BTreeMap::new();
         while let Some((source, frame)) = incoming.recv().await {
             match frame {
                 Frame::User(message) => {
@@ -215,18 +217,39 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                     };
                     let send_result = {
                         let runtime = Arc::clone(&runtime);
-                        let sender = group_queues
-                            .entry(group_id)
-                            .or_insert_with(|| {
-                                spawn_fifo_queue(move |(source, frame)| {
-                                    let runtime = Arc::clone(&runtime);
-                                    async move {
-                                        dispatch_raft_frame(&runtime, source, frame).await
-                                    }
-                                })
-                            })
-                            .clone();
-                        sender.send((source, frame)).await
+                        let sender = if let Some(sender) = group_queues.get(&group_id) {
+                            sender.clone()
+                        } else {
+                            let depth = Arc::new(AtomicU64::new(0));
+                            runtime
+                                .dispatch_depth
+                                .lock()
+                                .await
+                                .insert(group_id, Arc::clone(&depth));
+                            let queue_runtime = Arc::clone(&runtime);
+                            let sender = spawn_fifo_queue(
+                                Arc::clone(&depth),
+                                move |(source, frame)| {
+                                    let runtime = Arc::clone(&queue_runtime);
+                                    async move { dispatch_raft_frame(&runtime, source, frame).await }
+                                },
+                            );
+                            group_queues.insert(group_id, sender.clone());
+                            sender
+                        };
+                        let depth = runtime
+                            .dispatch_depth
+                            .lock()
+                            .await
+                            .get(&group_id)
+                            .cloned()
+                            .expect("dispatch depth registered with queue");
+                        depth.fetch_add(1, Ordering::Relaxed);
+                        let result = sender.send((source, frame)).await;
+                        if result.is_err() {
+                            depth.fetch_sub(1, Ordering::Relaxed);
+                        }
+                        result
                     };
                     if send_result.is_err() {
                         eprintln!(
@@ -242,7 +265,7 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
     }))
 }
 
-fn spawn_fifo_queue<T, H, Fut>(mut handler: H) -> mpsc::Sender<T>
+fn spawn_fifo_queue<T, H, Fut>(depth: Arc<AtomicU64>, mut handler: H) -> mpsc::Sender<T>
 where
     T: Send + 'static,
     H: FnMut(T) -> Fut + Send + 'static,
@@ -251,6 +274,11 @@ where
     let (sender, mut receiver) = mpsc::channel(GROUP_QUEUE_CAPACITY);
     tokio::spawn(async move {
         while let Some(item) = receiver.recv().await {
+            depth
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                    Some(value.saturating_sub(1))
+                })
+                .ok();
             handler(item).await;
         }
     });
@@ -573,6 +601,19 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
         .iter()
         .map(|(group, count)| (*group, count.load(Ordering::Relaxed)))
         .collect();
+    let dispatch_queue_depth = runtime
+        .dispatch_depth
+        .lock()
+        .await
+        .values()
+        .map(|depth| depth.load(Ordering::Relaxed))
+        .sum();
+    let extended = runtime.backend.extended_metrics();
+    let transport_queue_utilization = extended
+        .queue_utilization
+        .into_iter()
+        .map(|(kind, value)| (format!("{kind:?}"), value))
+        .collect();
     RawMetricsLine {
         monotonic_ns: monotonic_ns(),
         node_id: runtime.node_id,
@@ -588,6 +629,12 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
         transport_dropped: transport.dropped,
         transport_retried: transport.retried,
         per_group_queue_depth,
+        dispatch_queue_depth,
+        transport_queue_utilization,
+        retransmission_total: extended.retransmission_total,
+        retransmission_buffer_bytes: extended.retransmission_buffer_bytes,
+        queue_overflow_total: extended.queue_overflow_total,
+        backpressure_triggered_total: extended.backpressure_triggered_total,
     }
 }
 
@@ -677,7 +724,7 @@ mod tests {
     #[tokio::test]
     async fn fifo_queue_preserves_group_order() {
         let (observed_tx, mut observed_rx) = mpsc::unbounded_channel();
-        let queue = spawn_fifo_queue(move |value| {
+        let queue = spawn_fifo_queue(Arc::new(AtomicU64::new(0)), move |value| {
             let observed_tx = observed_tx.clone();
             async move {
                 if value == 1 {
@@ -698,11 +745,11 @@ mod tests {
 
     #[tokio::test]
     async fn separate_group_queues_do_not_head_of_line_block() {
-        let slow = spawn_fifo_queue(|()| async {
+        let slow = spawn_fifo_queue(Arc::new(AtomicU64::new(0)), |()| async {
             sleep(Duration::from_millis(100)).await;
         });
         let (fast_tx, mut fast_rx) = mpsc::unbounded_channel();
-        let fast = spawn_fifo_queue(move |value| {
+        let fast = spawn_fifo_queue(Arc::new(AtomicU64::new(0)), move |value| {
             let fast_tx = fast_tx.clone();
             async move {
                 fast_tx.send(value).unwrap();
@@ -724,7 +771,7 @@ mod tests {
     async fn group_queue_is_bounded_instead_of_accumulating_unbounded_frames() {
         let gate = Arc::new(tokio::sync::Notify::new());
         let started = Arc::new(tokio::sync::Notify::new());
-        let queue = spawn_fifo_queue({
+        let queue = spawn_fifo_queue(Arc::new(AtomicU64::new(0)), {
             let gate = Arc::clone(&gate);
             let started = Arc::clone(&started);
             move |_| {

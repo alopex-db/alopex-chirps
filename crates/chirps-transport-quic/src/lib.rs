@@ -403,6 +403,11 @@ impl QuicBackend {
         }
     }
 
+    /// Returns the detailed transport counters used by controlled diagnostics.
+    pub fn extended_metrics(&self) -> MetricsSnapshot {
+        self.metrics_ext.snapshot()
+    }
+
     /// Opens a raw unidirectional stream on an established peer connection.
     ///
     /// The file-transfer codec writes its own stream discriminator and payload

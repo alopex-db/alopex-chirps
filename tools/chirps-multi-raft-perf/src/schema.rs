@@ -255,6 +255,18 @@ pub struct RawMetricsLine {
     pub transport_dropped: u64,
     pub transport_retried: u64,
     pub per_group_queue_depth: BTreeMap<u64, u64>,
+    #[serde(default)]
+    pub dispatch_queue_depth: u64,
+    #[serde(default)]
+    pub transport_queue_utilization: BTreeMap<String, u64>,
+    #[serde(default)]
+    pub retransmission_total: u64,
+    #[serde(default)]
+    pub retransmission_buffer_bytes: u64,
+    #[serde(default)]
+    pub queue_overflow_total: u64,
+    #[serde(default)]
+    pub backpressure_triggered_total: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
