@@ -797,6 +797,12 @@ mod tests {
     }
 
     #[test]
+    fn bounded_group_queue_has_a_finite_payload_budget() {
+        const PAYLOAD_BYTES: usize = 1024;
+        assert_eq!(GROUP_QUEUE_CAPACITY * PAYLOAD_BYTES, 32 * 1024);
+    }
+
+    #[test]
     fn raft_frame_exposes_its_outer_group_for_dispatch() {
         let frame = Frame::Raft(RaftFrame {
             group_id: 42,

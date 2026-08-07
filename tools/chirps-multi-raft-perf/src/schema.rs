@@ -287,6 +287,14 @@ pub struct LoadgenReport {
     pub latency_us: BTreeMap<u64, u64>,
     #[serde(default)]
     pub peak_rss_bytes: u64,
+    #[serde(default)]
+    pub rss_start_bytes: u64,
+    #[serde(default)]
+    pub rss_warmup_peak_bytes: u64,
+    #[serde(default)]
+    pub rss_measure_peak_bytes: u64,
+    #[serde(default)]
+    pub rss_drain_peak_bytes: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -49,12 +49,30 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
     wait_until(args.start_at_ns).await;
     let counters = Arc::new(Mutex::new(Counters::default()));
     let peak_rss_bytes = Arc::new(AtomicU64::new(current_rss_bytes()));
+    let rss_warmup_peak_bytes = Arc::new(AtomicU64::new(0));
+    let rss_measure_peak_bytes = Arc::new(AtomicU64::new(0));
+    let rss_drain_peak_bytes = Arc::new(AtomicU64::new(0));
+    let rss_start_bytes = peak_rss_bytes.load(Ordering::Relaxed);
     let rss_sampler = {
         let peak_rss_bytes = Arc::clone(&peak_rss_bytes);
+        let rss_warmup_peak_bytes = Arc::clone(&rss_warmup_peak_bytes);
+        let rss_measure_peak_bytes = Arc::clone(&rss_measure_peak_bytes);
+        let rss_drain_peak_bytes = Arc::clone(&rss_drain_peak_bytes);
         tokio::spawn(async move {
             loop {
                 let rss = current_rss_bytes();
                 peak_rss_bytes.fetch_max(rss, Ordering::Relaxed);
+                match phase_for(monotonic_ns(), measure_start, measure_end, drain_end) {
+                    LoadgenPhase::Warmup => {
+                        rss_warmup_peak_bytes.fetch_max(rss, Ordering::Relaxed);
+                    }
+                    LoadgenPhase::Measure => {
+                        rss_measure_peak_bytes.fetch_max(rss, Ordering::Relaxed);
+                    }
+                    LoadgenPhase::Drain => {
+                        rss_drain_peak_bytes.fetch_max(rss, Ordering::Relaxed);
+                    }
+                }
                 if monotonic_ns() >= drain_end {
                     break;
                 }
@@ -127,9 +145,31 @@ pub async fn run(args: LoadgenArgs) -> anyhow::Result<()> {
         per_group_committed: counters.per_group,
         latency_us: counters.latency_us,
         peak_rss_bytes: peak_rss_bytes.load(Ordering::Relaxed),
+        rss_start_bytes,
+        rss_warmup_peak_bytes: rss_warmup_peak_bytes.load(Ordering::Relaxed),
+        rss_measure_peak_bytes: rss_measure_peak_bytes.load(Ordering::Relaxed),
+        rss_drain_peak_bytes: rss_drain_peak_bytes.load(Ordering::Relaxed),
     };
     write_json_atomic(&args.output, &report)?;
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LoadgenPhase {
+    Warmup,
+    Measure,
+    Drain,
+}
+
+fn phase_for(now: u64, measure_start: u64, measure_end: u64, drain_end: u64) -> LoadgenPhase {
+    if now < measure_start {
+        LoadgenPhase::Warmup
+    } else if now < measure_end {
+        LoadgenPhase::Measure
+    } else {
+        debug_assert!(now <= drain_end || drain_end == 0);
+        LoadgenPhase::Drain
+    }
 }
 
 fn current_rss_bytes() -> u64 {
@@ -357,5 +397,27 @@ mod tests {
     #[test]
     fn proposal_payload_includes_the_sequence() {
         assert_ne!(payload(1, 2, 3, 4), payload(1, 2, 3, 5));
+    }
+
+    #[test]
+    fn one_client_payload_working_set_is_fixed() {
+        let payloads: Vec<Vec<u8>> = (0..100).map(|client| payload(1, client, 1, 0)).collect();
+        assert_eq!(
+            payloads.iter().map(Vec::capacity).sum::<usize>(),
+            100 * 1024
+        );
+    }
+
+    #[test]
+    fn rss_phase_boundaries_are_explicit_and_non_overlapping() {
+        assert_eq!(phase_for(9, 10, 20, 30), LoadgenPhase::Warmup);
+        assert_eq!(phase_for(10, 10, 20, 30), LoadgenPhase::Measure);
+        assert_eq!(phase_for(19, 10, 20, 30), LoadgenPhase::Measure);
+        assert_eq!(phase_for(20, 10, 20, 30), LoadgenPhase::Drain);
+    }
+
+    #[test]
+    fn rss_probe_returns_a_byte_count() {
+        assert!(current_rss_bytes() > 0);
     }
 }

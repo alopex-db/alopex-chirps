@@ -1392,6 +1392,10 @@ mod tests {
                     per_group_committed,
                     latency_us: BTreeMap::from([(1_000, origin_committed)]),
                     peak_rss_bytes: 1024,
+                    rss_start_bytes: 1024,
+                    rss_warmup_peak_bytes: 1024,
+                    rss_measure_peak_bytes: 1024,
+                    rss_drain_peak_bytes: 1024,
                 };
                 add_raw(
                     root,

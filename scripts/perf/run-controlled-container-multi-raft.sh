@@ -66,6 +66,29 @@ swap_before="$(awk '/SwapTotal/{t=$2}/SwapFree/{f=$2}END{print (t-f)*1024}' /pro
 compose() { docker compose --project-name "$project" --file "$COMPOSE_FILE" --profile tools "$@"; }
 controller() { compose run --rm --no-deps controller "$@"; }
 
+phase_snapshot() {
+  local sample_name="$1" phase="$2" host_rss host_cpu node1_stats node2_stats node3_stats
+  host_rss="$(awk '/VmRSS:/{print $2*1024; exit}' /proc/$$/status)"
+  host_cpu="$(ps -o %cpu= -p $$ | awk '{print $1+0}')"
+  node1_stats=""; node2_stats=""; node3_stats=""
+  for node in 1 2 3; do
+    cid="$(compose ps --quiet "node${node}" 2>/dev/null || true)"
+    stats=""
+    if [[ -n "$cid" ]]; then
+      stats="$(docker stats --no-stream --format '{{.MemUsage}}|{{.MemPerc}}|{{.CPUPerc}}' "$cid" 2>/dev/null || true)"
+    fi
+    case "$node" in
+      1) node1_stats="$stats" ;;
+      2) node2_stats="$stats" ;;
+      3) node3_stats="$stats" ;;
+    esac
+  done
+  jq -cn --arg sample "$sample_name" --arg phase "$phase" --argjson host_rss "${host_rss:-0}" \
+    --argjson host_cpu "$host_cpu" --arg node1 "$node1_stats" --arg node2 "$node2_stats" --arg node3 "$node3_stats" \
+    '{sample:$sample,phase:$phase,monotonic_ns:now,runner_rss_bytes:$host_rss,runner_cpu_percent:$host_cpu,
+      node_stats:{node1:$node1,node2:$node2,node3:$node3}}' >>"$output/phase-metrics.ndjson"
+}
+
 measure_network_rtt() {
   local destination_ip destination_node output_path ping_output samples_json source_node
   local -a samples
@@ -97,7 +120,9 @@ for item in "${ORDER[@]}"; do
   sample="samples/${mode}-${index}"
   export SAMPLE_DIR="$sample"
   mkdir -p "$output/$sample"
+  phase_snapshot "$sample" sample-start
   compose up --detach node1 node2 node3
+  phase_snapshot "$sample" nodes-started
   for attempt in $(seq 1 120); do
     if controller ctl --address 192.168.129.11:7101 --operation health >/dev/null 2>&1 \
       && controller ctl --address 192.168.129.12:7102 --operation health >/dev/null 2>&1 \
@@ -105,8 +130,10 @@ for item in "${ORDER[@]}"; do
     sleep 0.25
     [[ "$attempt" != 120 ]] || { printf '%s\n' 'node health timeout' >&2; exit 1; }
   done
+  phase_snapshot "$sample" health-ready
 
   measure_network_rtt "$output/$sample/rtt-unloaded.json"
+  phase_snapshot "$sample" rtt-unloaded
   for node in node1 node2 node3; do
     compose exec --user root --no-TTY "$node" sh -ceu '
       iface=$(ip -o -4 addr show | awk '\''$4 ~ /^192[.]168[.]128[.]/{print $2; exit}'\'')
@@ -115,10 +142,14 @@ for item in "${ORDER[@]}"; do
       tc -s qdisc show dev "$iface"
     ' >"$output/$sample/${node}-qdisc.txt"
   done
+  phase_snapshot "$sample" network-shaped
   measure_network_rtt "$output/$sample/rtt-shaped.json"
+  phase_snapshot "$sample" rtt-shaped
   controller bootstrap --nodes "$NODES" --groups "$groups"
+  phase_snapshot "$sample" bootstrap-complete
 
   start_at="$(( $(controller monotonic) + 10000000000 ))"
+  phase_snapshot "$sample" loadgen-start
   pids=()
   for node in 1 2 3; do
     compose run --rm --no-deps "loadgen${node}" loadgen \
@@ -129,7 +160,9 @@ for item in "${ORDER[@]}"; do
     pids+=("$!")
   done
   for pid in "${pids[@]}"; do wait "$pid"; done
+  phase_snapshot "$sample" loadgen-complete
   controller collect-membership --nodes "$NODES" --groups "$groups" --output "/evidence/$sample/membership.json"
+  phase_snapshot "$sample" drain-complete
 
   ids=()
   oom=false
@@ -142,6 +175,7 @@ for item in "${ORDER[@]}"; do
     [[ "$(docker inspect --format '{{.RestartCount}}' "$cid")" == 0 ]] || restarted=true
   done
   docker network inspect "${project}_data" "${project}_control" >"$output/$sample/network-inspect.json"
+  phase_snapshot "$sample" resource-inspected
 
   jq -n --slurpfile unloaded "$output/$sample/rtt-unloaded.json" --slurpfile shaped "$output/$sample/rtt-shaped.json" '
     [range(0;6) as $i | {
@@ -164,6 +198,8 @@ for item in "${ORDER[@]}"; do
   ' >"$output/$sample/observation.json"
   controller summarize-sample --input "/evidence/$sample/observation.json" --output "/evidence/$sample/summary.json"
   jq -c . "$output/$sample/summary.json" >>"$output/summaries.ndjson"
+  phase_snapshot "$sample" summary-complete
+  phase_snapshot "$sample" sample-end
   compose down --volumes --remove-orphans
 done
 
