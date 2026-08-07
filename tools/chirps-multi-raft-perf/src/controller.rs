@@ -53,8 +53,46 @@ pub async fn bootstrap(nodes: &[SocketAddr; 3], groups: u64) -> anyhow::Result<(
             },
         )
         .await?;
+        wait_group_ready(nodes, group_id).await?;
     }
     Ok(())
+}
+
+async fn wait_group_ready(nodes: &[SocketAddr; 3], group_id: u64) -> anyhow::Result<()> {
+    timeout(Duration::from_secs(30), async {
+        loop {
+            let mut states = Vec::with_capacity(nodes.len());
+            for address in nodes {
+                let response = call(*address, Request::State { group_id }).await;
+                let Ok(Response::State(state)) = response else {
+                    states.clear();
+                    break;
+                };
+                states.push(state);
+            }
+            if group_is_ready(&states) {
+                return;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("group {group_id} did not converge before measurement"))
+}
+
+fn group_is_ready(states: &[crate::schema::ReplicaState]) -> bool {
+    let Some(first) = states.first() else {
+        return false;
+    };
+    states.len() == 3
+        && states.iter().all(|state| {
+            state.voters == vec![1, 2, 3]
+                && state.leader_id != 0
+                && state.leader_id == first.leader_id
+                && state.last_applied == first.last_applied
+                && state.last_applied > 0
+                && state.committed_digest == first.committed_digest
+        })
 }
 
 async fn retry_membership(address: SocketAddr, request: Request) -> anyhow::Result<()> {
@@ -152,4 +190,37 @@ fn expect_ok(response: Response) -> anyhow::Result<()> {
 fn percentile(values: &[u64], percentile: f64) -> u64 {
     let index = ((values.len() as f64 * percentile).ceil() as usize).saturating_sub(1);
     values[index.min(values.len() - 1)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::group_is_ready;
+    use crate::schema::ReplicaState;
+
+    fn state(node_id: u64, leader_id: u64, last_applied: u64, digest: &str) -> ReplicaState {
+        ReplicaState {
+            node_id,
+            voters: vec![1, 2, 3],
+            leader_id,
+            last_applied,
+            committed_digest: digest.to_owned(),
+        }
+    }
+
+    #[test]
+    fn bootstrap_ready_requires_caught_up_replicas() {
+        let ready = vec![
+            state(1, 2, 8, "digest"),
+            state(2, 2, 8, "digest"),
+            state(3, 2, 8, "digest"),
+        ];
+        assert!(group_is_ready(&ready));
+
+        let lagging = vec![
+            state(1, 2, 8, "digest"),
+            state(2, 2, 8, "digest"),
+            state(3, 0, 0, ""),
+        ];
+        assert!(!group_is_ready(&lagging));
+    }
 }
