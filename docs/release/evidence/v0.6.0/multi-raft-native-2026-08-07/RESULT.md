@@ -36,9 +36,11 @@ Single-group baseline:
 - baseline leader/replica state did not converge in the final sample;
 - baseline median is therefore 0/s and Multi-Raft overhead is **not computable**.
 
-The runner completed all ten load phases, but final artifact assembly correctly
-rejected the run because the baseline and sample identity conditions were not
-valid. This is a measurement failure, not a performance pass.
+The runner completed all ten load phases, but final artifact assembly rejected
+the run. The run also exposed a runner bug in the final container-ID jq
+projection; that projection was fixed in the follow-up commit. Even with that
+mechanical fix, the baseline remains invalid because all five baseline samples
+timed out. This is a measurement failure, not a performance pass.
 
 ## TiKV-compatible lane
 
