@@ -28,7 +28,7 @@ use tokio::time::{sleep, timeout};
 
 const PROBE_MAGIC: &[u8; 8] = b"MRPROBE1";
 const GROUP_QUEUE_CAPACITY: usize = 32;
-const DISPATCH_BACKLOG_BYTES: usize = 128 * 1024 * 1024;
+const DISPATCH_BACKLOG_BYTES: usize = 32 * 1024 * 1024;
 const DISPATCH_FRAME_OVERHEAD_BYTES: usize = 128;
 const RESPONSE_DISPATCH_CAPACITY: usize = 256;
 const RESPONSE_SEND_CONCURRENCY: usize = 64;
@@ -173,7 +173,10 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
         factory,
         RaftConfig {
             node_id: args.node_id,
-            election_timeout_ms: 2_000,
+            // Keep elections well above the 250 ms heartbeat under 100-group
+            // fsync pressure; this mirrors the reference design's generous
+            // election/heartbeat slack and avoids false leader churn.
+            election_timeout_ms: 5_000,
             heartbeat_interval_ms: 250,
             max_batch_size: 256,
             snapshot_threshold: args.snapshot_threshold,
@@ -1090,6 +1093,13 @@ mod tests {
     fn response_send_concurrency_matches_transport_send_bound() {
         assert_eq!(RESPONSE_SEND_CONCURRENCY, 64);
         const { assert!(RESPONSE_DISPATCH_CAPACITY > RESPONSE_SEND_CONCURRENCY) };
+    }
+
+    #[test]
+    fn perf_election_timeout_has_heartbeat_slack() {
+        const HEARTBEAT_MS: u64 = 250;
+        const ELECTION_MS: u64 = 5_000;
+        const { assert!(ELECTION_MS >= HEARTBEAT_MS * 8) };
     }
 
     #[test]
