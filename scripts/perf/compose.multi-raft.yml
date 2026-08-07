@@ -25,7 +25,7 @@ services:
           --control-bind 192.168.129.11:7101 --storage-root /work \
           --cert /work/tls/cert.der --key /work/tls/key.der \
           --trust /work/tls/cert.der --metrics /evidence/${SAMPLE_DIR}/node1-metrics.jsonl \
-          --send-queue-capacity 4096 --snapshot-threshold 512 ${RESOURCE_AUDIT_ARGS:-} ${METRICS_INTERVAL_ARGS:-}
+          --send-queue-capacity 4096 --snapshot-threshold 10000 ${RESOURCE_AUDIT_ARGS:-} ${METRICS_INTERVAL_ARGS:-}
     mem_limit: 8g
     memswap_limit: 8g
     restart: "no"
@@ -48,7 +48,7 @@ services:
           --control-bind 192.168.129.12:7102 --storage-root /work \
           --cert /work/tls/cert.der --key /work/tls/key.der \
           --trust /work/tls/cert.der --metrics /evidence/${SAMPLE_DIR}/node2-metrics.jsonl \
-          --send-queue-capacity 4096 --snapshot-threshold 512 ${RESOURCE_AUDIT_ARGS:-} ${METRICS_INTERVAL_ARGS:-}
+          --send-queue-capacity 4096 --snapshot-threshold 10000 ${RESOURCE_AUDIT_ARGS:-} ${METRICS_INTERVAL_ARGS:-}
   node3:
     <<: *node
     cpuset: ${NODE3_CPU:-8-10}
@@ -68,7 +68,7 @@ services:
           --control-bind 192.168.129.13:7103 --storage-root /work \
           --cert /work/tls/cert.der --key /work/tls/key.der \
           --trust /work/tls/cert.der --metrics /evidence/${SAMPLE_DIR}/node3-metrics.jsonl \
-          --send-queue-capacity 4096 --snapshot-threshold 512 ${RESOURCE_AUDIT_ARGS:-} ${METRICS_INTERVAL_ARGS:-}
+          --send-queue-capacity 4096 --snapshot-threshold 10000 ${RESOURCE_AUDIT_ARGS:-} ${METRICS_INTERVAL_ARGS:-}
   controller:
     image: ${CHIRPS_PERF_IMAGE:?set CHIRPS_PERF_IMAGE}
     user: root

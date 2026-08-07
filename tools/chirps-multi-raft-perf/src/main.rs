@@ -54,8 +54,10 @@ fn parse_node(args: &[String]) -> anyhow::Result<NodeArgs> {
         send_queue_capacity: option(args, "--send-queue-capacity")
             .unwrap_or("4096")
             .parse()?,
+        // Keep automatic snapshot work outside the proposal-throughput lane;
+        // snapshot lifecycle is covered by the storage tests separately.
         snapshot_threshold: option(args, "--snapshot-threshold")
-            .unwrap_or("512")
+            .unwrap_or("10000")
             .parse()?,
         resource_audit: has_flag(args, "--resource-audit"),
         metrics_interval_ms: option(args, "--metrics-interval-ms")

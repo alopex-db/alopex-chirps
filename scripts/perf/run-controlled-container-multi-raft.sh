@@ -271,7 +271,7 @@ jq -n --arg schema 'chirps.multi-raft-performance/v1' --arg commit "$source_sha"
       physical_deployment:false,swap_bytes_before:$swap_before,swap_bytes_after:$swap_after},
     resolved_config:{nodes:3,groups:100,payload_bytes:1024,rtt_ms:1.0,clients:300,clients_per_node:100,
       warmup_seconds:15,measure_seconds:60,drain_seconds:5,samples:5,fsync_interval:0,
-      snapshot_threshold:512,send_queue_capacity:4096},
+      snapshot_threshold:10000,send_queue_capacity:4096},
     samples:$samples[0],per_group:$per_group[0],raw_metrics_artifacts:$raw[0],raw_artifact_set_sha256:$raw_digest
   }
 ' >"$output/artifact-input.json"
