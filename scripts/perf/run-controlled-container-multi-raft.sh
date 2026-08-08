@@ -159,6 +159,11 @@ for item in "${ORDER[@]}"; do
   [[ "$mode" == single_group ]] && groups=1
   sample="samples/${mode}-${index}"
   export SAMPLE_DIR="$sample"
+  if [[ "$mode" == multi_raft ]]; then
+    export TRANSPORT_ARGS="--no-await-peer-stop"
+  else
+    export TRANSPORT_ARGS=""
+  fi
   mkdir -p "$output/$sample"
   phase_snapshot "$sample" sample-start
   compose up --detach node1 node2 node3

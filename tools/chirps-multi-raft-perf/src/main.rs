@@ -63,6 +63,7 @@ fn parse_node(args: &[String]) -> anyhow::Result<NodeArgs> {
         metrics_interval_ms: option(args, "--metrics-interval-ms")
             .unwrap_or("1000")
             .parse()?,
+        await_peer_stop: !has_flag(args, "--no-await-peer-stop"),
     })
 }
 

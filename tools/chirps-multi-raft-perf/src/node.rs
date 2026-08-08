@@ -8,7 +8,7 @@ use alopex_chirps_core::config::NodeConfig;
 use alopex_chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
 use alopex_chirps_raft_storage::types::LogId;
 use alopex_chirps_raft_storage::wal_storage::{WalStorageConfig, process_fsync_calls};
-use alopex_chirps_transport_quic::QuicBackend;
+use alopex_chirps_transport_quic::{QuicBackend, TransportConfigV04};
 use alopex_chirps_wire::frame::{Frame, UserMessage};
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
@@ -49,6 +49,7 @@ pub struct NodeArgs {
     pub snapshot_threshold: u64,
     pub resource_audit: bool,
     pub metrics_interval_ms: u64,
+    pub await_peer_stop: bool,
 }
 
 #[derive(Clone, Default, serde::Deserialize, serde::Serialize)]
@@ -151,7 +152,18 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
         node_id_path: args.storage_root.join("node-id"),
         ..NodeConfig::default()
     });
-    let backend = Arc::new(QuicBackend::new(wire_node_id(args.node_id), config).await?);
+    let backend = Arc::new(
+        QuicBackend::new_with_config(
+            wire_node_id(args.node_id),
+            config.clone(),
+            TransportConfigV04 {
+                send_queue_capacity: args.send_queue_capacity,
+                await_peer_stop: args.await_peer_stop,
+                ..Default::default()
+            },
+        )
+        .await?,
+    );
     let transport_backend: Arc<dyn MessageBackend> = backend.clone();
     let transport = Arc::new(ChirpsRaftTransport::new(
         transport_backend,

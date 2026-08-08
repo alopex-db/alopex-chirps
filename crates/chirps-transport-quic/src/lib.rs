@@ -222,6 +222,7 @@ pub struct QuicBackend {
     send_tx: mpsc::Sender<SendCommand>,
     send_slots: Arc<Semaphore>,
     send_timeout: Duration,
+    await_peer_stop: bool,
     metrics: Arc<TransportCounters>,
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
     metrics_ext: Arc<ExtendedTransportMetrics>,
@@ -298,6 +299,7 @@ impl QuicBackend {
             send_tx,
             send_slots,
             send_timeout: transport_config.send_timeout,
+            await_peer_stop: transport_config.await_peer_stop,
             metrics: Arc::clone(&metrics),
             retransmit_buffer: Arc::clone(&retransmit_buffer),
             metrics_ext: Arc::clone(&metrics_ext),
@@ -317,6 +319,7 @@ impl QuicBackend {
             backend.shutdown.subscribe(),
             backend.node_id,
             backend.send_timeout,
+            backend.await_peer_stop,
             transport_config.priority.clone(),
         );
         let _ = backend.reconnect_tx.try_send(ReconnectCommand::Trigger);
@@ -612,7 +615,7 @@ async fn handle_connection(
                     payload_len,
                     msg.frame.clone(),
                 );
-                if let Err(err) = send_envelope(&connection, envelope).await {
+                if let Err(err) = send_envelope(&connection, envelope, true).await {
                     failed += 1;
                     warn!(peer=?remote_id, seq=msg.seq, "retransmit failed: {err}");
                 } else {
@@ -730,17 +733,22 @@ async fn send_wire_message(
     stream
         .finish()
         .map_err(|e| TransportError::Send(e.to_string()))?;
-    // `finish` hands the bytes to QUIC's local send path. Waiting for
-    // `stopped()` here couples every Raft frame to a peer-side stream
-    // lifecycle event and creates head-of-line blocking under many groups.
-    // Delivery is still covered by the envelope sequence/ack retransmission
-    // layer; a later send or reconnect observes a broken connection.
-    Ok(())
+    match stream
+        .stopped()
+        .await
+        .map_err(|e| TransportError::Send(e.to_string()))?
+    {
+        Some(error_code) => Err(TransportError::Send(format!(
+            "wire stream stopped by peer with code {error_code}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 async fn send_envelope(
     connection: &Connection,
     envelope: FrameEnvelopeV2,
+    await_peer_stop: bool,
 ) -> Result<(), TransportError> {
     let bytes = envelope.encode();
     let mut stream = connection
@@ -754,6 +762,16 @@ async fn send_envelope(
     stream
         .finish()
         .map_err(|e| TransportError::Send(e.to_string()))?;
+    if await_peer_stop
+        && let Some(error_code) = stream
+            .stopped()
+            .await
+            .map_err(|e| TransportError::Send(e.to_string()))?
+    {
+        return Err(TransportError::Send(format!(
+            "frame stream stopped by peer with code {error_code}"
+        )));
+    }
     Ok(())
 }
 
@@ -837,6 +855,7 @@ fn spawn_send_loop(
     mut shutdown_rx: broadcast::Receiver<()>,
     node_id: NodeId,
     timeout: Duration,
+    await_peer_stop: bool,
     priority_config: PriorityConfig,
 ) {
     tokio::spawn(async move {
@@ -875,6 +894,7 @@ fn spawn_send_loop(
                                 target,
                                 frame,
                                 timeout,
+                                await_peer_stop,
                             )
                             .await;
                             let _ = respond_to.send(send_res);
@@ -892,6 +912,7 @@ fn spawn_send_loop(
                                 node_id,
                                 frame,
                                 timeout,
+                                await_peer_stop,
                             )
                             .await;
                             let _ = respond_to.send(send_res);
@@ -964,6 +985,7 @@ async fn send_with_retry(
     target: NodeId,
     frame: Frame,
     timeout: Duration,
+    await_peer_stop: bool,
 ) -> Result<(), TransportError> {
     let mut attempts = 0;
     loop {
@@ -980,6 +1002,7 @@ async fn send_with_retry(
                 node_id,
                 target,
                 frame_clone,
+                await_peer_stop,
             ),
         )
         .await
@@ -1014,6 +1037,7 @@ async fn broadcast_with_retry(
     node_id: NodeId,
     frame: Frame,
     timeout: Duration,
+    await_peer_stop: bool,
 ) -> Result<usize, TransportError> {
     let mut attempts = 0;
     loop {
@@ -1029,6 +1053,7 @@ async fn broadcast_with_retry(
                 receive_handler,
                 node_id,
                 frame_clone,
+                await_peer_stop,
             ),
         )
         .await
@@ -1085,6 +1110,7 @@ async fn send_to_peer(
     _node_id: NodeId,
     target: NodeId,
     frame: Frame,
+    await_peer_stop: bool,
 ) -> Result<(), TransportError> {
     let conn = {
         let map = connections.read().await;
@@ -1121,7 +1147,7 @@ async fn send_to_peer(
         frame,
     );
     let start = tokio::time::Instant::now();
-    let res = send_envelope(&conn, envelope).await;
+    let res = send_envelope(&conn, envelope, await_peer_stop).await;
     if let Ok(()) = res {
         let elapsed = start.elapsed();
         metrics.sent.fetch_add(1, Ordering::Relaxed);
@@ -1139,6 +1165,7 @@ async fn broadcast_to_peers(
     receive_handler: &Arc<ReceiveHandler>,
     node_id: NodeId,
     frame: Frame,
+    await_peer_stop: bool,
 ) -> Result<usize, TransportError> {
     let peers: Vec<(NodeId, Connection)> = {
         let map = connections.read().await;
@@ -1156,6 +1183,7 @@ async fn broadcast_to_peers(
             node_id,
             peer_id,
             frame.clone(),
+            await_peer_stop,
         )
         .await
         {

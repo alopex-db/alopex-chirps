@@ -5,6 +5,9 @@ use std::time::Duration;
 pub struct TransportConfigV04 {
     /// 送信処理のタイムアウト。
     pub send_timeout: Duration,
+    /// Whether data sends wait for peer-side stream stop notifications.
+    /// Disable only for high-fanout Raft workloads with envelope retransmit.
+    pub await_peer_stop: bool,
     /// 送信キューのバッファサイズ。
     pub send_queue_capacity: usize,
     /// 優先度スケジューラ設定。
@@ -21,6 +24,7 @@ impl Default for TransportConfigV04 {
     fn default() -> Self {
         Self {
             send_timeout: Duration::from_millis(200),
+            await_peer_stop: true,
             send_queue_capacity: 1024,
             priority: PriorityConfig::default(),
             retransmit: RetransmitConfig::default(),
