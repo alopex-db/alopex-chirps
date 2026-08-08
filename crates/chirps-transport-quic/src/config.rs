@@ -8,6 +8,10 @@ pub struct TransportConfigV04 {
     /// Whether data sends wait for peer-side stream stop notifications.
     /// Disable only for high-fanout Raft workloads with envelope retransmit.
     pub await_peer_stop: bool,
+    /// Enables per-stream histograms, metrics recorder updates, and detailed
+    /// transport diagnostics. Disable for the normal hot path; controlled
+    /// evidence runs enable it explicitly.
+    pub diagnostics_enabled: bool,
     /// 送信キューのバッファサイズ。
     pub send_queue_capacity: usize,
     /// 優先度スケジューラ設定。
@@ -25,6 +29,7 @@ impl Default for TransportConfigV04 {
         Self {
             send_timeout: Duration::from_millis(200),
             await_peer_stop: true,
+            diagnostics_enabled: true,
             send_queue_capacity: 1024,
             priority: PriorityConfig::default(),
             retransmit: RetransmitConfig::default(),
@@ -50,6 +55,16 @@ mod tests {
             ..TransportConfigV04::default()
         };
         assert!(!config.await_peer_stop);
+    }
+
+    #[test]
+    fn diagnostics_are_enabled_by_default_and_detachable() {
+        assert!(TransportConfigV04::default().diagnostics_enabled);
+        let config = TransportConfigV04 {
+            diagnostics_enabled: false,
+            ..TransportConfigV04::default()
+        };
+        assert!(!config.diagnostics_enabled);
     }
 }
 

@@ -262,7 +262,9 @@ impl QuicBackend {
         let connections = Arc::new(RwLock::new(HashMap::new()));
         let peer_capabilities = Arc::new(RwLock::new(HashMap::new()));
         let metrics = Arc::new(TransportCounters::default());
-        let metrics_ext = Arc::new(ExtendedTransportMetrics::new());
+        let metrics_ext = Arc::new(ExtendedTransportMetrics::new_with_enabled(
+            transport_config.diagnostics_enabled,
+        ));
         let retransmit_buffer = Arc::new(RwLock::new(RetransmissionBuffer::new(
             transport_config.retransmit.clone(),
         )));

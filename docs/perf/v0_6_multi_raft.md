@@ -115,6 +115,14 @@ controlled run the exact five-sample Multi-Raft median was 715.55/s versus
 remained comparable. The result is recorded as a small micro-optimization, not
 as proof that dispatch queues are the dominant bottleneck.
 
+Detailed QUIC stream histograms and metrics-recorder updates are now explicitly
+detachable through `TransportConfigV04::diagnostics_enabled`. The default API
+keeps diagnostics enabled for compatibility, while the perf node sets it from
+`--resource-audit`; normal workload runs therefore skip per-frame histogram
+locks, metrics recorder calls, and debug events. The controlled audit profile
+records those counters intentionally so transport overhead remains visible in
+the evidence.
+
 ## Controlled-local execution
 
 Run only from a clean committed revision; the script builds from `git archive`

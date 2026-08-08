@@ -172,6 +172,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
             TransportConfigV04 {
                 send_queue_capacity: args.send_queue_capacity,
                 await_peer_stop: args.await_peer_stop,
+                diagnostics_enabled: args.resource_audit,
                 ..Default::default()
             },
         )
