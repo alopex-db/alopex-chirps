@@ -467,15 +467,10 @@ async fn dispatch_raft_frame(
         .await
     {
         Ok(Some(response)) => {
-            let slot = match response_slot {
-                Some(slot) => slot,
-                None => match Arc::clone(&runtime.response_send_slots)
-                    .acquire_owned()
-                    .await
-                {
-                    Ok(slot) => slot,
-                    Err(_) => return,
-                },
+            let Some(slot) =
+                acquire_response_send_slot(&runtime.response_send_slots, response_slot).await
+            else {
+                return;
             };
             let manager = Arc::clone(&runtime.manager);
             let node_id = runtime.node_id;
@@ -501,6 +496,16 @@ async fn dispatch_raft_frame(
             runtime.node_id,
             decode_node_id(source)
         ),
+    }
+}
+
+async fn acquire_response_send_slot(
+    slots: &Arc<Semaphore>,
+    preacquired: Option<tokio::sync::OwnedSemaphorePermit>,
+) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    match preacquired {
+        Some(slot) => Some(slot),
+        None => Arc::clone(slots).acquire_owned().await.ok(),
     }
 }
 
@@ -1097,6 +1102,18 @@ mod tests {
     fn response_send_concurrency_matches_transport_send_bound() {
         assert_eq!(RESPONSE_SEND_CONCURRENCY, 64);
         const { assert!(RESPONSE_DISPATCH_CAPACITY > RESPONSE_SEND_CONCURRENCY) };
+    }
+
+    #[tokio::test]
+    async fn response_dispatch_reuses_the_pump_permit() {
+        let slots = Arc::new(Semaphore::new(1));
+        let permit = Arc::clone(&slots).acquire_owned().await.unwrap();
+        let reused = acquire_response_send_slot(&slots, Some(permit))
+            .await
+            .expect("pre-acquired response permit must be reusable");
+        assert_eq!(slots.available_permits(), 0);
+        drop(reused);
+        assert_eq!(slots.available_permits(), 1);
     }
 
     #[test]
