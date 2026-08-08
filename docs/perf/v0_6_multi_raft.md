@@ -1,6 +1,6 @@
 # Chirps v0.6 Multi-Raft performance procedure
 
-Status: PROCEDURE LOCKED — CONTROLLED NATIVE RUN COMPLETE; TIKV CONTROL BASELINE NOT YET MEASURED
+Status: PROCEDURE LOCKED — CONTROLLED NATIVE RUN COMPLETE; LOCAL TIKV DOCKER CONTROL RECORDED
 
 This document fixes the measurement contract before any v0.6 performance
 claim. v0.5.2 FileTransfer evidence is unrelated and must not be reused.
@@ -215,10 +215,12 @@ synthetic 250 us netem delay; it has no three physical TiKV nodes, NVMe-per-node
 measurement, separate PD/YCSB worker, or 10 GbE path. These facts make the
 published TiKV result **non-comparable** to the current Chirps native run.
 
-As of 2026-08-08, TiKV itself has not been installed or run under this host
-profile, and no same-workload RawKV control result exists. Therefore the
-TiKV-compatible lane is a schema and workload contract only; it must not be
-used to justify a numeric TiKV-vs-Chirps claim or the native release gate.
+As of 2026-08-08, a local Docker control was measured with official PD/TiKV
+v8.5.0 images and Go YCSB (10,000 records, 50,000 Workload A operations). It
+is useful for diagnosing workload shape, but it is not a reproduction of the
+published TiKV configuration and must not justify a numeric TiKV-vs-Chirps
+claim or the native release gate. The complete result is recorded under
+`docs/release/evidence/v0.6.0/tikv-control-2026-08-08/`.
 Before making such a claim, record for both systems: exact version and config,
 CPU/memory limits, storage device and filesystem, swap state, network RTT
 distribution, client placement, YCSB Workload A mix (50% read/50% update), key
