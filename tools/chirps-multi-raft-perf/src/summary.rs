@@ -93,6 +93,14 @@ pub fn summarize(observation: SampleObservation, base: &Path) -> anyhow::Result<
         .unwrap_or(0);
     let disk_bytes = metrics.iter().map(|values| values.disk).sum();
     let fsync_calls = metrics.iter().map(|values| values.fsync).sum();
+    let durability_barriers = metrics
+        .iter()
+        .map(|values| values.durability_barriers)
+        .sum();
+    let durability_participant_syncs = metrics
+        .iter()
+        .map(|values| values.durability_participant_syncs)
+        .sum();
     let network_bytes = metrics.iter().map(|values| values.network).sum();
     let duration_seconds = duration_ms as f64 / 1000.0;
     let per_group = per_group_counts
@@ -136,6 +144,8 @@ pub fn summarize(observation: SampleObservation, base: &Path) -> anyhow::Result<
             peak_rss_bytes,
             disk_bytes,
             fsync_calls,
+            durability_barriers,
+            durability_participant_syncs,
             network_bytes,
             oom_killed: observation.oom_killed,
             process_restarted: observation.process_restarted,
@@ -151,6 +161,8 @@ struct MetricDeltas {
     peak_rss: u64,
     disk: u64,
     fsync: u64,
+    durability_barriers: u64,
+    durability_participant_syncs: u64,
     network: u64,
 }
 
@@ -181,6 +193,12 @@ fn read_metrics(path: &Path, start: u64, end: u64) -> anyhow::Result<MetricDelta
             .saturating_add(last.disk_write_bytes)
             .saturating_sub(first.disk_read_bytes.saturating_add(first.disk_write_bytes)),
         fsync: last.fsync_calls.saturating_sub(first.fsync_calls),
+        durability_barriers: last
+            .durability_barriers
+            .saturating_sub(first.durability_barriers),
+        durability_participant_syncs: last
+            .durability_participant_syncs
+            .saturating_sub(first.durability_participant_syncs),
         network: last
             .network_rx_bytes
             .saturating_add(last.network_tx_bytes)

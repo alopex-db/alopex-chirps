@@ -129,6 +129,11 @@ pub struct Sample {
     pub peak_rss_bytes: u64,
     pub disk_bytes: u64,
     pub fsync_calls: u64,
+    /// Optional durability-coordinator diagnostics; zero when audit is off.
+    #[serde(default)]
+    pub durability_barriers: u64,
+    #[serde(default)]
+    pub durability_participant_syncs: u64,
     pub network_bytes: u64,
     pub oom_killed: bool,
     pub process_restarted: bool,
@@ -266,6 +271,11 @@ pub struct RawMetricsLine {
     pub network_tx_bytes: u64,
     pub transport_sent: u64,
     pub transport_received: u64,
+    /// Optional durability-coordinator diagnostics; zero when audit is off.
+    #[serde(default)]
+    pub durability_barriers: u64,
+    #[serde(default)]
+    pub durability_participant_syncs: u64,
     #[serde(default)]
     pub transport_streams_opened: u64,
     pub transport_dropped: u64,

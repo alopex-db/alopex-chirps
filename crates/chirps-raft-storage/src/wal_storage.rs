@@ -48,6 +48,8 @@ const SNAP_VERSION: u32 = 1;
 /// adds barriers at the configured boundaries. This is not a physical-media
 /// persistence claim.
 static PROCESS_FSYNC_CALLS: AtomicU64 = AtomicU64::new(0);
+static PROCESS_DURABILITY_BARRIERS: AtomicU64 = AtomicU64::new(0);
+static PROCESS_DURABILITY_PARTICIPANT_SYNCS: AtomicU64 = AtomicU64::new(0);
 
 /// WAL access is synchronous because `alopex-core` exposes a synchronous
 /// writer.  Keep that I/O off Tokio worker threads in the multi-threaded
@@ -72,6 +74,25 @@ fn with_blocking_wal_io<T>(operation: impl FnOnce() -> T) -> T {
 
 pub fn process_fsync_calls() -> u64 {
     PROCESS_FSYNC_CALLS.load(Ordering::Relaxed)
+}
+
+/// Optional diagnostics for the node-wide durability coordinator.
+///
+/// These counters are incremented only when the coordinator was constructed
+/// with diagnostics enabled. The normal production path therefore retains the
+/// existing barrier cost while the resource-audit path can distinguish
+/// barrier coalescing from the number of individual WAL `sync_all` calls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DurabilityMetricsSnapshot {
+    pub barriers: u64,
+    pub participant_syncs: u64,
+}
+
+pub fn process_durability_metrics() -> DurabilityMetricsSnapshot {
+    DurabilityMetricsSnapshot {
+        barriers: PROCESS_DURABILITY_BARRIERS.load(Ordering::Relaxed),
+        participant_syncs: PROCESS_DURABILITY_PARTICIPANT_SYNCS.load(Ordering::Relaxed),
+    }
 }
 
 /// WALストレージの設定値。
@@ -103,6 +124,9 @@ pub struct WalStorageConfig {
     /// 複数グループのWAL durability barrierを束ねる待機時間（マイクロ秒）。
     /// 0なら従来どおり各appendバッチごとに直ちにsyncする。
     pub durability_batch_wait_us: u64,
+    /// Resource-audit-only durability barrier diagnostics. Disabled by default
+    /// so ordinary deployments do not pay for the extra atomic increments.
+    pub durability_diagnostics_enabled: bool,
 }
 
 impl Default for WalStorageConfig {
@@ -115,6 +139,7 @@ impl Default for WalStorageConfig {
             format_version: CURRENT_FORMAT_VERSION,
             snapshot_chunk_size: 4096,
             durability_batch_wait_us: 0,
+            durability_diagnostics_enabled: false,
         }
     }
 }
@@ -142,10 +167,15 @@ pub struct WalDurabilityCoordinator {
     gate: Mutex<CoordinatorGate>,
     wake: Condvar,
     batch_wait: Duration,
+    diagnostics_enabled: bool,
 }
 
 impl WalDurabilityCoordinator {
     pub fn new(batch_wait: Duration) -> Self {
+        Self::new_with_diagnostics(batch_wait, false)
+    }
+
+    pub fn new_with_diagnostics(batch_wait: Duration, diagnostics_enabled: bool) -> Self {
         Self {
             participants: Mutex::new(Vec::new()),
             gate: Mutex::new(CoordinatorGate {
@@ -155,6 +185,7 @@ impl WalDurabilityCoordinator {
             }),
             wake: Condvar::new(),
             batch_wait,
+            diagnostics_enabled,
         }
     }
 
@@ -188,6 +219,9 @@ impl WalDurabilityCoordinator {
         if !self.batch_wait.is_zero() {
             thread::sleep(self.batch_wait);
         }
+        if self.diagnostics_enabled {
+            PROCESS_DURABILITY_BARRIERS.fetch_add(1, Ordering::Relaxed);
+        }
         let result = self.sync_participants();
 
         let mut gate = self.gate.lock().unwrap();
@@ -217,6 +251,9 @@ impl WalDurabilityCoordinator {
             writers
         };
         for (writer, dirty) in writers {
+            if self.diagnostics_enabled {
+                PROCESS_DURABILITY_PARTICIPANT_SYNCS.fetch_add(1, Ordering::Relaxed);
+            }
             let mut guard = writer.lock().unwrap();
             if let Err(error) = RealWalSink::sync_writer(&mut guard) {
                 dirty.store(true, Ordering::Release);
@@ -431,9 +468,10 @@ where
         node_id: ChirpsNodeId,
         state_machine: SM,
     ) -> Result<Self> {
-        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::from_micros(
-            config.durability_batch_wait_us,
-        )));
+        let coordinator = Arc::new(WalDurabilityCoordinator::new_with_diagnostics(
+            Duration::from_micros(config.durability_batch_wait_us),
+            config.durability_diagnostics_enabled,
+        ));
         Self::recover_with_coordinator(config, group_id, node_id, state_machine, coordinator)
     }
 
@@ -1554,6 +1592,28 @@ mod tests {
         right_thread.join().unwrap().unwrap();
         assert!(root.path().join("left.wal").metadata().unwrap().len() > 0);
         assert!(root.path().join("right.wal").metadata().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn durability_diagnostics_count_barriers_and_dirty_participants() {
+        let root = tempfile::tempdir().unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new_with_diagnostics(
+            Duration::ZERO,
+            true,
+        ));
+        let mut left =
+            RealWalSink::new(&root.path().join("left.wal"), Arc::clone(&coordinator)).unwrap();
+        let mut right =
+            RealWalSink::new(&root.path().join("right.wal"), Arc::clone(&coordinator)).unwrap();
+        let record = CoreWalRecord::Put(TxnId(0), b"k".to_vec(), b"v".to_vec());
+        left.append(&record, false).unwrap();
+        right.append(&record, false).unwrap();
+
+        let before = process_durability_metrics();
+        coordinator.sync().unwrap();
+        let after = process_durability_metrics();
+        assert_eq!(after.barriers - before.barriers, 1);
+        assert_eq!(after.participant_syncs - before.participant_syncs, 2);
     }
 
     #[tokio::test]

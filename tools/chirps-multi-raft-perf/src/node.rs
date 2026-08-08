@@ -7,7 +7,9 @@ use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
 use alopex_chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine, StateMachineResult};
 use alopex_chirps_raft_storage::types::LogId;
-use alopex_chirps_raft_storage::wal_storage::{WalStorageConfig, process_fsync_calls};
+use alopex_chirps_raft_storage::wal_storage::{
+    WalStorageConfig, process_durability_metrics, process_fsync_calls,
+};
 use alopex_chirps_transport_quic::{QuicBackend, TransportConfigV04};
 use alopex_chirps_wire::frame::{Frame, UserMessage};
 use alopex_chirps_wire::node_id::NodeId;
@@ -190,6 +192,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
             snapshot_dir: args.storage_root.join("snapshot"),
             fsync_interval: 0,
             durability_batch_wait_us: PERF_DURABILITY_BATCH_WAIT_US,
+            durability_diagnostics_enabled: args.resource_audit,
             log_cache_size: PERF_LOG_CACHE_SIZE,
             ..WalStorageConfig::default()
         },
@@ -879,6 +882,7 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
     let process = read_process_metrics().unwrap_or_default();
     let network = read_network_metrics().unwrap_or_default();
     let transport = runtime.backend.metrics();
+    let durability = process_durability_metrics();
     let group_ids = runtime.manager.list_groups();
     let proposal_inflight = runtime
         .inflight
@@ -918,6 +922,8 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
         disk_read_bytes: process.disk_read_bytes,
         disk_write_bytes: process.disk_write_bytes,
         fsync_calls: process_fsync_calls(),
+        durability_barriers: durability.barriers,
+        durability_participant_syncs: durability.participant_syncs,
         network_rx_bytes: network.0,
         network_tx_bytes: network.1,
         transport_sent: transport.sent,

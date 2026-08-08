@@ -74,8 +74,9 @@ impl SnapshotCompletionHook for SnapshotCompletionRouter {
 
 impl<SM> WalRaftStorageFactory<SM> {
     pub fn new(base_config: WalStorageConfig, node_id: u64) -> Self {
-        let durability_coordinator = Arc::new(WalDurabilityCoordinator::new(
+        let durability_coordinator = Arc::new(WalDurabilityCoordinator::new_with_diagnostics(
             std::time::Duration::from_micros(base_config.durability_batch_wait_us),
+            base_config.durability_diagnostics_enabled,
         ));
         Self {
             base_config,

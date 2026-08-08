@@ -91,12 +91,14 @@ not be reported as one.
   empty map.
 
 The controlled container profile uses a fresh 8 GiB `tmpfs` at `/work` for each
-node and sample. `fsync_calls` is the count of completed WAL durability barriers
-(`sync_all`) in the Chirps sink. With `fsync_interval=0`, one Raft append batch
-has one barrier; interval mode adds barriers at configured boundaries. It is
-operational evidence, not a claim about when a physical device persisted the
-bytes. `/proc/self/io` disk bytes may therefore legitimately be zero on this
-profile and are still preserved verbatim.
+node and sample. `fsync_calls` is the count of completed per-WAL `sync_all`
+calls in the Chirps sink, not necessarily the number of coordinator barriers.
+With `fsync_interval=0`, one Raft append batch requests one barrier; a barrier
+may sync multiple dirty WAL files. `durability_barriers` is the coordinator
+barrier count and `durability_participant_syncs` is the corresponding
+per-WAL count. These are operational evidence, not a claim about when a
+physical device persisted the bytes. `/proc/self/io` disk bytes may therefore
+legitimately be zero on this profile and are still preserved verbatim.
 
 When `durability_batch_wait_us` is non-zero, a node-wide
 `WalDurabilityCoordinator` coalesces concurrent group barriers while preserving
@@ -105,6 +107,13 @@ dirty bit, so a barrier syncs only WALs that received writes; clean groups are
 not charged an extra `sync_all`. A failed sync restores the dirty bit for retry.
 The default value is zero, preserving the previous per-group behavior; the
 controlled diagnostic profile uses 250 us.
+
+When resource audit is enabled, the raw metrics additionally expose
+`durability_barriers` and `durability_participant_syncs`. The first counts
+coalesced coordinator generations; the second counts individual dirty WAL
+files passed to `sync_all`. Both counters default to zero for old artifacts and
+are not incremented when audit is disabled. Their ratio is the direct evidence
+for distinguishing cross-group barrier coalescing from per-WAL sync fan-out.
 
 The diagnostic harness also drains each bounded per-group Raft dispatch FIFO in
 up to 32-frame batches and processes up to 32 already-enqueued frames per
