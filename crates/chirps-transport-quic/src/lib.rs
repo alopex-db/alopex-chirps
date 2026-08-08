@@ -730,16 +730,12 @@ async fn send_wire_message(
     stream
         .finish()
         .map_err(|e| TransportError::Send(e.to_string()))?;
-    match stream
-        .stopped()
-        .await
-        .map_err(|e| TransportError::Send(e.to_string()))?
-    {
-        Some(error_code) => Err(TransportError::Send(format!(
-            "wire stream stopped by peer with code {error_code}"
-        ))),
-        None => Ok(()),
-    }
+    // `finish` hands the bytes to QUIC's local send path. Waiting for
+    // `stopped()` here couples every Raft frame to a peer-side stream
+    // lifecycle event and creates head-of-line blocking under many groups.
+    // Delivery is still covered by the envelope sequence/ack retransmission
+    // layer; a later send or reconnect observes a broken connection.
+    Ok(())
 }
 
 async fn send_envelope(
@@ -758,16 +754,7 @@ async fn send_envelope(
     stream
         .finish()
         .map_err(|e| TransportError::Send(e.to_string()))?;
-    match stream
-        .stopped()
-        .await
-        .map_err(|e| TransportError::Send(e.to_string()))?
-    {
-        Some(error_code) => Err(TransportError::Send(format!(
-            "frame stream stopped by peer with code {error_code}"
-        ))),
-        None => Ok(()),
-    }
+    Ok(())
 }
 
 async fn read_wire_message(
