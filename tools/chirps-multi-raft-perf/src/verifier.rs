@@ -453,18 +453,25 @@ fn verify_raw_artifacts(base: &Path, artifact: &Artifact) -> anyhow::Result<()> 
         .iter()
         .map(|sample| (sample.mode, sample.index))
         .collect::<BTreeSet<_>>();
-    ensure!(
-        node_files
-            .iter()
-            .map(|(mode, index, _)| (*mode, *index))
-            .collect::<BTreeSet<_>>()
-            == expected_keys,
-        "node metrics sample coverage mismatch"
-    );
-    ensure!(
-        node_files.len() == 30,
-        "expected three node metric files for each sample"
-    );
+    if artifact.resolved_config.resource_audit {
+        ensure!(
+            node_files
+                .iter()
+                .map(|(mode, index, _)| (*mode, *index))
+                .collect::<BTreeSet<_>>()
+                == expected_keys,
+            "node metrics sample coverage mismatch"
+        );
+        ensure!(
+            node_files.len() == 30,
+            "expected three node metric files for each sample"
+        );
+    } else {
+        ensure!(
+            node_files.is_empty(),
+            "node metrics present with resource audit disabled"
+        );
+    }
     ensure!(
         loadgen_reports.keys().copied().collect::<BTreeSet<_>>() == expected_keys,
         "loadgen report sample coverage mismatch"
@@ -795,7 +802,7 @@ fn verify_samples(artifact: &Artifact) -> anyhow::Result<()> {
             (sample.mode, sample.index) == expected_key,
             "sample order/index does not alternate"
         );
-        verify_sample(sample)?;
+        verify_sample(sample, artifact.resolved_config.resource_audit)?;
     }
 
     let sample_keys = artifact
@@ -857,7 +864,7 @@ fn verify_samples(artifact: &Artifact) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn verify_sample(sample: &Sample) -> anyhow::Result<()> {
+fn verify_sample(sample: &Sample, resource_audit: bool) -> anyhow::Result<()> {
     let expected_groups = expected_groups(sample.mode);
     ensure!(
         sample.group_count == expected_groups.len() as u64,
@@ -910,10 +917,12 @@ fn verify_sample(sample: &Sample) -> anyhow::Result<()> {
         sample.errors == 0 && sample.timeouts == 0,
         "sample contains errors or timeouts"
     );
-    ensure!(sample.cpu_seconds > 0.0, "sample has no CPU evidence");
-    ensure!(sample.peak_rss_bytes > 0, "sample has no RSS evidence");
-    ensure!(sample.fsync_calls > 0, "sample has no WAL sync evidence");
-    ensure!(sample.network_bytes > 0, "sample has no network evidence");
+    if resource_audit {
+        ensure!(sample.cpu_seconds > 0.0, "sample has no CPU evidence");
+        ensure!(sample.peak_rss_bytes > 0, "sample has no RSS evidence");
+        ensure!(sample.fsync_calls > 0, "sample has no WAL sync evidence");
+        ensure!(sample.network_bytes > 0, "sample has no network evidence");
+    }
     ensure!(
         !sample.oom_killed && !sample.process_restarted && !sample.shaper_mismatch,
         "sample invalidation flag set"
@@ -1531,6 +1540,7 @@ mod tests {
                 snapshot_threshold: 10_000,
                 send_queue_capacity: 4_096,
                 durability_batch_wait_us: 0,
+                resource_audit: true,
             },
             samples,
             per_group,

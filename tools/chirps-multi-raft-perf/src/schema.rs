@@ -86,6 +86,12 @@ pub struct ResolvedConfig {
     pub send_queue_capacity: u64,
     #[serde(default)]
     pub durability_batch_wait_us: u64,
+    #[serde(default = "default_resource_audit")]
+    pub resource_audit: bool,
+}
+
+fn default_resource_audit() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -300,7 +306,7 @@ pub struct RawMetricsLine {
 
 #[cfg(test)]
 mod tests {
-    use super::RawMetricsLine;
+    use super::{RawMetricsLine, ResolvedConfig, SampleObservation};
     use std::collections::BTreeMap;
 
     #[test]
@@ -329,6 +335,21 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&metrics).expect("serialize metrics"))
                 .expect("deserialize metrics");
         assert_eq!(decoded.leader_by_group, leaders);
+    }
+
+    #[test]
+    fn resource_audit_contract_defaults_are_explicit() {
+        let observation: SampleObservation = serde_json::from_str(
+            r#"{"mode":"multi_raft","index":0,"process_or_container_ids":[],"network_rtt_ms":[],"group_membership_after_drain":[],"loadgen_report_paths":[],"node_metrics_paths":[],"oom_killed":false,"process_restarted":false,"shaper_mismatch":false}"#,
+        )
+        .expect("observation without optional audit flag");
+        assert!(!observation.resource_audit);
+
+        let config: ResolvedConfig = serde_json::from_str(
+            r#"{"nodes":3,"groups":100,"payload_bytes":1024,"rtt_ms":1.0,"clients":300,"clients_per_node":100,"warmup_seconds":15,"measure_seconds":60,"drain_seconds":5,"samples":5,"fsync_interval":0,"snapshot_threshold":10000,"send_queue_capacity":4096}"#,
+        )
+        .expect("legacy resolved config");
+        assert!(config.resource_audit);
     }
 }
 
@@ -376,6 +397,8 @@ pub struct SampleObservation {
     pub group_membership_after_drain: Vec<GroupMembership>,
     pub loadgen_report_paths: Vec<String>,
     pub node_metrics_paths: Vec<String>,
+    #[serde(default)]
+    pub resource_audit: bool,
     pub oom_killed: bool,
     pub process_restarted: bool,
     pub shaper_mismatch: bool,

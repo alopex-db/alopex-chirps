@@ -8,10 +8,17 @@ pub fn summarize(observation: SampleObservation, base: &Path) -> anyhow::Result<
         observation.loadgen_report_paths.len() == 3,
         "three loadgen reports required"
     );
-    ensure!(
-        observation.node_metrics_paths.len() == 3,
-        "three node metric files required"
-    );
+    if observation.resource_audit {
+        ensure!(
+            observation.node_metrics_paths.len() == 3,
+            "three node metric files required when resource audit is enabled"
+        );
+    } else {
+        ensure!(
+            observation.node_metrics_paths.is_empty(),
+            "node metric files must be omitted when resource audit is disabled"
+        );
+    }
     let reports = observation
         .loadgen_report_paths
         .iter()
@@ -69,11 +76,15 @@ pub fn summarize(observation: SampleObservation, base: &Path) -> anyhow::Result<
         histogram.values().sum::<u64>() == committed,
         "latency histogram coverage mismatch"
     );
-    let metrics = observation
-        .node_metrics_paths
-        .iter()
-        .map(|path| read_metrics(&base.join(path), start, end))
-        .collect::<Result<Vec<_>, _>>()?;
+    let metrics = if observation.resource_audit {
+        observation
+            .node_metrics_paths
+            .iter()
+            .map(|path| read_metrics(&base.join(path), start, end))
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        Vec::new()
+    };
     let cpu_seconds = metrics.iter().map(|values| values.cpu).sum();
     let peak_rss_bytes = metrics
         .iter()

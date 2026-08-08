@@ -233,12 +233,13 @@ for item in "${ORDER[@]}"; do
   jq -n --arg mode "$mode" --argjson index "$index" \
     --arg id1 "${ids[0]}" --arg id2 "${ids[1]}" --arg id3 "${ids[2]}" \
     --slurpfile rtt "$output/$sample/rtt.json" --slurpfile membership "$output/$sample/membership.json" \
-    --argjson oom "$oom" --argjson restarted "$restarted" '
+    --argjson oom "$oom" --argjson restarted "$restarted" --argjson resource_audit "$resource_audit" '
     {
       mode:$mode,index:$index,process_or_container_ids:[$id1,$id2,$id3],
       network_rtt_ms:$rtt[0],group_membership_after_drain:$membership[0],
       loadgen_report_paths:["loadgen1.json","loadgen2.json","loadgen3.json"],
-      node_metrics_paths:["node1-metrics.jsonl","node2-metrics.jsonl","node3-metrics.jsonl"],
+      node_metrics_paths:(if $resource_audit then ["node1-metrics.jsonl","node2-metrics.jsonl","node3-metrics.jsonl"] else [] end),
+      resource_audit:$resource_audit,
       oom_killed:$oom,process_restarted:$restarted,shaper_mismatch:false
     }
   ' >"$output/$sample/observation.json"
@@ -308,7 +309,7 @@ jq -n --arg schema 'chirps.multi-raft-performance/v1' --arg commit "$source_sha"
       physical_deployment:false,swap_bytes_before:$swap_before,swap_bytes_after:$swap_after},
     resolved_config:{nodes:3,groups:100,payload_bytes:1024,rtt_ms:1.0,clients:300,clients_per_node:100,
       warmup_seconds:15,measure_seconds:60,drain_seconds:5,samples:5,fsync_interval:0,
-      snapshot_threshold:10000,send_queue_capacity:4096,durability_batch_wait_us:250},
+      snapshot_threshold:10000,send_queue_capacity:4096,durability_batch_wait_us:250,resource_audit:$resource_audit},
     samples:$samples[0],per_group:$per_group[0],raw_metrics_artifacts:$raw[0],raw_artifact_set_sha256:$raw_digest
   }
 ' >"$output/artifact-input.json"
