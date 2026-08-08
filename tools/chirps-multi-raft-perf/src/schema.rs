@@ -86,8 +86,6 @@ pub struct ResolvedConfig {
     pub send_queue_capacity: u64,
     #[serde(default)]
     pub durability_batch_wait_us: u64,
-    #[serde(default)]
-    pub shared_wal: bool,
     #[serde(default = "default_resource_audit")]
     pub resource_audit: bool,
 }

@@ -59,7 +59,6 @@ fn parse_node(args: &[String]) -> anyhow::Result<NodeArgs> {
         snapshot_threshold: option(args, "--snapshot-threshold")
             .unwrap_or("10000")
             .parse()?,
-        shared_wal: has_flag(args, "--shared-wal"),
         resource_audit: has_flag(args, "--resource-audit"),
         metrics_interval_ms: option(args, "--metrics-interval-ms")
             .unwrap_or("1000")

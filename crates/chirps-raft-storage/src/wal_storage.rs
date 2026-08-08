@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 #[cfg(test)]
 use std::any::Any;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Cursor, Read, Write};
@@ -35,7 +35,6 @@ const WAL_MAGIC: [u8; 4] = *b"RWAL";
 pub const CURRENT_FORMAT_VERSION: u32 = 1;
 /// WalWriterに埋め込むキー。
 const WAL_KEY: &[u8] = b"raft";
-const SHARED_WAL_KEY_PREFIX: &[u8] = b"raft-group/";
 /// スナップショットファイルのマジック。
 const SNAP_MAGIC: [u8; 4] = *b"SNAP";
 /// スナップショットファイルバージョン。
@@ -128,10 +127,6 @@ pub struct WalStorageConfig {
     /// Resource-audit-only durability barrier diagnostics. Disabled by default
     /// so ordinary deployments do not pay for the extra atomic increments.
     pub durability_diagnostics_enabled: bool,
-    /// Store all groups for one node in one append-only WAL. This mirrors
-    /// TiKV's node-wide Raft Engine log; disabled by default for compatibility
-    /// with the historical per-group WAL layout.
-    pub shared_wal: bool,
 }
 
 impl Default for WalStorageConfig {
@@ -145,7 +140,6 @@ impl Default for WalStorageConfig {
             snapshot_chunk_size: 4096,
             durability_batch_wait_us: 0,
             durability_diagnostics_enabled: false,
-            shared_wal: false,
         }
     }
 }
@@ -161,8 +155,6 @@ struct DurabilityParticipant {
     dirty: Weak<AtomicBool>,
 }
 
-type SharedWalWriter = (Arc<Mutex<BufWriter<File>>>, Arc<AtomicBool>);
-
 /// Batches durability barriers from independently-owned group WAL files.
 ///
 /// Each participant still owns and appends to its own file.  A sync request
@@ -172,7 +164,6 @@ type SharedWalWriter = (Arc<Mutex<BufWriter<File>>>, Arc<AtomicBool>);
 /// preserving the per-group WAL layout and failure propagation.
 pub struct WalDurabilityCoordinator {
     participants: Mutex<Vec<DurabilityParticipant>>,
-    shared_writers: Mutex<HashMap<PathBuf, SharedWalWriter>>,
     gate: Mutex<CoordinatorGate>,
     wake: Condvar,
     batch_wait: Duration,
@@ -187,7 +178,6 @@ impl WalDurabilityCoordinator {
     pub fn new_with_diagnostics(batch_wait: Duration, diagnostics_enabled: bool) -> Self {
         Self {
             participants: Mutex::new(Vec::new()),
-            shared_writers: Mutex::new(HashMap::new()),
             gate: Mutex::new(CoordinatorGate {
                 syncing: false,
                 generation: 0,
@@ -203,39 +193,10 @@ impl WalDurabilityCoordinator {
         let mut participants = self.participants.lock().unwrap();
         participants
             .retain(|entry| entry.writer.strong_count() > 0 && entry.dirty.strong_count() > 0);
-        if participants.iter().any(|entry| {
-            entry.writer.ptr_eq(&Arc::downgrade(writer))
-                && entry.dirty.ptr_eq(&Arc::downgrade(dirty))
-        }) {
-            return;
-        }
         participants.push(DurabilityParticipant {
             writer: Arc::downgrade(writer),
             dirty: Arc::downgrade(dirty),
         });
-    }
-
-    fn open_sink(self: &Arc<Self>, path: &Path) -> Result<RealWalSink> {
-        let (writer, dirty) = {
-            let mut shared = self.shared_writers.lock().unwrap();
-            if let Some(existing) = shared.get(path) {
-                existing.clone()
-            } else {
-                let file = OpenOptions::new().append(true).create(true).open(path)?;
-                let created = (
-                    Arc::new(Mutex::new(BufWriter::new(file))),
-                    Arc::new(AtomicBool::new(false)),
-                );
-                shared.insert(path.to_path_buf(), created.clone());
-                created
-            }
-        };
-        self.register(&writer, &dirty);
-        Ok(RealWalSink {
-            inner: writer,
-            dirty,
-            coordinator: Arc::clone(self),
-        })
     }
 
     fn sync(&self) -> Result<()> {
@@ -360,7 +321,6 @@ struct RealWalSink {
 }
 
 impl RealWalSink {
-    #[cfg(test)]
     fn new(path: &Path, coordinator: Arc<WalDurabilityCoordinator>) -> Result<Self> {
         let file = OpenOptions::new().append(true).create(true).open(path)?;
         let inner = Arc::new(Mutex::new(BufWriter::new(file)));
@@ -469,7 +429,6 @@ where
     node_id: ChirpsNodeId,
     wal_path: PathBuf,
     wal_writer: Box<dyn WalSink>,
-    wal_key: Vec<u8>,
     vote: Option<Vote<ChirpsNodeId>>,
     log_cache: BTreeMap<u64, Entry<ChirpsTypeConfig>>,
     log_order: VecDeque<u64>,
@@ -528,8 +487,8 @@ where
         std::fs::create_dir_all(&config.wal_dir)?;
         std::fs::create_dir_all(&config.snapshot_dir)?;
 
-        let wal_path = wal_path(&config.wal_dir, group_id, node_id, config.shared_wal);
-        let wal_writer = Box::new(coordinator.open_sink(&wal_path)?);
+        let wal_path = wal_path(&config.wal_dir, group_id, node_id);
+        let wal_writer = Box::new(RealWalSink::new(&wal_path, coordinator)?);
         Self::recover_with_sink(
             config,
             group_id,
@@ -548,14 +507,12 @@ where
         wal_path: PathBuf,
         wal_writer: Box<dyn WalSink>,
     ) -> Result<Self> {
-        let wal_key = wal_key(group_id, config.shared_wal);
         let mut storage = Self {
             config,
             group_id,
             node_id,
             wal_path,
             wal_writer,
-            wal_key,
             vote: None,
             log_cache: BTreeMap::new(),
             log_order: VecDeque::new(),
@@ -578,12 +535,7 @@ where
             return Ok(storage);
         }
 
-        if !storage.replay_wal()? {
-            let header = storage.build_header();
-            storage
-                .write_frame(&WalFrame::Header(header), true)
-                .context("failed to write shared wal header")?;
-        }
+        storage.replay_wal()?;
         Ok(storage)
     }
 
@@ -601,7 +553,7 @@ where
         state_machine: SM,
         wal_writer: Box<dyn WalSink>,
     ) -> Result<Self> {
-        let wal_path = wal_path(&config.wal_dir, group_id, node_id, config.shared_wal);
+        let wal_path = wal_path(&config.wal_dir, group_id, node_id);
         Self::recover_with_sink(
             config,
             group_id,
@@ -623,19 +575,14 @@ where
         }
     }
 
-    fn replay_wal(&mut self) -> Result<bool> {
+    fn replay_wal(&mut self) -> Result<()> {
         validate_wal_framing(&self.wal_path)?;
         let reader = WalReader::new(&self.wal_path)?;
-        let mut header_seen = false;
         for record in reader {
-            if let CoreWalRecord::Put(_, key, value) = record? {
-                if key != self.wal_key {
-                    continue;
-                }
+            if let CoreWalRecord::Put(_, _, value) = record? {
                 let frame: WalFrame = decode_frame(&value)?;
                 match frame {
                     WalFrame::Header(header) => {
-                        header_seen = true;
                         if header.magic != WAL_MAGIC {
                             return Err(anyhow!("invalid wal magic"));
                         }
@@ -651,7 +598,7 @@ where
                 }
             }
         }
-        Ok(header_seen)
+        Ok(())
     }
 
     fn apply_wal_record(&mut self, record: RaftWalRecord) -> Result<()> {
@@ -726,7 +673,7 @@ where
     fn write_frame(&mut self, frame: &WalFrame, sync_now: bool) -> Result<()> {
         let bytes = encode_frame(frame)?;
         self.wal_writer.append(
-            &CoreWalRecord::Put(TxnId(0), self.wal_key.clone(), bytes),
+            &CoreWalRecord::Put(TxnId(0), WAL_KEY.to_vec(), bytes),
             sync_now,
         )?;
         if sync_now {
@@ -780,10 +727,7 @@ where
         let mut entries: BTreeMap<u64, Entry<ChirpsTypeConfig>> = BTreeMap::new();
         for record in reader {
             let frame = match record? {
-                CoreWalRecord::Put(_, key, bytes) if key == self.wal_key => {
-                    decode_frame::<WalFrame>(&bytes)?
-                }
-                CoreWalRecord::Put(_, _, _) => continue,
+                CoreWalRecord::Put(_, _, bytes) => decode_frame::<WalFrame>(&bytes)?,
                 _ => continue,
             };
             match frame {
@@ -1343,22 +1287,8 @@ fn durably_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
-fn wal_path(base: &Path, group_id: GroupId, node_id: ChirpsNodeId, shared: bool) -> PathBuf {
-    if shared {
-        base.join(format!("raft-node-{node_id}.wal"))
-    } else {
-        base.join(format!("raft-{}-{}.wal", group_id.0, node_id))
-    }
-}
-
-fn wal_key(group_id: GroupId, shared: bool) -> Vec<u8> {
-    if shared {
-        let mut key = SHARED_WAL_KEY_PREFIX.to_vec();
-        key.extend_from_slice(&group_id.0.to_be_bytes());
-        key
-    } else {
-        WAL_KEY.to_vec()
-    }
+fn wal_path(base: &Path, group_id: GroupId, node_id: ChirpsNodeId) -> PathBuf {
+    base.join(format!("raft-{}-{}.wal", group_id.0, node_id))
 }
 
 fn snapshot_path(
@@ -1704,70 +1634,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shared_node_wal_keeps_group_records_isolated() {
-        let dir = tempdir().unwrap();
-        let mut cfg = base_config(dir.path());
-        cfg.shared_wal = true;
-        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
-        let mut left = WalRaftStorage::recover_with_coordinator(
-            cfg.clone(),
-            GroupId(101),
-            1,
-            MockStateMachine,
-            Arc::clone(&coordinator),
-        )
-        .unwrap();
-        let mut right = WalRaftStorage::recover_with_coordinator(
-            cfg.clone(),
-            GroupId(102),
-            1,
-            MockStateMachine,
-            Arc::clone(&coordinator),
-        )
-        .unwrap();
-        left.append_for_test(vec![sample_entry(1)]).await.unwrap();
-        right.append_for_test(vec![sample_entry(2)]).await.unwrap();
-        assert_eq!(left.try_get_log_entries(1..=1).await.unwrap().len(), 1);
-        assert!(right.try_get_log_entries(1..=1).await.unwrap().is_empty());
-        drop(left);
-        drop(right);
-
-        let recover_coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
-        let mut recovered_left = WalRaftStorage::recover_with_coordinator(
-            cfg.clone(),
-            GroupId(101),
-            1,
-            MockStateMachine,
-            Arc::clone(&recover_coordinator),
-        )
-        .unwrap();
-        let mut recovered_right = WalRaftStorage::recover_with_coordinator(
-            cfg,
-            GroupId(102),
-            1,
-            MockStateMachine,
-            recover_coordinator,
-        )
-        .unwrap();
-        assert_eq!(
-            recovered_left
-                .try_get_log_entries(1..=1)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(
-            recovered_right
-                .try_get_log_entries(2..=2)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-    }
-
-    #[tokio::test]
     async fn truncate_and_purge_updates_state() {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
@@ -1955,7 +1821,7 @@ mod tests {
         let mut cfg = base_config(dir.path());
         cfg.fsync_interval = 2;
         std::fs::create_dir_all(&cfg.wal_dir).unwrap();
-        let wal_path = wal_path(&cfg.wal_dir, GroupId(8), 8, cfg.shared_wal);
+        let wal_path = wal_path(&cfg.wal_dir, GroupId(8), 8);
         let sink = CountingWalSink::new(&wal_path);
 
         let mut storage = WalRaftStorage::with_sink_for_test(
@@ -1995,7 +1861,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
         std::fs::create_dir_all(&cfg.wal_dir).unwrap();
-        let wal_path = wal_path(&cfg.wal_dir, GroupId(9), 9, cfg.shared_wal);
+        let wal_path = wal_path(&cfg.wal_dir, GroupId(9), 9);
         let sink = CountingWalSink::new(&wal_path);
 
         let mut storage = WalRaftStorage::with_sink_for_test(

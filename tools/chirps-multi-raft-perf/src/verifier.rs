@@ -1545,7 +1545,6 @@ mod tests {
                 snapshot_threshold: 10_000,
                 send_queue_capacity: 4_096,
                 durability_batch_wait_us: 0,
-                shared_wal: false,
                 resource_audit: true,
             },
             samples,

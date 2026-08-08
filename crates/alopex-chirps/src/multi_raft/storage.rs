@@ -112,13 +112,10 @@ where
     ) -> Result<StorageTransaction<Self::Storage>, MultiRaftError> {
         let namespace = group_namespace(group_id);
         let mut config = self.base_config.clone();
-        if !config.shared_wal {
-            config.wal_dir = config.wal_dir.join(&namespace);
-        }
+        config.wal_dir = config.wal_dir.join(&namespace);
         config.snapshot_dir = config.snapshot_dir.join(&namespace);
         let wal_dir = config.wal_dir.clone();
         let snapshot_dir = config.snapshot_dir.clone();
-        let shared_wal = config.shared_wal;
 
         match WalRaftStorage::recover_with_coordinator(
             config,
@@ -136,16 +133,11 @@ where
                     namespace,
                     wal_dir,
                     snapshot_dir,
-                    shared_wal,
                     storage: SharedRaftStorage::new(storage),
                 })
             }
             Err(error) => {
-                let cleanup = if shared_wal {
-                    remove_dir_if_present(&snapshot_dir).await
-                } else {
-                    remove_group_dirs(&wal_dir, &snapshot_dir).await
-                };
+                let cleanup = remove_group_dirs(&wal_dir, &snapshot_dir).await;
                 let reason = match cleanup {
                     Ok(()) => error.to_string(),
                     Err(cleanup_error) => {
@@ -167,7 +159,6 @@ pub struct StorageTransaction<S> {
     namespace: String,
     wal_dir: PathBuf,
     snapshot_dir: PathBuf,
-    shared_wal: bool,
     storage: SharedRaftStorage<S>,
 }
 
@@ -197,20 +188,16 @@ impl<S> StorageTransaction<S> {
             group_id,
             wal_dir,
             snapshot_dir,
-            shared_wal,
             storage,
             ..
         } = self;
         drop(storage);
-        let cleanup = if shared_wal {
-            remove_dir_if_present(&snapshot_dir).await
-        } else {
-            remove_group_dirs(&wal_dir, &snapshot_dir).await
-        };
-        cleanup.map_err(|error| MultiRaftError::StorageCreation {
-            group_id,
-            reason: format!("partial-state cleanup failed: {error}"),
-        })
+        remove_group_dirs(&wal_dir, &snapshot_dir)
+            .await
+            .map_err(|error| MultiRaftError::StorageCreation {
+                group_id,
+                reason: format!("partial-state cleanup failed: {error}"),
+            })
     }
 }
 

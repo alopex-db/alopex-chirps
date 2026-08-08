@@ -7,19 +7,17 @@ readonly NODES="192.168.129.11:7101,192.168.129.12:7102,192.168.129.13:7103"
 readonly ORDER=(multi_raft:0 single_group:0 single_group:1 multi_raft:1 multi_raft:2 single_group:2 single_group:3 multi_raft:3 multi_raft:4 single_group:4)
 
 usage() {
-  printf '%s\n' 'Usage: run-controlled-container-multi-raft.sh --output EMPTY_DIR [--image IMAGE] [--resource-audit] [--shared-wal]'
+  printf '%s\n' 'Usage: run-controlled-container-multi-raft.sh --output EMPTY_DIR [--image IMAGE] [--resource-audit]'
 }
 
 output=""
 image=""
 resource_audit=false
-shared_wal=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) output="${2:?missing --output value}"; shift 2 ;;
     --image) image="${2:?missing --image value}"; shift 2 ;;
     --resource-audit) resource_audit=true; shift ;;
-    --shared-wal) shared_wal=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
@@ -43,11 +41,6 @@ if [[ "$resource_audit" == true ]]; then
   export RESOURCE_AUDIT_ARGS="--resource-audit" METRICS_INTERVAL_ARGS="--metrics-interval-ms 250"
 else
   export RESOURCE_AUDIT_ARGS="" METRICS_INTERVAL_ARGS=""
-fi
-if [[ "$shared_wal" == true ]]; then
-  export STORAGE_ARGS="--shared-wal"
-else
-  export STORAGE_ARGS=""
 fi
 export NODE1_CPU="${NODE1_CPU:-0-1}" LOADGEN1_CPU="${LOADGEN1_CPU:-2}"
 export NODE2_CPU="${NODE2_CPU:-3-4}" LOADGEN2_CPU="${LOADGEN2_CPU:-5}"
@@ -317,7 +310,7 @@ jq -n --arg schema 'chirps.multi-raft-performance/v1' --arg commit "$source_sha"
       physical_deployment:false,swap_bytes_before:$swap_before,swap_bytes_after:$swap_after},
     resolved_config:{nodes:3,groups:100,payload_bytes:1024,rtt_ms:1.0,clients:300,clients_per_node:100,
       warmup_seconds:15,measure_seconds:60,drain_seconds:5,samples:5,fsync_interval:0,
-      snapshot_threshold:10000,send_queue_capacity:4096,durability_batch_wait_us:250,shared_wal:$shared_wal,resource_audit:$resource_audit},
+      snapshot_threshold:10000,send_queue_capacity:4096,durability_batch_wait_us:250,resource_audit:$resource_audit},
     samples:$samples[0],per_group:$per_group[0],raw_metrics_artifacts:$raw[0],raw_artifact_set_sha256:$raw_digest
   }
 ' >"$output/artifact-input.json"
