@@ -37,7 +37,11 @@ registry_evidence="$scratch/alopex-core-registry.json"
 
 "$repo_root/scripts/verify-registry-dependency.sh" \
   --source-commit "$source_commit" --output "$registry_evidence"
-cargo test --locked --manifest-path "$repo_root/Cargo.toml" -p alopex-chirps --all-features
+# The multi-raft integration suite creates several in-memory Raft runtimes;
+# running those heavy tests concurrently causes scheduler starvation and
+# false promotion/leader timeouts. Keep coverage enabled and serialize only
+# test execution (production concurrency is unchanged).
+cargo test --locked --manifest-path "$repo_root/Cargo.toml" -p alopex-chirps --all-features -- --test-threads=1
 cargo test --locked --manifest-path "$repo_root/Cargo.toml" -p chirps-deterministic-harness
 
 python3 "$repo_root/scripts/release/bundle-v0.6-evidence.py" \

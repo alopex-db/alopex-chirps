@@ -130,7 +130,7 @@ def main() -> int:
                     "source_commit": args.source_commit,
                     "result": "pass",
                     "commands": [
-                        "cargo test --locked -p alopex-chirps --all-features",
+                        "cargo test --locked -p alopex-chirps --all-features -- --test-threads=1",
                         "cargo test --locked -p chirps-deterministic-harness",
                         "cargo build --locked -p alopex-chirps-raft-storage (isolated registry-only workspace)",
                     ],

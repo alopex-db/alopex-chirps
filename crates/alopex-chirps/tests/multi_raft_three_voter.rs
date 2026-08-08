@@ -19,6 +19,12 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 
+// These tests intentionally run several Raft runtimes in one process. Keep
+// readiness/proposal deadlines above the election interval so host scheduler
+// contention cannot turn a valid eventual convergence into a false failure.
+const TEST_READINESS_TIMEOUT: Duration = Duration::from_secs(10);
+const TEST_PROPOSAL_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[derive(Clone, Default)]
 struct EchoStateMachine {
     applied: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -134,8 +140,11 @@ impl TestCluster {
                 factory,
                 RaftConfig {
                     node_id,
-                    election_timeout_ms: 120,
-                    heartbeat_interval_ms: 40,
+                    // Keep a 10x election/heartbeat ratio. The 300-proposal
+                    // stress case must exercise admission, not manufacture
+                    // leader churn from an unrealistically tight timer.
+                    election_timeout_ms: 1_000,
+                    heartbeat_interval_ms: 100,
                     ..RaftConfig::default()
                 },
             ));
@@ -256,7 +265,7 @@ impl TestCluster {
             .create_group(self.group_id, BTreeSet::from([1]), self.states[&1].clone())
             .await
             .unwrap();
-        timeout(Duration::from_secs(3), async {
+        timeout(TEST_READINESS_TIMEOUT, async {
             loop {
                 if self.managers[&1]
                     .get_group(self.group_id)
@@ -317,7 +326,7 @@ impl TestCluster {
     }
 
     async fn wait_for_applied_len(&self, expected: usize) {
-        timeout(Duration::from_secs(3), async {
+        timeout(TEST_READINESS_TIMEOUT, async {
             loop {
                 let mut complete = true;
                 for state in self.states.values() {
@@ -338,7 +347,7 @@ impl TestCluster {
     }
 
     async fn wait_for_voters_on(&self, node_ids: &[u64], expected: BTreeSet<u64>) {
-        timeout(Duration::from_secs(3), async {
+        timeout(TEST_READINESS_TIMEOUT, async {
             loop {
                 if node_ids.iter().all(|node_id| {
                     voters(
@@ -358,7 +367,7 @@ impl TestCluster {
     }
 
     async fn wait_until_response_is_held(&self, node_id: u64) -> (u64, u64) {
-        timeout(Duration::from_secs(3), async {
+        timeout(TEST_READINESS_TIMEOUT, async {
             loop {
                 let correlation = self.held_correlation[&node_id].load(Ordering::Acquire);
                 if correlation != 0 {
@@ -473,7 +482,7 @@ async fn sequential_groups_all_finish_common_voter_promotion() {
             .create_group(group_id, BTreeSet::from([1]), EchoStateMachine::default())
             .await
             .unwrap();
-        timeout(Duration::from_secs(3), async {
+        timeout(TEST_READINESS_TIMEOUT, async {
             loop {
                 if cluster.managers[&1]
                     .get_group(group_id)
@@ -506,7 +515,7 @@ async fn sequential_groups_all_finish_common_voter_promotion() {
             .unwrap();
         }
         timeout(
-            Duration::from_secs(3),
+            TEST_READINESS_TIMEOUT,
             seed.change_membership(BTreeSet::from([1, 2, 3])),
         )
         .await
@@ -621,7 +630,7 @@ async fn remove_drains_pending_proposal_and_only_valid_response_completes_it() {
         .hold_next_proposal_response
         .store(false, Ordering::Release);
     assert_eq!(
-        timeout(Duration::from_secs(3), proposal)
+        timeout(TEST_PROPOSAL_TIMEOUT, proposal)
             .await
             .expect("the valid response must complete the pending RPC")
             .unwrap()
@@ -629,7 +638,7 @@ async fn remove_drains_pending_proposal_and_only_valid_response_completes_it() {
         b"drain-race".to_vec()
     );
     assert!(
-        timeout(Duration::from_secs(3), remove)
+        timeout(TEST_PROPOSAL_TIMEOUT, remove)
             .await
             .expect("remove must finish after the pending RPC drains")
             .unwrap()
@@ -699,7 +708,7 @@ async fn concurrent_single_group_proposals_converge_on_all_voters() {
             let seed = Arc::clone(&seed);
             tokio::spawn(async move {
                 let command = format!("concurrent-{index}").into_bytes();
-                let deadline = Instant::now() + Duration::from_secs(10);
+                let deadline = Instant::now() + TEST_PROPOSAL_TIMEOUT;
                 loop {
                     match seed.propose(command.clone()).await {
                         Ok(response) => break Ok(response),
@@ -747,7 +756,7 @@ async fn three_voters_survive_baseline_level_single_group_concurrency() {
             let seed = Arc::clone(&seed);
             tokio::spawn(async move {
                 let command = format!("baseline-{index}").into_bytes();
-                let deadline = Instant::now() + Duration::from_secs(10);
+                let deadline = Instant::now() + TEST_PROPOSAL_TIMEOUT;
                 loop {
                     match seed.propose(command.clone()).await {
                         Ok(_) => break Ok(()),
@@ -787,7 +796,7 @@ async fn concurrent_multi_group_proposals_do_not_starve_each_other() {
             .create_group(group_id, BTreeSet::from([1]), EchoStateMachine::default())
             .await
             .unwrap();
-        timeout(Duration::from_secs(3), async {
+        timeout(TEST_READINESS_TIMEOUT, async {
             loop {
                 if cluster.managers[&1]
                     .get_group(group_id)
@@ -842,7 +851,7 @@ async fn concurrent_multi_group_proposals_do_not_starve_each_other() {
                 tokio::spawn(async move {
                     let command =
                         format!("multi-group-{group_index}-{proposal_index}").into_bytes();
-                    let deadline = Instant::now() + Duration::from_secs(3);
+                    let deadline = Instant::now() + TEST_PROPOSAL_TIMEOUT;
                     loop {
                         let mut last_error = None;
                         for target in &replicas {
