@@ -84,11 +84,12 @@ not be reported as one.
   behavior depends on the diagnostics.
 
 The controlled container profile uses a fresh 8 GiB `tmpfs` at `/work` for each
-node and sample. `fsync_calls` is the count of completed locked
-`alopex-core` WAL appends; that implementation invokes `sync_all` exactly once
-per successful append. It is operational evidence, not a claim about when a
-physical device persisted the bytes. `/proc/self/io` disk bytes may therefore
-legitimately be zero on this profile and are still preserved verbatim.
+node and sample. `fsync_calls` is the count of completed WAL durability barriers
+(`sync_all`) in the Chirps sink. With `fsync_interval=0`, one Raft append batch
+has one barrier; interval mode adds barriers at configured boundaries. It is
+operational evidence, not a claim about when a physical device persisted the
+bytes. `/proc/self/io` disk bytes may therefore legitimately be zero on this
+profile and are still preserved verbatim.
 
 ## Controlled-local execution
 

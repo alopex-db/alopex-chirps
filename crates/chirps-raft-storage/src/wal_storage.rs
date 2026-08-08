@@ -7,7 +7,7 @@ use crate::types::{
     LogState, OptionalSend, RaftLogReader, RaftSnapshotBuilder, Snapshot, SnapshotMeta,
     StorageError, StoredMembership, Vote,
 };
-use alopex_core::log::wal::{WalReader, WalRecord as CoreWalRecord, WalWriter};
+use alopex_core::log::wal::{WalReader, WalRecord as CoreWalRecord};
 use alopex_core::types::TxnId;
 use anyhow::{Context, Result, anyhow};
 use openraft::{ErrorSubject, ErrorVerb};
@@ -17,8 +17,8 @@ use sha2::{Digest, Sha256};
 use std::any::Any;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fmt::Debug;
-use std::fs::OpenOptions;
-use std::io::{self, Cursor, Read, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufWriter, Cursor, Read, Write};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,12 +39,13 @@ const SNAP_MAGIC: [u8; 4] = *b"SNAP";
 /// スナップショットファイルバージョン。
 const SNAP_VERSION: u32 = 1;
 
-/// Process-wide count of completed WAL appends that call `sync_all`.
+/// Process-wide count of completed WAL durability barriers (`sync_all`).
 ///
 /// The controlled-local runner uses one process per logical node, so this is
 /// an exact per-node count without coupling storage instances to the runner.
-/// The locked `alopex-core` WAL implementation performs one `sync_all` in each
-/// successful append. This is not a physical-media persistence claim.
+/// A Raft append batch has one barrier when `fsync_interval == 0`; interval mode
+/// adds barriers at the configured boundaries. This is not a physical-media
+/// persistence claim.
 static PROCESS_FSYNC_CALLS: AtomicU64 = AtomicU64::new(0);
 
 /// WAL access is synchronous because `alopex-core` exposes a synchronous
@@ -87,7 +88,7 @@ pub fn process_fsync_calls() -> u64 {
 ///     format_version: 1,
 ///     snapshot_chunk_size: 8 * 1024,
 /// };
-/// assert_eq!(config.fsync_interval, 0); // すべてのエントリでfsync
+/// assert_eq!(config.fsync_interval, 0); // appendバッチ完了時にfsync
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalStorageConfig {
@@ -164,27 +165,47 @@ pub(crate) trait WalSink: Send + Sync {
 }
 
 struct RealWalSink {
-    inner: Mutex<WalWriter>,
+    inner: Mutex<BufWriter<File>>,
 }
 
 impl RealWalSink {
-    fn new(inner: WalWriter) -> Self {
-        Self {
-            inner: Mutex::new(inner),
-        }
+    fn new(path: &Path) -> Result<Self> {
+        let file = OpenOptions::new().append(true).create(true).open(path)?;
+        Ok(Self {
+            inner: Mutex::new(BufWriter::new(file)),
+        })
+    }
+
+    fn append_record(writer: &mut BufWriter<File>, record: &CoreWalRecord) -> Result<()> {
+        let data = bincode::serialize(record)?;
+        let checksum = crc32fast::hash(&data);
+        writer.write_all(&(data.len() as u32).to_le_bytes())?;
+        writer.write_all(&checksum.to_le_bytes())?;
+        writer.write_all(&data)?;
+        Ok(())
+    }
+
+    fn sync_writer(writer: &mut BufWriter<File>) -> Result<()> {
+        writer.flush()?;
+        writer.get_ref().sync_all()?;
+        PROCESS_FSYNC_CALLS.fetch_add(1, Ordering::Relaxed);
+        Ok(())
     }
 }
 
 impl WalSink for RealWalSink {
-    fn append(&mut self, record: &CoreWalRecord, _sync: bool) -> Result<()> {
+    fn append(&mut self, record: &CoreWalRecord, sync: bool) -> Result<()> {
         let mut guard = self.inner.lock().unwrap();
-        guard.append(record)?;
-        PROCESS_FSYNC_CALLS.fetch_add(1, Ordering::Relaxed);
+        Self::append_record(&mut guard, record)?;
+        if sync {
+            Self::sync_writer(&mut guard)?;
+        }
         Ok(())
     }
 
     fn sync(&mut self) -> Result<()> {
-        Ok(())
+        let mut guard = self.inner.lock().unwrap();
+        Self::sync_writer(&mut guard)
     }
 
     #[cfg(test)]
@@ -292,7 +313,7 @@ where
         std::fs::create_dir_all(&config.snapshot_dir)?;
 
         let wal_path = wal_path(&config.wal_dir, group_id, node_id);
-        let wal_writer = Box::new(RealWalSink::new(WalWriter::new(&wal_path)?));
+        let wal_writer = Box::new(RealWalSink::new(&wal_path)?);
         Self::recover_with_sink(
             config,
             group_id,
@@ -578,8 +599,11 @@ where
         Ok(filtered)
     }
 
-    fn append_entry(&mut self, entry: Entry<ChirpsTypeConfig>) -> Result<()> {
-        let sync_now = self.config.fsync_interval == 0;
+    fn append_entry_with_sync(
+        &mut self,
+        entry: Entry<ChirpsTypeConfig>,
+        sync_now: bool,
+    ) -> Result<()> {
         self.write_frame(
             &WalFrame::Record(RaftWalRecord::AppendLog(entry.clone())),
             sync_now,
@@ -609,7 +633,10 @@ where
         }
 
         for entry in entries {
-            self.append_entry(entry)?;
+            self.append_entry_with_sync(entry, false)?;
+        }
+        if self.config.fsync_interval == 0 {
+            self.sync_wal()?;
         }
         if self.config.fsync_interval > 0 && self.pending_unsynced > 0 {
             self.sync_wal()?;
@@ -710,7 +737,10 @@ where
         let res = with_blocking_wal_io(|| {
             (|| -> Result<()> {
                 for entry in collected {
-                    self.append_entry(entry)?;
+                    self.append_entry_with_sync(entry, false)?;
+                }
+                if self.config.fsync_interval == 0 {
+                    self.sync_wal()?;
                 }
                 if self.config.fsync_interval > 0 && self.pending_unsynced > 0 {
                     self.sync_wal()?;
@@ -1327,7 +1357,7 @@ mod tests {
     impl CountingWalSink {
         fn new(path: &Path) -> Self {
             Self {
-                inner: RealWalSink::new(WalWriter::new(path).unwrap()),
+                inner: RealWalSink::new(path).unwrap(),
                 appended: Arc::new(Mutex::new(0)),
                 synced: Arc::new(Mutex::new(0)),
             }
@@ -1601,6 +1631,47 @@ mod tests {
 
         assert_eq!(appends, 3);
         assert_eq!(syncs, 2, "fsync_interval should sync every 2 entries");
+    }
+
+    #[tokio::test]
+    async fn zero_fsync_interval_group_commits_one_append_batch() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        std::fs::create_dir_all(&cfg.wal_dir).unwrap();
+        let wal_path = wal_path(&cfg.wal_dir, GroupId(9), 9);
+        let sink = CountingWalSink::new(&wal_path);
+
+        let mut storage = WalRaftStorage::with_sink_for_test(
+            cfg,
+            GroupId(9),
+            9,
+            MockStateMachine,
+            Box::new(sink),
+        )
+        .unwrap();
+        storage
+            .wal_writer
+            .as_any()
+            .downcast_ref::<CountingWalSink>()
+            .unwrap()
+            .reset();
+
+        storage
+            .append_for_test(vec![sample_entry(1), sample_entry(2), sample_entry(3)])
+            .await
+            .unwrap();
+
+        let (appends, syncs) = storage
+            .wal_writer
+            .as_any()
+            .downcast_ref::<CountingWalSink>()
+            .unwrap()
+            .counts();
+        assert_eq!(appends, 3);
+        assert_eq!(
+            syncs, 1,
+            "one append batch should have one durability barrier"
+        );
     }
 
     #[tokio::test]
