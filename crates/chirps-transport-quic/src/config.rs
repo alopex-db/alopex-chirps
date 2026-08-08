@@ -34,6 +34,25 @@ impl Default for TransportConfigV04 {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::TransportConfigV04;
+
+    #[test]
+    fn peer_stop_wait_is_safe_by_default() {
+        assert!(TransportConfigV04::default().await_peer_stop);
+    }
+
+    #[test]
+    fn peer_stop_wait_can_be_disabled_for_fanout_lane() {
+        let config = TransportConfigV04 {
+            await_peer_stop: false,
+            ..TransportConfigV04::default()
+        };
+        assert!(!config.await_peer_stop);
+    }
+}
+
 /// 優先度制御の基本パラメータ。weights は [High, Normal, Low] の順でデフォルト [4,2,1]。
 #[derive(Clone, Debug)]
 pub struct PriorityConfig {
