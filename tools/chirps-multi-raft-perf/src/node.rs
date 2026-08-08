@@ -805,6 +805,7 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
     let process = read_process_metrics().unwrap_or_default();
     let network = read_network_metrics().unwrap_or_default();
     let transport = runtime.backend.metrics();
+    let group_ids = runtime.manager.list_groups();
     let proposal_inflight = runtime
         .inflight
         .lock()
@@ -812,13 +813,9 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
         .iter()
         .map(|(group, count)| (*group, count.load(Ordering::Relaxed)))
         .collect();
-    let per_group_queue_depth = runtime
-        .dispatch_depth
-        .lock()
-        .await
-        .iter()
-        .map(|(group, depth)| (*group, depth.load(Ordering::Relaxed)))
-        .collect::<BTreeMap<_, _>>();
+    let dispatch_depth = runtime.dispatch_depth.lock().await;
+    let per_group_queue_depth = normalized_group_depth(&group_ids, &dispatch_depth);
+    drop(dispatch_depth);
     let dispatch_queue_depth = per_group_queue_depth.values().sum();
     let leader_by_group = runtime
         .manager
@@ -874,6 +871,22 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
             as u64,
         dispatch_budget_waits: runtime.dispatch_budget_waits.load(Ordering::Relaxed),
     }
+}
+
+fn normalized_group_depth(
+    group_ids: &[GroupId],
+    depths: &BTreeMap<u64, Arc<AtomicU64>>,
+) -> BTreeMap<u64, u64> {
+    group_ids
+        .iter()
+        .map(|group_id| {
+            let depth = depths
+                .get(&group_id.0)
+                .map(|depth| depth.load(Ordering::Relaxed))
+                .unwrap_or(0);
+            (group_id.0, depth)
+        })
+        .collect()
 }
 
 #[derive(Default)]
@@ -1096,6 +1109,16 @@ mod tests {
     fn bounded_group_queue_has_a_finite_payload_budget() {
         const PAYLOAD_BYTES: usize = 1024;
         assert_eq!(GROUP_QUEUE_CAPACITY * PAYLOAD_BYTES, 32 * 1024);
+    }
+
+    #[test]
+    fn queue_depth_audit_emits_zero_for_groups_without_frames() {
+        let groups = [GroupId(1), GroupId(2), GroupId(3)];
+        let depths = BTreeMap::from([(2, Arc::new(AtomicU64::new(7)))]);
+        assert_eq!(
+            normalized_group_depth(&groups, &depths),
+            BTreeMap::from([(1, 0), (2, 7), (3, 0)])
+        );
     }
 
     #[test]
