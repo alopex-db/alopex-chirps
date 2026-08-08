@@ -2,58 +2,52 @@
 set -euo pipefail
 
 usage() {
-  cat <<'USAGE'
-Usage: run-v0.6-release-gate.sh --output-dir DIR [--source-commit SHA]
-
-Runs the v0.6-only local gate, produces registry build evidence, and assembles
-the complete version-bound manifest. Missing required v0.6 evidence is fatal.
-USAGE
+  echo "Usage: $0 --output-dir DIR --source-commit SHA" >&2
 }
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir=""
 source_commit=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --output-dir) output_dir="${2:?missing value for --output-dir}"; shift 2 ;;
-    --source-commit) source_commit="${2:?missing value for --source-commit}"; shift 2 ;;
+    --output-dir) output_dir="${2:?missing output dir}"; shift 2 ;;
+    --source-commit) source_commit="${2:?missing source commit}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    *) usage; exit 2 ;;
   esac
 done
-[[ -n "$output_dir" ]] || { printf '%s\n' '--output-dir is required' >&2; exit 2; }
-source_commit="${source_commit:-$(git -C "$repo_root" rev-parse HEAD)}"
-catalog="$repo_root/docs/release/evidence/v0.6.0/required-evidence.json"
+[[ -n "$output_dir" && -n "$source_commit" ]] || { usage; exit 2; }
 
-# Fail before expensive commands when another v0.6 requirement has not yet
-# produced its real release evidence.
-python3 "$repo_root/scripts/release/bundle-v0.6-evidence.py" \
-  --repo-root "$repo_root" --catalog "$catalog" --preflight
-
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/chirps-v06-gate.XXXXXXXX")"
-cleanup() { rm -rf "$scratch"; }
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tmp_root="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/chirps-v06-gate.XXXXXX")"
+cleanup() { rm -rf "$tmp_root"; }
 trap cleanup EXIT
-registry_evidence="$scratch/alopex-core-registry.json"
-
-"$repo_root/scripts/verify-registry-dependency.sh" \
-  --source-commit "$source_commit" --output "$registry_evidence"
-# The multi-raft integration suite creates several in-memory Raft runtimes;
-# running those heavy tests concurrently causes scheduler starvation and
-# false promotion/leader timeouts. Keep coverage enabled and serialize only
-# test execution (production concurrency is unchanged).
-cargo test --locked --manifest-path "$repo_root/Cargo.toml" -p alopex-chirps --all-features -- --test-threads=1
-cargo test --locked --manifest-path "$repo_root/Cargo.toml" -p chirps-deterministic-harness
 
 python3 "$repo_root/scripts/release/bundle-v0.6-evidence.py" \
   --repo-root "$repo_root" \
-  --catalog "$catalog" \
-  --source-commit "$source_commit" \
-  --registry-evidence "$registry_evidence" \
-  --output-dir "$output_dir"
+  --catalog "$repo_root/docs/release/evidence/v0.6.0/required-evidence.json" \
+  --preflight
 
+CARGO_TARGET_DIR="$tmp_root/target-tests" cargo test --locked -p alopex-chirps --all-features -- --test-threads=1
+
+CARGO_TARGET_DIR="$tmp_root/target-harness" cargo run --locked -p chirps-deterministic-harness -- \
+  run --scenario multi-raft-v0.6 --seed 0x0000000000000603 \
+  --artifact "$tmp_root/multi-raft-fault.json" --minimize-on-failure
+CARGO_TARGET_DIR="$tmp_root/target-replay" cargo run --locked -p chirps-deterministic-harness -- \
+  replay --artifact "$tmp_root/multi-raft-fault.json"
+
+registry="$tmp_root/alopex-core-registry.json"
+bash "$repo_root/scripts/verify-registry-dependency.sh" \
+  --output "$registry" --source-commit "$source_commit"
+
+rm -rf "$output_dir"
+python3 "$repo_root/scripts/release/bundle-v0.6-evidence.py" \
+  --repo-root "$repo_root" \
+  --catalog "$repo_root/docs/release/evidence/v0.6.0/required-evidence.json" \
+  --source-commit "$source_commit" \
+  --registry-evidence "$registry" \
+  --output-dir "$output_dir"
 python3 "$repo_root/scripts/release/verify-evidence-manifest.py" \
   --manifest "$output_dir/manifest.json" \
-  --requirements "$catalog" \
+  --requirements "$repo_root/docs/release/evidence/v0.6.0/required-evidence.json" \
   --schema "$repo_root/docs/release/evidence/v0.6.0/manifest.schema.json" \
-  --version 0.6.0 \
-  --source-commit "$source_commit"
+  --version 0.6.0 --source-commit "$source_commit"
