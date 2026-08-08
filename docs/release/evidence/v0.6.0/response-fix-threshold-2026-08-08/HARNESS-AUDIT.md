@@ -22,3 +22,7 @@
 - The response-permit regression is now covered by
   `node::tests::response_dispatch_reuses_the_pump_permit` (21 performance-tool
   unit tests total, commit `016884e`).
+- The release/CI gates now enable `multi-raft` through `--all-features` and run
+  the heavy in-memory Raft integration tests with `--test-threads=1`; a prior
+  no-feature invocation silently ran zero 3-voter tests, while concurrent host
+  scheduling produced false timeout/leader-churn failures.
