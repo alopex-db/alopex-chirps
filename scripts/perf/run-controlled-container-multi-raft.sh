@@ -306,7 +306,7 @@ jq -n --arg schema 'chirps.multi-raft-performance/v1' --arg commit "$source_sha"
   --slurpfile raw "$output/raw-artifacts.json" --arg raw_digest "$raw_set_digest" \
   --arg n1 "$NODE1_CPU" --arg n2 "$NODE2_CPU" --arg n3 "$NODE3_CPU" \
   --arg l1 "$LOADGEN1_CPU" --arg l2 "$LOADGEN2_CPU" --arg l3 "$LOADGEN3_CPU" \
-  --argjson resource_audit "$resource_audit" '
+  --argjson resource_audit "$resource_audit" --argjson shared_wal "$shared_wal" '
   {
     schema:$schema,commit_sha:$commit,binary_sha256:$binary,
     runner_command:["scripts/perf/run-controlled-container-multi-raft.sh","--output","<OUTPUT>"],
