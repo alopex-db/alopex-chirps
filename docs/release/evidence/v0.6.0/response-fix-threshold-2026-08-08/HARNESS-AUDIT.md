@@ -19,4 +19,6 @@
 - Snapshot-specific storage tests are separate from the proposal lane and ran
   successfully: 20 unit tests plus 4 resilience tests in
   `alopex-chirps-raft-storage`.
-
+- The response-permit regression is now covered by
+  `node::tests::response_dispatch_reuses_the_pump_permit` (21 performance-tool
+  unit tests total, commit `016884e`).
