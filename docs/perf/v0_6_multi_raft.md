@@ -225,6 +225,10 @@ every managed group, including idle groups with depth zero. This makes the
 detachable audit schema complete and prevents a missing-key measurement defect
 from being mistaken for a runtime queue failure.
 
+The perf audit state machine's per-command SHA-256 digest is likewise enabled
+only by `--resource-audit`; normal measurements retain applied-count integrity
+without charging the workload for diagnostic hashing.
+
 ## Current evidence status
 
 The controlled local native run was executed with three logical nodes in three

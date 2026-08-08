@@ -22,6 +22,11 @@ The audit remains detachable: queue depth, leader map, RSS, CPU, and transport
 metrics are emitted only with `--resource-audit`; default workload behavior is
 unchanged.
 
+The perf-only audit state machine also gates its per-command SHA-256 digest on
+`--resource-audit`. Normal measurements retain the applied-count contract but
+do not charge the benchmark for a diagnostic hash over every 1 KiB command.
+The detach behavior is covered by a unit test (12 node-harness tests passed).
+
 ## Verification
 
 In the corrected run, every measured Multi-Raft node emitted 240/240 records
