@@ -1,0 +1,3306 @@
+[
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 1,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 2,
+    "committed": 50,
+    "throughput_per_sec": 0.8333333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 3,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 4,
+    "committed": 40,
+    "throughput_per_sec": 0.6666666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 5,
+    "committed": 46,
+    "throughput_per_sec": 0.7666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 6,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 7,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 8,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 9,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 10,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 11,
+    "committed": 46,
+    "throughput_per_sec": 0.7666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 12,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 13,
+    "committed": 39,
+    "throughput_per_sec": 0.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 14,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 15,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 16,
+    "committed": 39,
+    "throughput_per_sec": 0.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 17,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 18,
+    "committed": 46,
+    "throughput_per_sec": 0.7666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 19,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 20,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 21,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 22,
+    "committed": 39,
+    "throughput_per_sec": 0.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 23,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 24,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 25,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 26,
+    "committed": 44,
+    "throughput_per_sec": 0.7333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 27,
+    "committed": 49,
+    "throughput_per_sec": 0.8166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 28,
+    "committed": 39,
+    "throughput_per_sec": 0.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 29,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 30,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 31,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 32,
+    "committed": 49,
+    "throughput_per_sec": 0.8166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 33,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 34,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 35,
+    "committed": 48,
+    "throughput_per_sec": 0.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 36,
+    "committed": 44,
+    "throughput_per_sec": 0.7333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 37,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 38,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 39,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 40,
+    "committed": 44,
+    "throughput_per_sec": 0.7333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 41,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 42,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 43,
+    "committed": 46,
+    "throughput_per_sec": 0.7666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 44,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 45,
+    "committed": 50,
+    "throughput_per_sec": 0.8333333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 46,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 47,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 48,
+    "committed": 44,
+    "throughput_per_sec": 0.7333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 49,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 50,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 51,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 52,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 53,
+    "committed": 48,
+    "throughput_per_sec": 0.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 54,
+    "committed": 44,
+    "throughput_per_sec": 0.7333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 55,
+    "committed": 44,
+    "throughput_per_sec": 0.7333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 56,
+    "committed": 48,
+    "throughput_per_sec": 0.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 57,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 58,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 59,
+    "committed": 46,
+    "throughput_per_sec": 0.7666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 60,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 61,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 62,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 63,
+    "committed": 40,
+    "throughput_per_sec": 0.6666666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 64,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 65,
+    "committed": 48,
+    "throughput_per_sec": 0.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 66,
+    "committed": 46,
+    "throughput_per_sec": 0.7666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 67,
+    "committed": 39,
+    "throughput_per_sec": 0.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 68,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 69,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 70,
+    "committed": 44,
+    "throughput_per_sec": 0.7333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 71,
+    "committed": 48,
+    "throughput_per_sec": 0.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 72,
+    "committed": 48,
+    "throughput_per_sec": 0.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 73,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 74,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 75,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 76,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 77,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 78,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 79,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 80,
+    "committed": 48,
+    "throughput_per_sec": 0.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 81,
+    "committed": 42,
+    "throughput_per_sec": 0.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 82,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 83,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 84,
+    "committed": 39,
+    "throughput_per_sec": 0.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 85,
+    "committed": 44,
+    "throughput_per_sec": 0.7333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 86,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 87,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 88,
+    "committed": 40,
+    "throughput_per_sec": 0.6666666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 89,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 90,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 91,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 92,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 93,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 94,
+    "committed": 46,
+    "throughput_per_sec": 0.7666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 95,
+    "committed": 40,
+    "throughput_per_sec": 0.6666666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 96,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 97,
+    "committed": 41,
+    "throughput_per_sec": 0.6833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 98,
+    "committed": 47,
+    "throughput_per_sec": 0.7833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 99,
+    "committed": 43,
+    "throughput_per_sec": 0.7166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 0,
+    "group_id": 100,
+    "committed": 45,
+    "throughput_per_sec": 0.75
+  },
+  {
+    "mode": "single_group",
+    "sample_index": 0,
+    "group_id": 1,
+    "committed": 5539,
+    "throughput_per_sec": 92.31666666666666
+  },
+  {
+    "mode": "single_group",
+    "sample_index": 1,
+    "group_id": 1,
+    "committed": 5535,
+    "throughput_per_sec": 92.25
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 1,
+    "committed": 557,
+    "throughput_per_sec": 9.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 2,
+    "committed": 597,
+    "throughput_per_sec": 9.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 3,
+    "committed": 401,
+    "throughput_per_sec": 6.683333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 4,
+    "committed": 564,
+    "throughput_per_sec": 9.4
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 5,
+    "committed": 616,
+    "throughput_per_sec": 10.266666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 6,
+    "committed": 414,
+    "throughput_per_sec": 6.9
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 7,
+    "committed": 596,
+    "throughput_per_sec": 9.933333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 8,
+    "committed": 580,
+    "throughput_per_sec": 9.666666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 9,
+    "committed": 417,
+    "throughput_per_sec": 6.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 10,
+    "committed": 590,
+    "throughput_per_sec": 9.833333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 11,
+    "committed": 589,
+    "throughput_per_sec": 9.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 12,
+    "committed": 419,
+    "throughput_per_sec": 6.983333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 13,
+    "committed": 589,
+    "throughput_per_sec": 9.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 14,
+    "committed": 601,
+    "throughput_per_sec": 10.016666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 15,
+    "committed": 406,
+    "throughput_per_sec": 6.766666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 16,
+    "committed": 561,
+    "throughput_per_sec": 9.35
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 17,
+    "committed": 605,
+    "throughput_per_sec": 10.083333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 18,
+    "committed": 389,
+    "throughput_per_sec": 6.483333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 19,
+    "committed": 583,
+    "throughput_per_sec": 9.716666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 20,
+    "committed": 612,
+    "throughput_per_sec": 10.2
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 21,
+    "committed": 398,
+    "throughput_per_sec": 6.633333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 22,
+    "committed": 558,
+    "throughput_per_sec": 9.3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 23,
+    "committed": 578,
+    "throughput_per_sec": 9.633333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 24,
+    "committed": 410,
+    "throughput_per_sec": 6.833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 25,
+    "committed": 574,
+    "throughput_per_sec": 9.566666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 26,
+    "committed": 623,
+    "throughput_per_sec": 10.383333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 27,
+    "committed": 390,
+    "throughput_per_sec": 6.5
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 28,
+    "committed": 586,
+    "throughput_per_sec": 9.766666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 29,
+    "committed": 601,
+    "throughput_per_sec": 10.016666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 30,
+    "committed": 396,
+    "throughput_per_sec": 6.6
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 31,
+    "committed": 591,
+    "throughput_per_sec": 9.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 32,
+    "committed": 593,
+    "throughput_per_sec": 9.883333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 33,
+    "committed": 393,
+    "throughput_per_sec": 6.55
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 34,
+    "committed": 579,
+    "throughput_per_sec": 9.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 35,
+    "committed": 619,
+    "throughput_per_sec": 10.316666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 36,
+    "committed": 423,
+    "throughput_per_sec": 7.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 37,
+    "committed": 565,
+    "throughput_per_sec": 9.416666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 38,
+    "committed": 598,
+    "throughput_per_sec": 9.966666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 39,
+    "committed": 375,
+    "throughput_per_sec": 6.25
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 40,
+    "committed": 561,
+    "throughput_per_sec": 9.35
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 41,
+    "committed": 601,
+    "throughput_per_sec": 10.016666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 42,
+    "committed": 390,
+    "throughput_per_sec": 6.5
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 43,
+    "committed": 575,
+    "throughput_per_sec": 9.583333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 44,
+    "committed": 592,
+    "throughput_per_sec": 9.866666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 45,
+    "committed": 426,
+    "throughput_per_sec": 7.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 46,
+    "committed": 576,
+    "throughput_per_sec": 9.6
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 47,
+    "committed": 598,
+    "throughput_per_sec": 9.966666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 48,
+    "committed": 387,
+    "throughput_per_sec": 6.45
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 49,
+    "committed": 593,
+    "throughput_per_sec": 9.883333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 50,
+    "committed": 602,
+    "throughput_per_sec": 10.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 51,
+    "committed": 398,
+    "throughput_per_sec": 6.633333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 52,
+    "committed": 569,
+    "throughput_per_sec": 9.483333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 53,
+    "committed": 588,
+    "throughput_per_sec": 9.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 54,
+    "committed": 397,
+    "throughput_per_sec": 6.616666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 55,
+    "committed": 586,
+    "throughput_per_sec": 9.766666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 56,
+    "committed": 589,
+    "throughput_per_sec": 9.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 57,
+    "committed": 393,
+    "throughput_per_sec": 6.55
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 58,
+    "committed": 581,
+    "throughput_per_sec": 9.683333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 59,
+    "committed": 592,
+    "throughput_per_sec": 9.866666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 60,
+    "committed": 398,
+    "throughput_per_sec": 6.633333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 61,
+    "committed": 550,
+    "throughput_per_sec": 9.166666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 62,
+    "committed": 606,
+    "throughput_per_sec": 10.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 63,
+    "committed": 406,
+    "throughput_per_sec": 6.766666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 64,
+    "committed": 566,
+    "throughput_per_sec": 9.433333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 65,
+    "committed": 597,
+    "throughput_per_sec": 9.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 66,
+    "committed": 408,
+    "throughput_per_sec": 6.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 67,
+    "committed": 579,
+    "throughput_per_sec": 9.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 68,
+    "committed": 617,
+    "throughput_per_sec": 10.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 69,
+    "committed": 404,
+    "throughput_per_sec": 6.733333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 70,
+    "committed": 571,
+    "throughput_per_sec": 9.516666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 71,
+    "committed": 590,
+    "throughput_per_sec": 9.833333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 72,
+    "committed": 397,
+    "throughput_per_sec": 6.616666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 73,
+    "committed": 570,
+    "throughput_per_sec": 9.5
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 74,
+    "committed": 599,
+    "throughput_per_sec": 9.983333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 75,
+    "committed": 395,
+    "throughput_per_sec": 6.583333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 76,
+    "committed": 590,
+    "throughput_per_sec": 9.833333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 77,
+    "committed": 615,
+    "throughput_per_sec": 10.25
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 78,
+    "committed": 391,
+    "throughput_per_sec": 6.516666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 79,
+    "committed": 607,
+    "throughput_per_sec": 10.116666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 80,
+    "committed": 585,
+    "throughput_per_sec": 9.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 81,
+    "committed": 387,
+    "throughput_per_sec": 6.45
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 82,
+    "committed": 577,
+    "throughput_per_sec": 9.616666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 83,
+    "committed": 608,
+    "throughput_per_sec": 10.133333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 84,
+    "committed": 393,
+    "throughput_per_sec": 6.55
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 85,
+    "committed": 602,
+    "throughput_per_sec": 10.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 86,
+    "committed": 624,
+    "throughput_per_sec": 10.4
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 87,
+    "committed": 406,
+    "throughput_per_sec": 6.766666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 88,
+    "committed": 575,
+    "throughput_per_sec": 9.583333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 89,
+    "committed": 602,
+    "throughput_per_sec": 10.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 90,
+    "committed": 401,
+    "throughput_per_sec": 6.683333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 91,
+    "committed": 590,
+    "throughput_per_sec": 9.833333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 92,
+    "committed": 582,
+    "throughput_per_sec": 9.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 93,
+    "committed": 411,
+    "throughput_per_sec": 6.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 94,
+    "committed": 591,
+    "throughput_per_sec": 9.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 95,
+    "committed": 588,
+    "throughput_per_sec": 9.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 96,
+    "committed": 402,
+    "throughput_per_sec": 6.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 97,
+    "committed": 589,
+    "throughput_per_sec": 9.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 98,
+    "committed": 614,
+    "throughput_per_sec": 10.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 99,
+    "committed": 397,
+    "throughput_per_sec": 6.616666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 1,
+    "group_id": 100,
+    "committed": 593,
+    "throughput_per_sec": 9.883333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 1,
+    "committed": 606,
+    "throughput_per_sec": 10.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 3,
+    "committed": 656,
+    "throughput_per_sec": 10.933333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 4,
+    "committed": 614,
+    "throughput_per_sec": 10.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 6,
+    "committed": 659,
+    "throughput_per_sec": 10.983333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 7,
+    "committed": 613,
+    "throughput_per_sec": 10.216666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 9,
+    "committed": 686,
+    "throughput_per_sec": 11.433333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 10,
+    "committed": 601,
+    "throughput_per_sec": 10.016666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 12,
+    "committed": 686,
+    "throughput_per_sec": 11.433333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 13,
+    "committed": 635,
+    "throughput_per_sec": 10.583333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 15,
+    "committed": 663,
+    "throughput_per_sec": 11.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 16,
+    "committed": 602,
+    "throughput_per_sec": 10.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 18,
+    "committed": 668,
+    "throughput_per_sec": 11.133333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 19,
+    "committed": 618,
+    "throughput_per_sec": 10.3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 21,
+    "committed": 672,
+    "throughput_per_sec": 11.2
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 22,
+    "committed": 621,
+    "throughput_per_sec": 10.35
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 24,
+    "committed": 692,
+    "throughput_per_sec": 11.533333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 25,
+    "committed": 603,
+    "throughput_per_sec": 10.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 27,
+    "committed": 654,
+    "throughput_per_sec": 10.9
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 28,
+    "committed": 609,
+    "throughput_per_sec": 10.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 30,
+    "committed": 661,
+    "throughput_per_sec": 11.016666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 31,
+    "committed": 596,
+    "throughput_per_sec": 9.933333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 33,
+    "committed": 676,
+    "throughput_per_sec": 11.266666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 34,
+    "committed": 604,
+    "throughput_per_sec": 10.066666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 36,
+    "committed": 660,
+    "throughput_per_sec": 11
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 37,
+    "committed": 609,
+    "throughput_per_sec": 10.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 39,
+    "committed": 673,
+    "throughput_per_sec": 11.216666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 40,
+    "committed": 594,
+    "throughput_per_sec": 9.9
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 42,
+    "committed": 684,
+    "throughput_per_sec": 11.4
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 43,
+    "committed": 606,
+    "throughput_per_sec": 10.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 45,
+    "committed": 672,
+    "throughput_per_sec": 11.2
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 46,
+    "committed": 602,
+    "throughput_per_sec": 10.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 48,
+    "committed": 667,
+    "throughput_per_sec": 11.116666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 49,
+    "committed": 622,
+    "throughput_per_sec": 10.366666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 51,
+    "committed": 687,
+    "throughput_per_sec": 11.45
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 52,
+    "committed": 622,
+    "throughput_per_sec": 10.366666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 54,
+    "committed": 690,
+    "throughput_per_sec": 11.5
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 55,
+    "committed": 629,
+    "throughput_per_sec": 10.483333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 57,
+    "committed": 679,
+    "throughput_per_sec": 11.316666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 58,
+    "committed": 614,
+    "throughput_per_sec": 10.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 60,
+    "committed": 671,
+    "throughput_per_sec": 11.183333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 61,
+    "committed": 634,
+    "throughput_per_sec": 10.566666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 63,
+    "committed": 651,
+    "throughput_per_sec": 10.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 64,
+    "committed": 630,
+    "throughput_per_sec": 10.5
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 66,
+    "committed": 669,
+    "throughput_per_sec": 11.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 67,
+    "committed": 615,
+    "throughput_per_sec": 10.25
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 69,
+    "committed": 658,
+    "throughput_per_sec": 10.966666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 70,
+    "committed": 611,
+    "throughput_per_sec": 10.183333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 72,
+    "committed": 678,
+    "throughput_per_sec": 11.3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 73,
+    "committed": 623,
+    "throughput_per_sec": 10.383333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 75,
+    "committed": 670,
+    "throughput_per_sec": 11.166666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 76,
+    "committed": 624,
+    "throughput_per_sec": 10.4
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 78,
+    "committed": 667,
+    "throughput_per_sec": 11.116666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 79,
+    "committed": 617,
+    "throughput_per_sec": 10.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 81,
+    "committed": 662,
+    "throughput_per_sec": 11.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 82,
+    "committed": 611,
+    "throughput_per_sec": 10.183333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 84,
+    "committed": 661,
+    "throughput_per_sec": 11.016666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 85,
+    "committed": 616,
+    "throughput_per_sec": 10.266666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 87,
+    "committed": 670,
+    "throughput_per_sec": 11.166666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 88,
+    "committed": 618,
+    "throughput_per_sec": 10.3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 90,
+    "committed": 653,
+    "throughput_per_sec": 10.883333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 91,
+    "committed": 599,
+    "throughput_per_sec": 9.983333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 93,
+    "committed": 653,
+    "throughput_per_sec": 10.883333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 94,
+    "committed": 631,
+    "throughput_per_sec": 10.516666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 96,
+    "committed": 663,
+    "throughput_per_sec": 11.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 97,
+    "committed": 616,
+    "throughput_per_sec": 10.266666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 99,
+    "committed": 677,
+    "throughput_per_sec": 11.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 2,
+    "group_id": 100,
+    "committed": 616,
+    "throughput_per_sec": 10.266666666666667
+  },
+  {
+    "mode": "single_group",
+    "sample_index": 2,
+    "group_id": 1,
+    "committed": 5626,
+    "throughput_per_sec": 93.76666666666667
+  },
+  {
+    "mode": "single_group",
+    "sample_index": 3,
+    "group_id": 1,
+    "committed": 5492,
+    "throughput_per_sec": 91.53333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 1,
+    "committed": 322,
+    "throughput_per_sec": 5.366666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 2,
+    "committed": 171,
+    "throughput_per_sec": 2.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 3,
+    "committed": 399,
+    "throughput_per_sec": 6.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 4,
+    "committed": 325,
+    "throughput_per_sec": 5.416666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 5,
+    "committed": 180,
+    "throughput_per_sec": 3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 6,
+    "committed": 400,
+    "throughput_per_sec": 6.666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 7,
+    "committed": 327,
+    "throughput_per_sec": 5.45
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 8,
+    "committed": 180,
+    "throughput_per_sec": 3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 9,
+    "committed": 419,
+    "throughput_per_sec": 6.983333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 10,
+    "committed": 317,
+    "throughput_per_sec": 5.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 11,
+    "committed": 163,
+    "throughput_per_sec": 2.716666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 12,
+    "committed": 368,
+    "throughput_per_sec": 6.133333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 13,
+    "committed": 323,
+    "throughput_per_sec": 5.383333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 14,
+    "committed": 177,
+    "throughput_per_sec": 2.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 15,
+    "committed": 386,
+    "throughput_per_sec": 6.433333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 16,
+    "committed": 331,
+    "throughput_per_sec": 5.516666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 17,
+    "committed": 186,
+    "throughput_per_sec": 3.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 18,
+    "committed": 377,
+    "throughput_per_sec": 6.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 19,
+    "committed": 315,
+    "throughput_per_sec": 5.25
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 20,
+    "committed": 181,
+    "throughput_per_sec": 3.0166666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 21,
+    "committed": 398,
+    "throughput_per_sec": 6.633333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 22,
+    "committed": 324,
+    "throughput_per_sec": 5.4
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 23,
+    "committed": 178,
+    "throughput_per_sec": 2.966666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 24,
+    "committed": 392,
+    "throughput_per_sec": 6.533333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 25,
+    "committed": 327,
+    "throughput_per_sec": 5.45
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 26,
+    "committed": 194,
+    "throughput_per_sec": 3.2333333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 27,
+    "committed": 394,
+    "throughput_per_sec": 6.566666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 28,
+    "committed": 332,
+    "throughput_per_sec": 5.533333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 29,
+    "committed": 182,
+    "throughput_per_sec": 3.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 30,
+    "committed": 408,
+    "throughput_per_sec": 6.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 31,
+    "committed": 323,
+    "throughput_per_sec": 5.383333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 32,
+    "committed": 193,
+    "throughput_per_sec": 3.216666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 33,
+    "committed": 391,
+    "throughput_per_sec": 6.516666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 34,
+    "committed": 315,
+    "throughput_per_sec": 5.25
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 35,
+    "committed": 170,
+    "throughput_per_sec": 2.8333333333333335
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 36,
+    "committed": 411,
+    "throughput_per_sec": 6.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 37,
+    "committed": 320,
+    "throughput_per_sec": 5.333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 38,
+    "committed": 189,
+    "throughput_per_sec": 3.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 39,
+    "committed": 374,
+    "throughput_per_sec": 6.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 40,
+    "committed": 316,
+    "throughput_per_sec": 5.266666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 41,
+    "committed": 198,
+    "throughput_per_sec": 3.3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 42,
+    "committed": 404,
+    "throughput_per_sec": 6.733333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 43,
+    "committed": 336,
+    "throughput_per_sec": 5.6
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 44,
+    "committed": 187,
+    "throughput_per_sec": 3.1166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 45,
+    "committed": 397,
+    "throughput_per_sec": 6.616666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 46,
+    "committed": 330,
+    "throughput_per_sec": 5.5
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 47,
+    "committed": 182,
+    "throughput_per_sec": 3.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 48,
+    "committed": 388,
+    "throughput_per_sec": 6.466666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 49,
+    "committed": 333,
+    "throughput_per_sec": 5.55
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 50,
+    "committed": 189,
+    "throughput_per_sec": 3.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 51,
+    "committed": 382,
+    "throughput_per_sec": 6.366666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 52,
+    "committed": 349,
+    "throughput_per_sec": 5.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 53,
+    "committed": 173,
+    "throughput_per_sec": 2.8833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 54,
+    "committed": 395,
+    "throughput_per_sec": 6.583333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 55,
+    "committed": 313,
+    "throughput_per_sec": 5.216666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 56,
+    "committed": 181,
+    "throughput_per_sec": 3.0166666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 57,
+    "committed": 411,
+    "throughput_per_sec": 6.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 58,
+    "committed": 317,
+    "throughput_per_sec": 5.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 59,
+    "committed": 183,
+    "throughput_per_sec": 3.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 60,
+    "committed": 411,
+    "throughput_per_sec": 6.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 61,
+    "committed": 326,
+    "throughput_per_sec": 5.433333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 62,
+    "committed": 185,
+    "throughput_per_sec": 3.0833333333333335
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 63,
+    "committed": 393,
+    "throughput_per_sec": 6.55
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 64,
+    "committed": 322,
+    "throughput_per_sec": 5.366666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 65,
+    "committed": 180,
+    "throughput_per_sec": 3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 66,
+    "committed": 399,
+    "throughput_per_sec": 6.65
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 67,
+    "committed": 325,
+    "throughput_per_sec": 5.416666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 68,
+    "committed": 173,
+    "throughput_per_sec": 2.8833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 69,
+    "committed": 385,
+    "throughput_per_sec": 6.416666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 70,
+    "committed": 313,
+    "throughput_per_sec": 5.216666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 71,
+    "committed": 182,
+    "throughput_per_sec": 3.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 72,
+    "committed": 395,
+    "throughput_per_sec": 6.583333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 73,
+    "committed": 333,
+    "throughput_per_sec": 5.55
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 74,
+    "committed": 192,
+    "throughput_per_sec": 3.2
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 75,
+    "committed": 380,
+    "throughput_per_sec": 6.333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 76,
+    "committed": 323,
+    "throughput_per_sec": 5.383333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 77,
+    "committed": 176,
+    "throughput_per_sec": 2.933333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 78,
+    "committed": 409,
+    "throughput_per_sec": 6.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 79,
+    "committed": 322,
+    "throughput_per_sec": 5.366666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 80,
+    "committed": 186,
+    "throughput_per_sec": 3.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 81,
+    "committed": 409,
+    "throughput_per_sec": 6.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 82,
+    "committed": 317,
+    "throughput_per_sec": 5.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 83,
+    "committed": 172,
+    "throughput_per_sec": 2.8666666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 84,
+    "committed": 380,
+    "throughput_per_sec": 6.333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 85,
+    "committed": 335,
+    "throughput_per_sec": 5.583333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 86,
+    "committed": 175,
+    "throughput_per_sec": 2.9166666666666665
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 87,
+    "committed": 396,
+    "throughput_per_sec": 6.6
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 88,
+    "committed": 318,
+    "throughput_per_sec": 5.3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 89,
+    "committed": 169,
+    "throughput_per_sec": 2.816666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 90,
+    "committed": 387,
+    "throughput_per_sec": 6.45
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 91,
+    "committed": 322,
+    "throughput_per_sec": 5.366666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 92,
+    "committed": 171,
+    "throughput_per_sec": 2.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 93,
+    "committed": 389,
+    "throughput_per_sec": 6.483333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 94,
+    "committed": 331,
+    "throughput_per_sec": 5.516666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 95,
+    "committed": 170,
+    "throughput_per_sec": 2.8333333333333335
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 96,
+    "committed": 374,
+    "throughput_per_sec": 6.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 97,
+    "committed": 327,
+    "throughput_per_sec": 5.45
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 98,
+    "committed": 188,
+    "throughput_per_sec": 3.1333333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 99,
+    "committed": 390,
+    "throughput_per_sec": 6.5
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 3,
+    "group_id": 100,
+    "committed": 333,
+    "throughput_per_sec": 5.55
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 1,
+    "committed": 410,
+    "throughput_per_sec": 6.833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 2,
+    "committed": 464,
+    "throughput_per_sec": 7.733333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 3,
+    "committed": 486,
+    "throughput_per_sec": 8.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 4,
+    "committed": 413,
+    "throughput_per_sec": 6.883333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 5,
+    "committed": 468,
+    "throughput_per_sec": 7.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 6,
+    "committed": 491,
+    "throughput_per_sec": 8.183333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 7,
+    "committed": 430,
+    "throughput_per_sec": 7.166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 8,
+    "committed": 500,
+    "throughput_per_sec": 8.333333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 9,
+    "committed": 484,
+    "throughput_per_sec": 8.066666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 10,
+    "committed": 414,
+    "throughput_per_sec": 6.9
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 11,
+    "committed": 485,
+    "throughput_per_sec": 8.083333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 12,
+    "committed": 489,
+    "throughput_per_sec": 8.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 13,
+    "committed": 402,
+    "throughput_per_sec": 6.7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 14,
+    "committed": 485,
+    "throughput_per_sec": 8.083333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 15,
+    "committed": 498,
+    "throughput_per_sec": 8.3
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 16,
+    "committed": 429,
+    "throughput_per_sec": 7.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 17,
+    "committed": 482,
+    "throughput_per_sec": 8.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 18,
+    "committed": 485,
+    "throughput_per_sec": 8.083333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 19,
+    "committed": 423,
+    "throughput_per_sec": 7.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 20,
+    "committed": 490,
+    "throughput_per_sec": 8.166666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 21,
+    "committed": 487,
+    "throughput_per_sec": 8.116666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 22,
+    "committed": 416,
+    "throughput_per_sec": 6.933333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 23,
+    "committed": 499,
+    "throughput_per_sec": 8.316666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 24,
+    "committed": 465,
+    "throughput_per_sec": 7.75
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 25,
+    "committed": 436,
+    "throughput_per_sec": 7.266666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 26,
+    "committed": 482,
+    "throughput_per_sec": 8.033333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 27,
+    "committed": 479,
+    "throughput_per_sec": 7.983333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 28,
+    "committed": 412,
+    "throughput_per_sec": 6.866666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 29,
+    "committed": 501,
+    "throughput_per_sec": 8.35
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 30,
+    "committed": 473,
+    "throughput_per_sec": 7.883333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 31,
+    "committed": 428,
+    "throughput_per_sec": 7.133333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 32,
+    "committed": 486,
+    "throughput_per_sec": 8.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 33,
+    "committed": 490,
+    "throughput_per_sec": 8.166666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 34,
+    "committed": 445,
+    "throughput_per_sec": 7.416666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 35,
+    "committed": 477,
+    "throughput_per_sec": 7.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 36,
+    "committed": 474,
+    "throughput_per_sec": 7.9
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 37,
+    "committed": 417,
+    "throughput_per_sec": 6.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 38,
+    "committed": 471,
+    "throughput_per_sec": 7.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 39,
+    "committed": 477,
+    "throughput_per_sec": 7.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 40,
+    "committed": 434,
+    "throughput_per_sec": 7.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 41,
+    "committed": 468,
+    "throughput_per_sec": 7.8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 42,
+    "committed": 479,
+    "throughput_per_sec": 7.983333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 43,
+    "committed": 423,
+    "throughput_per_sec": 7.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 44,
+    "committed": 494,
+    "throughput_per_sec": 8.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 45,
+    "committed": 476,
+    "throughput_per_sec": 7.933333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 46,
+    "committed": 426,
+    "throughput_per_sec": 7.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 47,
+    "committed": 478,
+    "throughput_per_sec": 7.966666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 48,
+    "committed": 488,
+    "throughput_per_sec": 8.133333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 49,
+    "committed": 425,
+    "throughput_per_sec": 7.083333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 50,
+    "committed": 497,
+    "throughput_per_sec": 8.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 51,
+    "committed": 477,
+    "throughput_per_sec": 7.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 52,
+    "committed": 439,
+    "throughput_per_sec": 7.316666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 53,
+    "committed": 483,
+    "throughput_per_sec": 8.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 54,
+    "committed": 472,
+    "throughput_per_sec": 7.866666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 55,
+    "committed": 432,
+    "throughput_per_sec": 7.2
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 56,
+    "committed": 477,
+    "throughput_per_sec": 7.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 57,
+    "committed": 480,
+    "throughput_per_sec": 8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 58,
+    "committed": 426,
+    "throughput_per_sec": 7.1
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 59,
+    "committed": 481,
+    "throughput_per_sec": 8.016666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 60,
+    "committed": 483,
+    "throughput_per_sec": 8.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 61,
+    "committed": 417,
+    "throughput_per_sec": 6.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 62,
+    "committed": 494,
+    "throughput_per_sec": 8.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 63,
+    "committed": 477,
+    "throughput_per_sec": 7.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 64,
+    "committed": 430,
+    "throughput_per_sec": 7.166666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 65,
+    "committed": 457,
+    "throughput_per_sec": 7.616666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 66,
+    "committed": 480,
+    "throughput_per_sec": 8
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 67,
+    "committed": 409,
+    "throughput_per_sec": 6.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 68,
+    "committed": 489,
+    "throughput_per_sec": 8.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 69,
+    "committed": 484,
+    "throughput_per_sec": 8.066666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 70,
+    "committed": 444,
+    "throughput_per_sec": 7.4
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 71,
+    "committed": 506,
+    "throughput_per_sec": 8.433333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 72,
+    "committed": 472,
+    "throughput_per_sec": 7.866666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 73,
+    "committed": 436,
+    "throughput_per_sec": 7.266666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 74,
+    "committed": 477,
+    "throughput_per_sec": 7.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 75,
+    "committed": 489,
+    "throughput_per_sec": 8.15
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 76,
+    "committed": 411,
+    "throughput_per_sec": 6.85
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 77,
+    "committed": 483,
+    "throughput_per_sec": 8.05
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 78,
+    "committed": 497,
+    "throughput_per_sec": 8.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 79,
+    "committed": 436,
+    "throughput_per_sec": 7.266666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 80,
+    "committed": 485,
+    "throughput_per_sec": 8.083333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 81,
+    "committed": 493,
+    "throughput_per_sec": 8.216666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 82,
+    "committed": 437,
+    "throughput_per_sec": 7.283333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 83,
+    "committed": 469,
+    "throughput_per_sec": 7.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 84,
+    "committed": 494,
+    "throughput_per_sec": 8.233333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 85,
+    "committed": 420,
+    "throughput_per_sec": 7
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 86,
+    "committed": 469,
+    "throughput_per_sec": 7.816666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 87,
+    "committed": 477,
+    "throughput_per_sec": 7.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 88,
+    "committed": 403,
+    "throughput_per_sec": 6.716666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 89,
+    "committed": 477,
+    "throughput_per_sec": 7.95
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 90,
+    "committed": 470,
+    "throughput_per_sec": 7.833333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 91,
+    "committed": 413,
+    "throughput_per_sec": 6.883333333333334
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 92,
+    "committed": 487,
+    "throughput_per_sec": 8.116666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 93,
+    "committed": 487,
+    "throughput_per_sec": 8.116666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 94,
+    "committed": 435,
+    "throughput_per_sec": 7.25
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 95,
+    "committed": 457,
+    "throughput_per_sec": 7.616666666666666
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 96,
+    "committed": 478,
+    "throughput_per_sec": 7.966666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 97,
+    "committed": 406,
+    "throughput_per_sec": 6.766666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 98,
+    "committed": 479,
+    "throughput_per_sec": 7.983333333333333
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 99,
+    "committed": 466,
+    "throughput_per_sec": 7.766666666666667
+  },
+  {
+    "mode": "multi_raft",
+    "sample_index": 4,
+    "group_id": 100,
+    "committed": 434,
+    "throughput_per_sec": 7.233333333333333
+  },
+  {
+    "mode": "single_group",
+    "sample_index": 4,
+    "group_id": 1,
+    "committed": 5619,
+    "throughput_per_sec": 93.65
+  }
+]

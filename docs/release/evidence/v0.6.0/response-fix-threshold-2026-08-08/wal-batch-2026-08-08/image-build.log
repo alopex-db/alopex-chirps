@@ -1,0 +1,652 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.multi-raft
+#1 transferring dockerfile:
+#1 transferring dockerfile: 728B done
+#1 DONE 0.3s
+
+#2 [internal] load metadata for docker.io/library/rust:1.96-bookworm
+#2 ...
+
+#3 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/rust:1.96-bookworm
+#2 DONE 5.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context:
+#4 transferring context: 2B done
+#4 DONE 0.2s
+
+#5 [build 1/4] FROM docker.io/library/rust:1.96-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663
+#5 DONE 0.0s
+
+#6 [stage-1 1/3] FROM docker.io/library/debian:bookworm-slim
+#6 CACHED
+
+#7 [internal] load build context
+#7 transferring context: 41.08MB 0.3s done
+#7 DONE 0.7s
+
+#8 [stage-1 2/3] RUN apt-get update     && apt-get install --no-install-recommends -y ca-certificates iproute2 iputils-ping procps util-linux     && rm -rf /var/lib/apt/lists/*     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin chirps
+#8 ...
+
+#9 [build 2/4] WORKDIR /src
+#9 CACHED
+
+#10 [build 3/4] COPY . .
+#10 DONE 3.0s
+
+#8 [stage-1 2/3] RUN apt-get update     && apt-get install --no-install-recommends -y ca-certificates iproute2 iputils-ping procps util-linux     && rm -rf /var/lib/apt/lists/*     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin chirps
+#8 2.137 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+#8 2.194 Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+#8 2.194 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+#8 2.550 Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+#8 3.487 Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+#8 3.487 Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [325 kB]
+#8 4.563 Fetched 9364 kB in 3s (3627 kB/s)
+#8 4.563 Reading package lists...
+#8 5.139 Reading package lists...
+#8 5.661 Building dependency tree...
+#8 5.782 Reading state information...
+#8 5.914 util-linux is already the newest version (2.38.1-5+deb12u3).
+#8 5.914 util-linux set to manually installed.
+#8 5.914 The following additional packages will be installed:
+#8 5.914   libbpf1 libbsd0 libcap2-bin libelf1 libgssapi-krb5-2 libk5crypto3
+#8 5.915   libkeyutils1 libkrb5-3 libkrb5support0 libmnl0 libncursesw6 libproc2-0
+#8 5.915   libssl3 libtirpc-common libtirpc3 libxtables12 openssl
+#8 5.915 Suggested packages:
+#8 5.915   iproute2-doc python3:any krb5-doc krb5-user
+#8 5.915 Recommended packages:
+#8 5.915   libatm1 libpam-cap krb5-locales libgpm2 psmisc
+#8 6.043 The following NEW packages will be installed:
+#8 6.044   ca-certificates iproute2 iputils-ping libbpf1 libbsd0 libcap2-bin libelf1
+#8 6.044   libgssapi-krb5-2 libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0 libmnl0
+#8 6.044   libncursesw6 libproc2-0 libssl3 libtirpc-common libtirpc3 libxtables12
+#8 6.044   openssl procps
+#8 6.136 0 upgraded, 21 newly installed, 0 to remove and 0 not upgraded.
+#8 6.136 Need to get 6831 kB of archives.
+#8 6.136 After this operation, 19.7 MB of additional disk space will be used.
+#8 6.136 Get:1 http://deb.debian.org/debian bookworm/main amd64 libelf1 amd64 0.188-2.1 [174 kB]
+#8 6.228 Get:2 http://deb.debian.org/debian bookworm/main amd64 libbpf1 amd64 1:1.1.2-0+deb12u1 [145 kB]
+#8 6.256 Get:3 http://deb.debian.org/debian bookworm/main amd64 libbsd0 amd64 0.11.7-2 [117 kB]
+#8 6.314 Get:4 http://deb.debian.org/debian bookworm/main amd64 libmnl0 amd64 1.0.4-3 [12.5 kB]
+#8 6.314 Get:5 http://deb.debian.org/debian bookworm/main amd64 libkrb5support0 amd64 1.20.1-2+deb12u5 [33.2 kB]
+#8 6.321 Get:6 http://deb.debian.org/debian bookworm/main amd64 libk5crypto3 amd64 1.20.1-2+deb12u5 [79.7 kB]
+#8 6.354 Get:7 http://deb.debian.org/debian bookworm/main amd64 libkeyutils1 amd64 1.6.3-2 [8808 B]
+#8 6.356 Get:8 http://deb.debian.org/debian bookworm/main amd64 libssl3 amd64 3.0.20-1~deb12u2 [2036 kB]
+#8 6.973 Get:9 http://deb.debian.org/debian bookworm/main amd64 libkrb5-3 amd64 1.20.1-2+deb12u5 [332 kB]
+#8 7.276 Get:10 http://deb.debian.org/debian bookworm/main amd64 libgssapi-krb5-2 amd64 1.20.1-2+deb12u5 [135 kB]
+#8 7.319 Get:11 http://deb.debian.org/debian bookworm/main amd64 libtirpc-common all 1.3.3+ds-1 [14.0 kB]
+#8 7.323 Get:12 http://deb.debian.org/debian bookworm/main amd64 libtirpc3 amd64 1.3.3+ds-1 [85.2 kB]
+#8 7.351 Get:13 http://deb.debian.org/debian bookworm/main amd64 libxtables12 amd64 1.8.9-2 [30.8 kB]
+#8 7.361 Get:14 http://deb.debian.org/debian bookworm/main amd64 libcap2-bin amd64 1:2.66-4+deb12u3+b1 [35.2 kB]
+#8 7.371 Get:15 http://deb.debian.org/debian bookworm/main amd64 iproute2 amd64 6.1.0-3 [1046 kB]
+#8 7.704 Get:16 http://deb.debian.org/debian bookworm/main amd64 iputils-ping amd64 3:20221126-1+deb12u1 [47.2 kB]
+#8 7.717 Get:17 http://deb.debian.org/debian bookworm/main amd64 libncursesw6 amd64 6.4-4 [134 kB]
+#8 7.761 Get:18 http://deb.debian.org/debian bookworm/main amd64 libproc2-0 amd64 2:4.0.2-3 [62.8 kB]
+#8 7.838 Get:19 http://deb.debian.org/debian bookworm/main amd64 procps amd64 2:4.0.2-3 [709 kB]
+#8 8.100 Get:20 http://deb.debian.org/debian bookworm/main amd64 openssl amd64 3.0.20-1~deb12u2 [1439 kB]
+#8 8.332 Get:21 http://deb.debian.org/debian bookworm/main amd64 ca-certificates all 20230311+deb12u1 [155 kB]
+#8 8.683 debconf: delaying package configuration, since apt-utils is not installed
+#8 8.705 Fetched 6831 kB in 2s (2967 kB/s)
+#8 8.799 Selecting previously unselected package libelf1:amd64.
+#8 8.799 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6096 files and directories currently installed.)
+#8 8.954 Preparing to unpack .../00-libelf1_0.188-2.1_amd64.deb ...
+#8 8.995 Unpacking libelf1:amd64 (0.188-2.1) ...
+#8 9.188 Selecting previously unselected package libbpf1:amd64.
+#8 9.189 Preparing to unpack .../01-libbpf1_1%3a1.1.2-0+deb12u1_amd64.deb ...
+#8 9.213 Unpacking libbpf1:amd64 (1:1.1.2-0+deb12u1) ...
+#8 9.398 Selecting previously unselected package libbsd0:amd64.
+#8 9.399 Preparing to unpack .../02-libbsd0_0.11.7-2_amd64.deb ...
+#8 9.419 Unpacking libbsd0:amd64 (0.11.7-2) ...
+#8 ...
+
+#11 [build 4/4] RUN cargo build --locked --release -p chirps-multi-raft-perf
+#11 1.540     Updating crates.io index
+#11 5.188  Downloading crates ...
+#11 5.288   Downloaded anstream v1.0.0
+#11 5.294   Downloaded ahash v0.7.8
+#11 5.301   Downloaded bytecheck_derive v0.6.12
+#11 5.304   Downloaded cfg_aliases v0.2.2
+#11 5.307   Downloaded cfg-if v1.0.4
+#11 5.309   Downloaded anstyle v1.0.14
+#11 5.313   Downloaded bytecheck v0.6.12
+#11 5.314   Downloaded block-buffer v0.10.4
+#11 5.319   Downloaded parking_lot_core v0.9.12
+#11 5.325   Downloaded dyn-clone v1.0.20
+#11 5.360   Downloaded lru-slab v0.1.2
+#11 5.363   Downloaded fnv v1.0.7
+#11 5.369   Downloaded pem v3.0.6
+#11 5.373   Downloaded cpufeatures v0.3.0
+#11 5.376   Downloaded futures-io v0.3.33
+#11 5.377   Downloaded endian-type v0.1.2
+#11 5.379   Downloaded colorchoice v1.0.5
+#11 5.382   Downloaded futures-macro v0.3.33
+#11 5.383   Downloaded futures-task v0.3.33
+#11 5.385   Downloaded futures-sink v0.3.33
+#11 5.387   Downloaded equivalent v1.0.2
+#11 5.415   Downloaded itoa v1.0.18
+#11 5.420   Downloaded lazy_static v1.5.0
+#11 5.428   Downloaded heck v0.5.0
+#11 5.433   Downloaded cpufeatures v0.2.17
+#11 5.436   Downloaded futures-core v0.3.33
+#11 5.438   Downloaded clap_lex v1.1.0
+#11 5.444   Downloaded radium v0.7.0
+#11 5.448   Downloaded num-conv v0.2.2
+#11 5.450   Downloaded nibble_vec v0.1.0
+#11 5.454   Downloaded matchers v0.2.0
+#11 5.457   Downloaded ptr_meta v0.1.4
+#11 5.458   Downloaded anstyle-query v1.1.5
+#11 5.460   Downloaded is_terminal_polyfill v1.70.2
+#11 5.462   Downloaded funty v2.0.0
+#11 5.463   Downloaded errno v0.3.14
+#11 5.466   Downloaded crypto-common v0.1.7
+#11 5.469   Downloaded openssl-probe v0.2.1
+#11 5.473   Downloaded ptr_meta_derive v0.1.4
+#11 5.475   Downloaded find-msvc-tools v0.1.9
+#11 5.481   Downloaded byte-unit v5.2.5
+#11 5.488   Downloaded utf8parse v0.2.2
+#11 5.491   Downloaded protobuf-support v3.7.2
+#11 5.495   Downloaded utf8-width v0.1.9
+#11 5.497   Downloaded untrusted v0.9.0
+#11 5.501   Downloaded unicode-xid v0.2.6
+#11 5.505   Downloaded borsh-derive v1.8.0
+#11 5.511   Downloaded rand_chacha v0.3.1
+#11 5.513   Downloaded fastbloom v0.17.0
+#11 5.516   Downloaded deranged v0.5.8
+#11 5.518   Downloaded foldhash v0.2.0
+#11 5.520   Downloaded filetime v0.2.29
+#11 5.522   Downloaded async-trait v0.1.91
+#11 5.526   Downloaded proc-macro-crate v3.5.0
+#11 5.529   Downloaded rand_pcg v0.10.2
+#11 5.532   Downloaded generic-array v0.14.7
+#11 5.533   Downloaded futures-executor v0.3.33
+#11 5.536   Downloaded lock_api v0.4.14
+#11 5.537   Downloaded maplit v1.0.2
+#11 5.539   Downloaded autocfg v1.5.1
+#11 5.542   Downloaded rend v0.4.2
+#11 5.545   Downloaded bincode v1.3.3
+#11 5.548   Downloaded tap v1.0.1
+#11 5.550   Downloaded powerfmt v0.2.0
+#11 5.552   Downloaded digest v0.10.7
+#11 5.554   Downloaded rustc-hash v2.1.3
+#11 5.557   Downloaded jobserver v0.1.35
+#11 5.560   Downloaded anstyle-parse v1.0.0
+#11 5.562   Downloaded nu-ansi-term v0.50.3
+#11 5.565   Downloaded chacha20 v0.10.1
+#11 5.568   Downloaded constant_time_eq v0.4.2
+#11 5.572   Downloaded openraft-macros v0.9.25
+#11 5.578   Downloaded clap_derive v4.6.4
+#11 5.581   Downloaded arrayref v0.3.9
+#11 5.583   Downloaded anyerror v0.1.13
+#11 5.605   Downloaded getrandom v0.2.17
+#11 5.609   Downloaded anyhow v1.0.104
+#11 5.614   Downloaded futures-channel v0.3.33
+#11 5.620   Downloaded time-core v0.1.9
+#11 5.623   Downloaded iana-time-zone v0.1.65
+#11 5.629   Downloaded crossbeam-utils v0.8.22
+#11 5.634   Downloaded subtle v2.6.1
+#11 5.637   Downloaded once_cell v1.21.4
+#11 5.645   Downloaded xxhash-rust v0.8.18
+#11 5.650   Downloaded validit v0.2.6
+#11 5.654   Downloaded wyz v0.5.1
+#11 5.656   Downloaded parking_lot v0.12.5
+#11 5.661   Downloaded bitflags v2.13.1
+#11 5.668   Downloaded crc32fast v1.5.0
+#11 5.671   Downloaded bytes v1.12.1
+#11 5.676   Downloaded zmij v1.0.23
+#11 5.678   Downloaded zstd v0.13.3
+#11 5.682   Downloaded getrandom v0.4.3
+#11 5.687   Downloaded clap v4.6.5
+#11 5.707   Downloaded tokio-macros v2.7.2
+#11 5.708   Downloaded metrics-util v0.20.4
+#11 5.713   Downloaded thread_local v1.1.10
+#11 5.716   Downloaded metrics v0.24.6
+#11 5.720   Downloaded getrandom v0.3.4
+#11 5.725   Downloaded memmap2 v0.9.11
+#11 5.729   Downloaded ref-cast-impl v1.0.26
+#11 5.730   Downloaded borsh v1.8.0
+#11 5.743   Downloaded zstd-safe v7.2.4
+#11 5.748   Downloaded unicode-ident v1.0.24
+#11 5.752   Downloaded base64 v0.22.1
+#11 5.761   Downloaded uuid v1.24.0
+#11 5.766   Downloaded sketches-ddsketch v0.3.1
+#11 5.773   Downloaded num-traits v0.2.19
+#11 5.778   Downloaded cc v1.4.0
+#11 5.785   Downloaded ref-cast v1.0.26
+#11 5.790   Downloaded futures v0.3.33
+#11 5.799   Downloaded strsim v0.11.1
+#11 5.802   Downloaded derive_more-impl v1.0.0
+#11 5.815   Downloaded log v0.4.33
+#11 5.821   Downloaded siphasher v1.0.3
+#11 5.824   Downloaded memchr v2.8.3
+#11 5.836   Downloaded tinyvec_macros v0.1.1
+#11 5.838   Downloaded indexmap v2.14.0
+#11 5.845   Downloaded hashbrown v0.12.3
+#11 5.850   Downloaded http v0.2.12
+#11 5.855   Downloaded aho-corasick v1.1.5
+#11 5.867   Downloaded mio v1.2.2
+#11 5.875   Downloaded derive_more v1.0.0
+#11 5.888   Downloaded crossbeam-epoch v0.9.20
+#11 5.892   Downloaded arrayvec v0.7.8
+#11 5.898   Downloaded zeroize v1.9.0
+#11 5.902   Downloaded tracing-futures v0.2.5
+#11 5.905   Downloaded hashbrown v0.16.1
+#11 5.915   Downloaded hashbrown v0.17.1
+#11 5.934   Downloaded scopeguard v1.2.0
+#11 5.937   Downloaded libm v0.2.16
+#11 5.953   Downloaded clap_builder v4.6.5
+#11 5.961   Downloaded futures-util v0.3.33
+#11 5.984   Downloaded winnow v1.0.4
+#11 6.014   Downloaded openraft v0.9.17
+#11 6.044   Downloaded version_check v0.9.5
+#11 6.046   Downloaded pin-project-internal v1.1.13
+#11 6.049   Downloaded chrono v0.4.45
+#11 6.060   Downloaded zerocopy v0.8.55
+#11 6.097   Downloaded rand_core v0.6.4
+#11 6.103   Downloaded ordered-float v5.3.0
+#11 6.105   Downloaded quote v1.0.47
+#11 6.109   Downloaded quinn-udp v0.5.15
+#11 6.113   Downloaded bitvec v1.1.1
+#11 6.135   Downloaded blake3 v1.8.5
+#11 6.147   Downloaded rand_chacha v0.9.0
+#11 6.149   Downloaded tracing-serde v0.2.0
+#11 6.150   Downloaded alopex-core v0.3.4
+#11 6.164   Downloaded seahash v4.1.0
+#11 6.167   Downloaded rand_core v0.10.1
+#11 6.169   Downloaded pin-project-lite v0.2.17
+#11 6.177   Downloaded thiserror-impl v1.0.69
+#11 6.180   Downloaded zstd-sys v2.0.16+zstd.1.5.7
+#11 6.197   Downloaded thiserror v1.0.69
+#11 6.203   Downloaded signal-hook-registry v1.4.8
+#11 6.206   Downloaded shlex v2.0.1
+#11 6.209   Downloaded sha2 v0.10.9
+#11 6.213   Downloaded libc v0.2.189
+#11 6.340   Downloaded simdutf8 v0.1.5
+#11 6.343   Downloaded tracing-log v0.2.0
+#11 6.346   Downloaded thiserror v2.0.19
+#11 6.357   Downloaded rustls-native-certs v0.8.4
+#11 6.374   Downloaded toml_datetime v1.1.1+spec-1.1.0
+#11 6.377   Downloaded rkyv_derive v0.7.46
+#11 6.378   Downloaded rand_core v0.9.5
+#11 6.383   Downloaded pin-project v1.1.13
+#11 6.398   Downloaded rustls-pki-types v1.15.1
+#11 6.402   Downloaded quanta v0.12.6
+#11 6.407   Downloaded ppv-lite86 v0.2.21
+#11 6.416   Downloaded semver v1.0.28
+#11 6.426   Downloaded rustversion v1.0.23
+#11 6.443   Downloaded snap v1.1.2
+#11 6.468   Downloaded thiserror-impl v2.0.19
+#11 6.472   Downloaded slab v0.4.12
+#11 6.483   Downloaded toml_parser v1.1.3+spec-1.1.0
+#11 6.489   Downloaded smallvec v1.15.2
+#11 6.492   Downloaded rand_xoshiro v0.7.0
+#11 6.496   Downloaded pkg-config v0.3.33
+#11 6.502   Downloaded yasna v0.5.2
+#11 6.513   Downloaded rustls-platform-verifier v0.7.0
+#11 6.520   Downloaded tinyvec v1.12.0
+#11 6.523   Downloaded proc-macro2 v1.0.107
+#11 6.533   Downloaded serde_derive v1.0.229
+#11 6.550   Downloaded rapidhash v4.5.1
+#11 6.556   Downloaded socket2 v0.6.5
+#11 6.568   Downloaded tracing-attributes v0.1.31
+#11 6.574   Downloaded serde_core v1.0.229
+#11 6.614   Downloaded sharded-slab v0.1.7
+#11 6.622   Downloaded rcgen v0.12.1
+#11 6.647   Downloaded tracing-core v0.1.36
+#11 6.678   Downloaded prometheus v0.14.0
+#11 6.685   Downloaded quinn v0.11.11
+#11 6.735   Downloaded toml_edit v0.25.13+spec-1.1.0
+#11 6.749   Downloaded serde v1.0.229
+#11 6.762   Downloaded rand v0.8.7
+#11 6.767   Downloaded typenum v1.20.1
+#11 6.772   Downloaded rustls-webpki v0.103.13
+#11 6.777   Downloaded rand v0.9.5
+#11 6.783   Downloaded schemars v1.2.2
+#11 6.823   Downloaded rand v0.10.2
+#11 6.829   Downloaded raw-cpuid v11.6.0
+#11 6.897   Downloaded rkyv v0.7.46
+#11 6.927   Downloaded rust_decimal v1.42.1
+#11 6.940   Downloaded serde_json v1.0.151
+#11 7.001   Downloaded portable-atomic v1.14.0
+#11 7.025   Downloaded tracing-subscriber v0.3.23
+#11 7.045   Downloaded protobuf v3.7.2
+#11 7.081   Downloaded radix_trie v0.2.1
+#11 7.092   Downloaded quinn-proto v0.11.16
+#11 7.124   Downloaded syn v1.0.109
+#11 7.178   Downloaded time v0.3.55
+#11 7.219   Downloaded syn v3.0.3
+#11 7.244   Downloaded syn v2.0.119
+#11 7.277   Downloaded regex-syntax v0.8.11
+#11 7.298   Downloaded rustls v0.23.43
+#11 7.316   Downloaded tracing v0.1.44
+#11 7.397   Downloaded regex-automata v0.4.16
+#11 7.481   Downloaded tokio v1.53.1
+#11 7.591   Downloaded ring v0.17.14
+#11 7.850    Compiling libc v0.2.189
+#11 7.850    Compiling proc-macro2 v1.0.107
+#11 7.850    Compiling quote v1.0.47
+#11 7.850    Compiling unicode-ident v1.0.24
+#11 7.851    Compiling cfg-if v1.0.4
+#11 7.855    Compiling shlex v2.0.1
+#11 7.855    Compiling find-msvc-tools v0.1.9
+#11 7.859    Compiling once_cell v1.21.4
+#11 7.863    Compiling serde_core v1.0.229
+#11 7.866    Compiling pin-project-lite v0.2.17
+#11 7.867    Compiling autocfg v1.5.1
+#11 7.867    Compiling smallvec v1.15.2
+#11 8.459    Compiling serde v1.0.229
+#11 8.554    Compiling log v0.4.33
+#11 8.729    Compiling zerocopy v0.8.55
+#11 8.736    Compiling parking_lot_core v0.9.12
+#11 8.752    Compiling tracing-core v0.1.36
+#11 8.796    Compiling rand_core v0.10.1
+#11 8.796    Compiling thiserror v1.0.69
+#11 8.823    Compiling getrandom v0.4.3
+#11 8.918    Compiling scopeguard v1.2.0
+#11 8.943    Compiling num-traits v0.2.19
+#11 8.957    Compiling lock_api v0.4.14
+#11 9.118    Compiling bytes v1.12.1
+#11 9.269    Compiling memchr v2.8.3
+#11 9.284    Compiling version_check v0.9.5
+#11 9.327    Compiling untrusted v0.9.0
+#11 9.347    Compiling zeroize v1.9.0
+#11 9.398    Compiling slab v0.4.12
+#11 9.506    Compiling getrandom v0.3.4
+#11 9.589    Compiling rustls-pki-types v1.15.1
+#11 9.609    Compiling generic-array v0.14.7
+#11 9.657    Compiling cfg_aliases v0.2.2
+#11 9.732    Compiling thiserror v2.0.19
+#11 9.821    Compiling futures-sink v0.3.33
+#11 9.910    Compiling libm v0.2.16
+#11 9.936    Compiling pkg-config v0.3.33
+#11 10.04    Compiling foldhash v0.2.0
+#11 10.05    Compiling futures-core v0.3.33
+#11 10.22    Compiling cpufeatures v0.3.0
+#11 10.23    Compiling rustls v0.23.43
+#11 10.31    Compiling typenum v1.20.1
+#11 10.33    Compiling portable-atomic v1.14.0
+#11 10.38    Compiling futures-channel v0.3.33
+#11 10.45    Compiling syn v2.0.119
+#11 10.45    Compiling syn v3.0.3
+#11 10.52    Compiling jobserver v0.1.35
+#11 10.53    Compiling getrandom v0.2.17
+#11 10.58    Compiling errno v0.3.14
+#11 10.67    Compiling socket2 v0.6.5
+#11 10.75    Compiling cc v1.4.0
+#11 10.80    Compiling signal-hook-registry v1.4.8
+#11 10.81    Compiling mio v1.2.2
+#11 10.92    Compiling parking_lot v0.12.5
+#11 10.94    Compiling rand_core v0.6.4
+#11 11.20    Compiling futures-task v0.3.33
+#11 11.21    Compiling futures-io v0.3.33
+#11 11.24    Compiling openssl-probe v0.2.1
+#11 11.37    Compiling rustversion v1.0.23
+#11 11.38    Compiling subtle v2.6.1
+#11 11.43    Compiling arrayvec v0.7.8
+#11 11.48    Compiling crossbeam-utils v0.8.22
+#11 11.48    Compiling utf8parse v0.2.2
+#11 11.57    Compiling anstyle-parse v1.0.0
+#11 11.57    Compiling rustls-native-certs v0.8.4
+#11 11.72    Compiling rand_core v0.9.5
+#11 11.78    Compiling chacha20 v0.10.1
+#11 11.85    Compiling quinn-udp v0.5.15
+#11 11.96    Compiling lazy_static v1.5.0
+#11 12.04    Compiling anstyle-query v1.1.5
+#11 12.06    Compiling is_terminal_polyfill v1.70.2
+#11 12.12    Compiling siphasher v1.0.3
+#11 12.14    Compiling tinyvec_macros v0.1.1
+#11 12.16    Compiling anstyle v1.0.14
+#11 12.18    Compiling colorchoice v1.0.5
+#11 12.19    Compiling rust_decimal v1.42.1
+#11 12.20    Compiling zmij v1.0.23
+#11 12.29    Compiling uuid v1.24.0
+#11 12.36    Compiling tinyvec v1.12.0
+#11 12.41    Compiling anstream v1.0.0
+#11 12.43    Compiling rand v0.10.2
+#11 12.48    Compiling block-buffer v0.10.4
+#11 12.50    Compiling crypto-common v0.1.7
+#11 12.85    Compiling quinn v0.11.11
+#11 12.96    Compiling rand_pcg v0.10.2
+#11 12.99    Compiling anyhow v1.0.104
+#11 13.00    Compiling ring v0.17.14
+#11 13.09    Compiling zstd-sys v2.0.16+zstd.1.5.7
+#11 13.13    Compiling fastbloom v0.17.0
+#11 13.29    Compiling rustc-hash v2.1.3
+#11 13.35    Compiling crc32fast v1.5.0
+#11 13.37    Compiling num-conv v0.2.2
+#11 13.40    Compiling itoa v1.0.18
+#11 13.43    Compiling unicode-xid v0.2.6
+#11 13.47    Compiling bitflags v2.13.1
+#11 13.47    Compiling strsim v0.11.1
+#11 13.51    Compiling serde_json v1.0.151
+#11 13.52    Compiling crossbeam-epoch v0.9.20
+#11 13.52    Compiling clap_lex v1.1.0
+#11 13.55    Compiling snap v1.1.2
+#11 13.56    Compiling deranged v0.5.8
+#11 13.73    Compiling lru-slab v0.1.2
+#11 13.73    Compiling powerfmt v0.2.0
+#11 13.74    Compiling regex-syntax v0.8.11
+#11 13.82    Compiling heck v0.5.0
+#11 13.86    Compiling time-core v0.1.9
+#11 13.89    Compiling iana-time-zone v0.1.65
+#11 13.94    Compiling protobuf v3.7.2
+#11 14.03    Compiling zstd-safe v7.2.4
+#11 14.09    Compiling chrono v0.4.45
+#11 14.14    Compiling clap_builder v4.6.5
+#11 14.21    Compiling raw-cpuid v11.6.0
+#11 14.22    Compiling rapidhash v4.5.1
+#11 14.31    Compiling ppv-lite86 v0.2.21
+#11 14.37    Compiling blake3 v1.8.5
+#11 14.63    Compiling digest v0.10.7
+#11 14.73    Compiling rand_chacha v0.3.1
+#11 14.84    Compiling rand_chacha v0.9.0
+#11 15.02    Compiling rand v0.8.7
+#11 15.42    Compiling regex-automata v0.4.16
+#11 15.44    Compiling time v0.3.55
+#11 15.51    Compiling serde_derive v1.0.229
+#11 ...
+
+#8 [stage-1 2/3] RUN apt-get update     && apt-get install --no-install-recommends -y ca-certificates iproute2 iputils-ping procps util-linux     && rm -rf /var/lib/apt/lists/*     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin chirps
+#8 9.607 Selecting previously unselected package libmnl0:amd64.
+#8 9.608 Preparing to unpack .../03-libmnl0_1.0.4-3_amd64.deb ...
+#8 9.630 Unpacking libmnl0:amd64 (1.0.4-3) ...
+#8 9.814 Selecting previously unselected package libkrb5support0:amd64.
+#8 9.816 Preparing to unpack .../04-libkrb5support0_1.20.1-2+deb12u5_amd64.deb ...
+#8 9.842 Unpacking libkrb5support0:amd64 (1.20.1-2+deb12u5) ...
+#8 10.03 Selecting previously unselected package libk5crypto3:amd64.
+#8 10.03 Preparing to unpack .../05-libk5crypto3_1.20.1-2+deb12u5_amd64.deb ...
+#8 10.06 Unpacking libk5crypto3:amd64 (1.20.1-2+deb12u5) ...
+#8 10.24 Selecting previously unselected package libkeyutils1:amd64.
+#8 10.24 Preparing to unpack .../06-libkeyutils1_1.6.3-2_amd64.deb ...
+#8 10.27 Unpacking libkeyutils1:amd64 (1.6.3-2) ...
+#8 10.45 Selecting previously unselected package libssl3:amd64.
+#8 10.45 Preparing to unpack .../07-libssl3_3.0.20-1~deb12u2_amd64.deb ...
+#8 10.48 Unpacking libssl3:amd64 (3.0.20-1~deb12u2) ...
+#8 10.78 Selecting previously unselected package libkrb5-3:amd64.
+#8 10.78 Preparing to unpack .../08-libkrb5-3_1.20.1-2+deb12u5_amd64.deb ...
+#8 10.80 Unpacking libkrb5-3:amd64 (1.20.1-2+deb12u5) ...
+#8 11.06 Selecting previously unselected package libgssapi-krb5-2:amd64.
+#8 11.06 Preparing to unpack .../09-libgssapi-krb5-2_1.20.1-2+deb12u5_amd64.deb ...
+#8 11.09 Unpacking libgssapi-krb5-2:amd64 (1.20.1-2+deb12u5) ...
+#8 11.27 Selecting previously unselected package libtirpc-common.
+#8 11.27 Preparing to unpack .../10-libtirpc-common_1.3.3+ds-1_all.deb ...
+#8 11.29 Unpacking libtirpc-common (1.3.3+ds-1) ...
+#8 11.49 Selecting previously unselected package libtirpc3:amd64.
+#8 11.49 Preparing to unpack .../11-libtirpc3_1.3.3+ds-1_amd64.deb ...
+#8 11.51 Unpacking libtirpc3:amd64 (1.3.3+ds-1) ...
+#8 12.64 Selecting previously unselected package libxtables12:amd64.
+#8 12.64 Preparing to unpack .../12-libxtables12_1.8.9-2_amd64.deb ...
+#8 12.92 Unpacking libxtables12:amd64 (1.8.9-2) ...
+#8 13.52 Selecting previously unselected package libcap2-bin.
+#8 13.52 Preparing to unpack .../13-libcap2-bin_1%3a2.66-4+deb12u3+b1_amd64.deb ...
+#8 13.56 Unpacking libcap2-bin (1:2.66-4+deb12u3+b1) ...
+#8 14.08 Selecting previously unselected package iproute2.
+#8 14.08 Preparing to unpack .../14-iproute2_6.1.0-3_amd64.deb ...
+#8 14.18 Unpacking iproute2 (6.1.0-3) ...
+#8 14.77 Selecting previously unselected package iputils-ping.
+#8 14.77 Preparing to unpack .../15-iputils-ping_3%3a20221126-1+deb12u1_amd64.deb ...
+#8 14.82 Unpacking iputils-ping (3:20221126-1+deb12u1) ...
+#8 15.27 Selecting previously unselected package libncursesw6:amd64.
+#8 15.27 Preparing to unpack .../16-libncursesw6_6.4-4_amd64.deb ...
+#8 15.33 Unpacking libncursesw6:amd64 (6.4-4) ...
+#8 15.86 Selecting previously unselected package libproc2-0:amd64.
+#8 15.86 Preparing to unpack .../17-libproc2-0_2%3a4.0.2-3_amd64.deb ...
+#8 16.00 Unpacking libproc2-0:amd64 (2:4.0.2-3) ...
+#8 16.50 Selecting previously unselected package procps.
+#8 16.50 Preparing to unpack .../18-procps_2%3a4.0.2-3_amd64.deb ...
+#8 16.57 Unpacking procps (2:4.0.2-3) ...
+#8 17.02 Selecting previously unselected package openssl.
+#8 17.02 Preparing to unpack .../19-openssl_3.0.20-1~deb12u2_amd64.deb ...
+#8 17.06 Unpacking openssl (3.0.20-1~deb12u2) ...
+#8 18.18 Selecting previously unselected package ca-certificates.
+#8 18.18 Preparing to unpack .../20-ca-certificates_20230311+deb12u1_all.deb ...
+#8 18.21 Unpacking ca-certificates (20230311+deb12u1) ...
+#8 18.56 Setting up libkeyutils1:amd64 (1.6.3-2) ...
+#8 19.04 Setting up libtirpc-common (1.3.3+ds-1) ...
+#8 19.37 Setting up libssl3:amd64 (3.0.20-1~deb12u2) ...
+#8 19.64 Setting up libkrb5support0:amd64 (1.20.1-2+deb12u5) ...
+#8 ...
+
+#11 [build 4/4] RUN cargo build --locked --release -p chirps-multi-raft-perf
+#11 16.09    Compiling tokio-macros v2.7.2
+#11 16.18    Compiling thiserror-impl v2.0.19
+#11 16.29    Compiling async-trait v0.1.91
+#11 16.35    Compiling tracing-attributes v0.1.31
+#11 16.66    Compiling thiserror-impl v1.0.69
+#11 16.79    Compiling tokio v1.53.1
+#11 17.34    Compiling futures-macro v0.3.33
+#11 17.37    Compiling pin-project-internal v1.1.13
+#11 17.84    Compiling derive_more-impl v1.0.0
+#11 17.97    Compiling tracing v0.1.44
+#11 18.16    Compiling protobuf-support v3.7.2
+#11 18.20    Compiling futures-util v0.3.33
+#11 18.64    Compiling pin-project v1.1.13
+#11 18.70    Compiling clap_derive v4.6.4
+#11 19.01    Compiling nibble_vec v0.1.0
+#11 19.12    Compiling utf8-width v0.1.9
+#11 19.15    Compiling base64 v0.22.1
+#11 19.17    Compiling fnv v1.0.7
+#11 19.23    Compiling hashbrown v0.17.1
+#11 19.25    Compiling endian-type v0.1.2
+#11 19.35    Compiling semver v1.0.28
+#11 19.68    Compiling cpufeatures v0.2.17
+#11 19.73    Compiling prometheus v0.14.0
+#11 19.84    Compiling equivalent v1.0.2
+#11 19.92    Compiling sha2 v0.10.9
+#11 20.06    Compiling bincode v1.3.3
+#11 20.23    Compiling anyerror v0.1.13
+#11 20.26    Compiling indexmap v2.14.0
+#11 20.62    Compiling validit v0.2.6
+#11 20.81    Compiling tracing-serde v0.2.0
+#11 20.95    Compiling alopex-chirps-wire v0.6.0 (/src/crates/chirps-wire)
+#11 21.03    Compiling derive_more v1.0.0
+#11 21.16    Compiling openraft-macros v0.9.25
+#11 21.24    Compiling clap v4.6.5
+#11 21.34    Compiling pem v3.0.6
+#11 21.43    Compiling radix_trie v0.2.1
+#11 22.21    Compiling byte-unit v5.2.5
+#11 22.26    Compiling matchers v0.2.0
+#11 22.27    Compiling tracing-futures v0.2.5
+#11 22.47    Compiling yasna v0.5.2
+#11 22.86    Compiling quanta v0.12.6
+#11 23.64    Compiling futures-executor v0.3.33
+#11 23.68    Compiling rand v0.9.5
+#11 24.26    Compiling futures v0.3.33
+#11 24.79    Compiling metrics v0.24.6
+#11 25.94    Compiling sharded-slab v0.1.7
+#11 26.12    Compiling rand_xoshiro v0.7.0
+#11 26.19    Compiling alopex-chirps-core v0.6.0 (/src/crates/chirps-core)
+#11 26.31    Compiling memmap2 v0.9.11
+#11 26.42    Compiling ordered-float v5.3.0
+#11 26.69    Compiling hashbrown v0.16.1
+#11 26.69    Compiling tracing-log v0.2.0
+#11 26.77    Compiling thread_local v1.1.10
+#11 26.82    Compiling constant_time_eq v0.4.2
+#11 26.95    Compiling sketches-ddsketch v0.3.1
+#11 ...
+
+#8 [stage-1 2/3] RUN apt-get update     && apt-get install --no-install-recommends -y ca-certificates iproute2 iputils-ping procps util-linux     && rm -rf /var/lib/apt/lists/*     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin chirps
+#8 20.78 Setting up libcap2-bin (1:2.66-4+deb12u3+b1) ...
+#8 20.93 Setting up libproc2-0:amd64 (2:4.0.2-3) ...
+#8 21.06 Setting up libmnl0:amd64 (1.0.4-3) ...
+#8 21.25 Setting up libncursesw6:amd64 (6.4-4) ...
+#8 21.40 Setting up libk5crypto3:amd64 (1.20.1-2+deb12u5) ...
+#8 21.58 Setting up libxtables12:amd64 (1.8.9-2) ...
+#8 21.80 Setting up procps (2:4.0.2-3) ...
+#8 22.33 Setting up libkrb5-3:amd64 (1.20.1-2+deb12u5) ...
+#8 22.55 Setting up openssl (3.0.20-1~deb12u2) ...
+#8 22.79 Setting up libbsd0:amd64 (0.11.7-2) ...
+#8 23.05 Setting up libelf1:amd64 (0.188-2.1) ...
+#8 23.25 Setting up iputils-ping (3:20221126-1+deb12u1) ...
+#8 23.46 Setting up libbpf1:amd64 (1:1.1.2-0+deb12u1) ...
+#8 23.75 Setting up ca-certificates (20230311+deb12u1) ...
+#8 24.14 debconf: unable to initialize frontend: Dialog
+#8 24.14 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#8 24.14 debconf: falling back to frontend: Readline
+#8 24.15 debconf: unable to initialize frontend: Readline
+#8 24.15 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC contains: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.36.0 /usr/local/share/perl/5.36.0 /usr/lib/x86_64-linux-gnu/perl5/5.36 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.36 /usr/share/perl/5.36 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 7.)
+#8 24.15 debconf: falling back to frontend: Teletype
+#8 25.76 Updating certificates in /etc/ssl/certs...
+#8 28.33 142 added, 0 removed; done.
+#8 28.69 Setting up libgssapi-krb5-2:amd64 (1.20.1-2+deb12u5) ...
+#8 28.87 Setting up libtirpc3:amd64 (1.3.3+ds-1) ...
+#8 29.06 Setting up iproute2 (6.1.0-3) ...
+#8 29.94 debconf: unable to initialize frontend: Dialog
+#8 29.94 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#8 29.94 debconf: falling back to frontend: Readline
+#8 29.94 debconf: unable to initialize frontend: Readline
+#8 29.94 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC contains: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.36.0 /usr/local/share/perl/5.36.0 /usr/lib/x86_64-linux-gnu/perl5/5.36 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.36 /usr/share/perl/5.36 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 7.)
+#8 29.94 debconf: falling back to frontend: Teletype
+#8 30.17 Processing triggers for libc-bin (2.36-9+deb12u14) ...
+#8 30.80 Processing triggers for ca-certificates (20230311+deb12u1) ...
+#8 30.91 Updating certificates in /etc/ssl/certs...
+#8 ...
+
+#11 [build 4/4] RUN cargo build --locked --release -p chirps-multi-raft-perf
+#11 27.07    Compiling aho-corasick v1.1.5
+#11 27.09    Compiling nu-ansi-term v0.50.3
+#11 27.14    Compiling maplit v1.0.2
+#11 27.14    Compiling arrayref v0.3.9
+#11 27.15    Compiling alopex-core v0.3.4
+#11 27.23    Compiling openraft v0.9.17
+#11 27.44    Compiling filetime v0.2.29
+#11 27.72    Compiling tracing-subscriber v0.3.23
+#11 27.74    Compiling xxhash-rust v0.8.18
+#11 27.75    Compiling alopex-chirps-gossip-swim v0.6.0 (/src/crates/chirps-gossip-swim)
+#11 27.92    Compiling http v0.2.12
+#11 29.32    Compiling metrics-util v0.20.4
+#11 ...
+
+#8 [stage-1 2/3] RUN apt-get update     && apt-get install --no-install-recommends -y ca-certificates iproute2 iputils-ping procps util-linux     && rm -rf /var/lib/apt/lists/*     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin chirps
+#8 32.66 0 added, 0 removed; done.
+#8 32.66 Running hooks in /etc/ca-certificates/update.d...
+#8 32.68 done.
+#8 DONE 36.4s
+
+#11 [build 4/4] RUN cargo build --locked --release -p chirps-multi-raft-perf
+#11 33.37    Compiling rustls-webpki v0.103.13
+#11 33.40    Compiling rcgen v0.12.1
+#11 42.84    Compiling rustls-platform-verifier v0.7.0
+#11 43.14    Compiling quinn-proto v0.11.16
+#11 46.34    Compiling zstd v0.13.3
+#11 47.96    Compiling alopex-chirps-raft-storage v0.6.0 (/src/crates/chirps-raft-storage)
+#11 49.16    Compiling alopex-chirps-transport-quic v0.6.0 (/src/crates/chirps-transport-quic)
+#11 49.16    Compiling alopex-chirps-file-transfer v0.6.0 (/src/crates/chirps-file-transfer)
+#11 52.78    Compiling alopex-chirps v0.6.0 (/src/crates/alopex-chirps)
+#11 55.02    Compiling chirps-multi-raft-perf v0.6.0 (/src/tools/chirps-multi-raft-perf)
+#11 149.2     Finished `release` profile [optimized] target(s) in 2m 28s
+#11 DONE 149.7s
+
+#12 [stage-1 3/3] COPY --from=build /src/target/release/chirps-multi-raft-perf /usr/local/bin/chirps-multi-raft-perf
+#12 DONE 0.5s
+
+#13 exporting to image
+#13 exporting layers
+#13 exporting layers 0.5s done
+#13 writing image sha256:9762c332633d93b5de39aa86cc35f05941ac59e0a5164398a0d965336e6ad8cb
+#13 writing image sha256:9762c332633d93b5de39aa86cc35f05941ac59e0a5164398a0d965336e6ad8cb 0.0s done
+#13 naming to docker.io/library/chirps-multi-raft-perf:773b53b6999bbabaca17df37546ca52d237d820b 0.1s done
+#13 DONE 0.7s
