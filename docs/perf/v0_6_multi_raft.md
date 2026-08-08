@@ -210,6 +210,21 @@ Absolute temporary paths and wall-clock timestamps are metadata, not identity.
 The artifact identity is commit SHA, binary digest, resolved configuration,
 ordered samples, raw artifact digests, statistics seed, and verdict.
 
+## Proposal pipeline and audit coverage
+
+The per-group `client_write` admission limit is controlled by
+`RaftConfig::proposal_concurrency` and defaults to 64. This is a bounded
+pipeline, not an unbounded queue: zero is normalized to one, and the limit
+continues to protect the Raft runtime from proposal floods. The old fixed limit
+of eight serialized a single group and was measured as the dominant
+single-group bottleneck; the controlled rerun raised single-group throughput
+from roughly 93/s to 216/s without introducing errors or timeouts.
+
+When `--resource-audit` is enabled, the sampler emits a queue-depth key for
+every managed group, including idle groups with depth zero. This makes the
+detachable audit schema complete and prevents a missing-key measurement defect
+from being mistaken for a runtime queue failure.
+
 ## Current evidence status
 
 The controlled local native run was executed with three logical nodes in three
