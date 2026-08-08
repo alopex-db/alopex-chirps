@@ -1,0 +1,161 @@
+{
+  "sample": {
+    "mode": "single_group",
+    "index": 4,
+    "group_count": 1,
+    "clients": 300,
+    "process_or_container_ids": [
+      "5966e682a2b43ab864a87fdd72a5d912b76844cab37632a6c2b295c0e05ff10a",
+      "94c05108720cfd77a9c16aa5debe584752f17b5a97895a9d5ed52fb175dc0e6d",
+      "e54b7fbd6674727e50df9daeafa92bde1d3ff024430752d23eb6feada41db00d"
+    ],
+    "actual_measure_duration_ms": 60000,
+    "monotonic_start_ns": 113893436571962,
+    "monotonic_end_ns": 113953436571962,
+    "network_rtt_ms": [
+      {
+        "source": 1,
+        "destination": 2,
+        "unloaded": {
+          "p50": 0.078,
+          "p95": 0.117
+        },
+        "shaped": {
+          "p50": 0.728,
+          "p95": 1.04
+        }
+      },
+      {
+        "source": 1,
+        "destination": 3,
+        "unloaded": {
+          "p50": 0.085,
+          "p95": 0.125
+        },
+        "shaped": {
+          "p50": 0.732,
+          "p95": 1.06
+        }
+      },
+      {
+        "source": 2,
+        "destination": 1,
+        "unloaded": {
+          "p50": 0.07,
+          "p95": 0.107
+        },
+        "shaped": {
+          "p50": 0.696,
+          "p95": 1.08
+        }
+      },
+      {
+        "source": 2,
+        "destination": 3,
+        "unloaded": {
+          "p50": 0.078,
+          "p95": 0.115
+        },
+        "shaped": {
+          "p50": 0.806,
+          "p95": 1.15
+        }
+      },
+      {
+        "source": 3,
+        "destination": 1,
+        "unloaded": {
+          "p50": 0.081,
+          "p95": 0.121
+        },
+        "shaped": {
+          "p50": 0.782,
+          "p95": 1.16
+        }
+      },
+      {
+        "source": 3,
+        "destination": 2,
+        "unloaded": {
+          "p50": 0.086,
+          "p95": 0.123
+        },
+        "shaped": {
+          "p50": 0.758,
+          "p95": 1.09
+        }
+      }
+    ],
+    "group_membership_after_drain": [
+      {
+        "group_id": 1,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 22331,
+            "committed_digest": "21a5b179faa9f2e55024aea75f541baa6054279a974b67f7dbba88888175861a"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 22331,
+            "committed_digest": "21a5b179faa9f2e55024aea75f541baa6054279a974b67f7dbba88888175861a"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 22331,
+            "committed_digest": "21a5b179faa9f2e55024aea75f541baa6054279a974b67f7dbba88888175861a"
+          }
+        ]
+      }
+    ],
+    "committed": 12526,
+    "throughput_per_sec": 208.76666666666668,
+    "latency_ms": {
+      "p50": 1363.16,
+      "p95": 2026.976,
+      "p99": 2144.515
+    },
+    "errors": 0,
+    "timeouts": 0,
+    "server_errors": 0,
+    "transport_errors": 0,
+    "server_error_reasons": {},
+    "cpu_seconds": 94.94,
+    "peak_rss_bytes": 12795904,
+    "disk_bytes": 655360,
+    "fsync_calls": 13659,
+    "durability_barriers": 13659,
+    "durability_participant_syncs": 13659,
+    "network_bytes": 91068463,
+    "oom_killed": false,
+    "process_restarted": false,
+    "shaper_mismatch": false
+  },
+  "per_group": [
+    {
+      "mode": "single_group",
+      "sample_index": 4,
+      "group_id": 1,
+      "committed": 12526,
+      "throughput_per_sec": 208.76666666666668
+    }
+  ]
+}

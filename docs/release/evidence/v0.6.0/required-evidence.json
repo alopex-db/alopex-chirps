@@ -6,7 +6,7 @@
   "required_evidence": [
     {"id": "multi-raft-deterministic", "source_path": "docs/release/evidence/v0.6.0/multi-raft-fault-v2.json"},
     {"id": "multi-raft-controlled-failure", "source_path": "docs/release/evidence/v0.6.0/multi-raft-controlled-failure-v2.json"},
-    {"id": "multi-raft-performance", "source_path": "docs/release/evidence/v0.6.0/multi-raft-performance.json"},
+    {"id": "multi-raft-performance", "source_path": "docs/release/evidence/v0.6.0/local-tikv-calibrated-native-2026-08-09/multi-raft-performance.json"},
     {"id": "tso", "source_path": "docs/release/evidence/v0.6.0/tso-v0.6.json"},
     {"id": "hlc", "source_path": "docs/release/evidence/v0.6.0/hlc-v0.6.json"},
     {"id": "snapshot", "source_path": "docs/release/evidence/v0.6.0/snapshot-v0.6.json"},
