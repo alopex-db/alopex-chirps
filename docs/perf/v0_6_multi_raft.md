@@ -85,6 +85,10 @@ not be reported as one.
   as optional schema fields with defaults. Removing the audit flag removes the
   sampler and counters from the normal path; no correctness or admission
   behavior depends on the diagnostics.
+- The same detachable metrics stream records `leader_by_group` when audit is
+  enabled. This is specifically for diagnosing proposal timeouts versus leader
+  churn; old raw artifacts remain readable because the field defaults to an
+  empty map.
 
 The controlled container profile uses a fresh 8 GiB `tmpfs` at `/work` for each
 node and sample. `fsync_calls` is the count of completed WAL durability barriers
