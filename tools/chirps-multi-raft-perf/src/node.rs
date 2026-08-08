@@ -263,8 +263,7 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                         };
                         let runtime = Arc::clone(&runtime);
                         tokio::spawn(async move {
-                            let _slot = slot;
-                            dispatch_raft_frame(&runtime, source, frame).await;
+                            dispatch_raft_frame(&runtime, source, frame, Some(slot)).await;
                         });
                         continue;
                     }
@@ -278,11 +277,13 @@ async fn spawn_pump(runtime: Arc<Runtime>) -> anyhow::Result<tokio::task::JoinHa
                             .await
                             .insert(group_id, Arc::clone(&depth));
                         let queue_runtime = Arc::clone(&runtime);
-                        let sender =
-                            spawn_fifo_queue(Arc::clone(&depth), move |(source, frame)| {
+                        let sender = spawn_fifo_queue(
+                            Arc::clone(&depth),
+                            move |(source, frame)| {
                                 let runtime = Arc::clone(&queue_runtime);
-                                async move { dispatch_raft_frame(&runtime, source, frame).await }
-                            });
+                                async move { dispatch_raft_frame(&runtime, source, frame, None).await }
+                            },
+                        );
                         let queue = GroupDispatchQueue::new(sender, depth);
                         group_queues.insert(group_id, queue.clone());
                         queue
@@ -454,24 +455,27 @@ fn frame_is_response(frame: &Frame) -> bool {
         .is_some_and(|payload: RaftFramePayload| payload.message.is_response())
 }
 
-async fn dispatch_raft_frame(runtime: &Runtime, source: NodeId, frame: Frame) {
+async fn dispatch_raft_frame(
+    runtime: &Runtime,
+    source: NodeId,
+    frame: Frame,
+    response_slot: Option<tokio::sync::OwnedSemaphorePermit>,
+) {
     match runtime
         .manager
         .dispatch_frame(source, wire_node_id(runtime.node_id), frame)
         .await
     {
         Ok(Some(response)) => {
-            let Ok(slot) = Arc::clone(&runtime.response_send_slots).try_acquire_owned() else {
-                runtime
-                    .response_send_audit
-                    .dropped
-                    .fetch_add(1, Ordering::Relaxed);
-                eprintln!(
-                    "node {} dropped routed Raft response to {}: response send budget exhausted",
-                    runtime.node_id,
-                    decode_node_id(source)
-                );
-                return;
+            let slot = match response_slot {
+                Some(slot) => slot,
+                None => match Arc::clone(&runtime.response_send_slots)
+                    .acquire_owned()
+                    .await
+                {
+                    Ok(slot) => slot,
+                    Err(_) => return,
+                },
             };
             let manager = Arc::clone(&runtime.manager);
             let node_id = runtime.node_id;
