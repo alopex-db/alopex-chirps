@@ -144,10 +144,20 @@ impl RetransmissionBuffer {
     /// Buffer a frame for a peer, assigning a monotonically increasing sequence number.
     /// Returns the assigned sequence number. Drops oldest messages on overflow.
     pub fn buffer(&mut self, peer: NodeId, frame: Frame) -> Result<u64, BufferError> {
-        let seq;
         let size_bytes = serialized_size(&frame)
             .map(|s| s as usize)
             .map_err(|e| BufferError::Serialize(e.to_string()))?;
+        self.buffer_with_size(peer, frame, size_bytes)
+    }
+
+    /// Buffer a frame when its serialized size is already known by the caller.
+    pub fn buffer_with_size(
+        &mut self,
+        peer: NodeId,
+        frame: Frame,
+        size_bytes: usize,
+    ) -> Result<u64, BufferError> {
+        let seq;
 
         {
             let peer_buf = self.buffers.entry(peer).or_default();
@@ -333,6 +343,17 @@ mod tests {
         assert_eq!(seq2, 2);
         assert!(logs_contain("retransmit_buffer"));
         assert!(logs_contain("seq=1"));
+    }
+
+    #[test]
+    fn buffer_with_size_reuses_precomputed_frame_size() {
+        let mut buf = RetransmissionBuffer::new(RetransmitConfig::default());
+        let peer = NodeId::new();
+        let frame = frame_for(peer, 10);
+        let size = serialized_size(&frame).expect("frame size") as usize;
+        let seq = buf.buffer_with_size(peer, frame, size).expect("buffer");
+        assert_eq!(seq, 1);
+        assert_eq!(buf.stats(peer).buffered_bytes, size);
     }
 
     #[traced_test]

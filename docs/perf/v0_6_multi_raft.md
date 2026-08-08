@@ -275,3 +275,12 @@ errors/timeouts. Against the paired audit-enabled dispatch-batch medians
 not the dominant throughput bottleneck. Resource claims still require the
 audit-enabled evidence because the normal path intentionally records no CPU,
 RSS, fsync, or network-byte samples.
+
+The subsequent Raft stream-batching run (default 32 envelopes per temporary
+stream) completed all 10 workload summaries with zero errors/timeouts. Exact
+medians were 722.9167 committed/s (Multi-Raft) and 214.0000 committed/s
+(Single-Group), versus the audited dispatch-batch baseline of 715.5500 and
+217.0167. This is a small mixed change, not proof that stream setup was the
+sole bottleneck. `transport_streams_opened` is now recorded separately from
+`transport_sent` so a follow-up run can verify the intended stream-count
+reduction directly.

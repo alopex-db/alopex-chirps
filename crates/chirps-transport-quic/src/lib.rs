@@ -770,7 +770,14 @@ async fn send_envelope(
     envelope: FrameEnvelopeV2,
     await_peer_stop: bool,
 ) -> Result<(), TransportError> {
-    let bytes = envelope.encode();
+    send_envelope_bytes(connection, envelope.encode(), await_peer_stop).await
+}
+
+async fn send_envelope_bytes(
+    connection: &Connection,
+    bytes: Vec<u8>,
+    await_peer_stop: bool,
+) -> Result<(), TransportError> {
     let mut stream = connection
         .open_uni()
         .await
@@ -801,12 +808,11 @@ async fn send_envelope(
 async fn send_batched_envelope(
     connection: &Connection,
     target: NodeId,
-    envelope: FrameEnvelopeV2,
+    encoded: Vec<u8>,
     streams: &Arc<Mutex<HashMap<NodeId, BatchStream>>>,
     batch_size: usize,
     streams_opened: &AtomicU64,
 ) -> Result<(), TransportError> {
-    let encoded = envelope.encode();
     let encoded_len = u32::try_from(encoded.len())
         .map_err(|_| TransportError::Send("raft envelope exceeds u32 length".into()))?;
     let mut guard = streams.lock().await;
@@ -1232,9 +1238,12 @@ async fn send_to_peer(
         })?
     };
     ensure_capabilities(kind, &caps)?;
+    let frame_body = serialize(&frame).map_err(|e| TransportError::Send(e.to_string()))?;
+    let payload_len = u32::try_from(frame_body.len())
+        .map_err(|_| TransportError::Send("frame exceeds u32 payload length".into()))?;
     let seq = {
         let mut buf = retransmit_buffer.write().await;
-        match buf.buffer(target, frame.clone()) {
+        match buf.buffer_with_size(target, frame.clone(), frame_body.len()) {
             Ok(seq) => seq,
             Err(e) => {
                 return Err(TransportError::Send(format!(
@@ -1244,7 +1253,6 @@ async fn send_to_peer(
         }
     };
     let ack_seq = receive_handler.get_ack_seq_for_peer(target).await;
-    let payload_len = bincode::serialized_size(&frame).unwrap_or(0) as u32;
     let envelope = alopex_chirps_wire::envelope::FrameEnvelopeV2::new(
         kind as u8,
         seq,
@@ -1252,12 +1260,13 @@ async fn send_to_peer(
         payload_len,
         frame,
     );
+    let encoded = envelope.encode_with_payload(&frame_body);
     let start = tokio::time::Instant::now();
     let res = if kind == StreamKind::Raft && raft_stream_batch_size > 1 {
         send_batched_envelope(
             &conn,
             target,
-            envelope,
+            encoded,
             raft_batch_streams,
             raft_stream_batch_size,
             &metrics.streams_opened,
@@ -1265,7 +1274,7 @@ async fn send_to_peer(
         .await
     } else {
         metrics.streams_opened.fetch_add(1, Ordering::Relaxed);
-        send_envelope(&conn, envelope, await_peer_stop).await
+        send_envelope_bytes(&conn, encoded, await_peer_stop).await
     };
     if let Ok(()) = res {
         let elapsed = start.elapsed();
