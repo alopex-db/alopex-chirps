@@ -61,9 +61,17 @@ struct AuditSnapshot {
 #[derive(Clone, Default)]
 struct AuditStateMachine {
     state: Arc<Mutex<AuditSnapshot>>,
+    digest_enabled: bool,
 }
 
 impl AuditStateMachine {
+    fn new(digest_enabled: bool) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(AuditSnapshot::default())),
+            digest_enabled,
+        }
+    }
+
     async fn observation(&self) -> AuditSnapshot {
         self.state.lock().await.clone()
     }
@@ -80,11 +88,13 @@ impl StateMachine for AuditStateMachine {
         command: Vec<u8>,
     ) -> StateMachineResult<Vec<u8>> {
         let mut state = self.state.lock().await;
-        let mut hasher = Sha256::new();
-        hasher.update(state.digest);
-        hasher.update((command.len() as u64).to_be_bytes());
-        hasher.update(&command);
-        state.digest.copy_from_slice(&hasher.finalize());
+        if self.digest_enabled {
+            let mut hasher = Sha256::new();
+            hasher.update(state.digest);
+            hasher.update((command.len() as u64).to_be_bytes());
+            hasher.update(&command);
+            state.digest.copy_from_slice(&hasher.finalize());
+        }
         state.applied = state.applied.saturating_add(1);
         Ok(command)
     }
@@ -125,6 +135,7 @@ struct ResponseSendAudit {
 
 struct Runtime {
     node_id: u64,
+    digest_enabled: bool,
     manager: Arc<Manager>,
     backend: Arc<QuicBackend>,
     audit: Mutex<BTreeMap<u64, AuditStateMachine>>,
@@ -199,6 +210,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
     let (shutdown, _) = broadcast::channel(4);
     let runtime = Arc::new(Runtime {
         node_id: args.node_id,
+        digest_enabled: args.resource_audit,
         manager,
         backend,
         audit: Mutex::new(BTreeMap::new()),
@@ -655,7 +667,7 @@ async fn execute(runtime: &Runtime, request: Request) -> anyhow::Result<Response
 }
 
 async fn create_group(runtime: &Runtime, group_id: u64, seed: bool) -> anyhow::Result<()> {
-    let state = AuditStateMachine::default();
+    let state = AuditStateMachine::new(runtime.digest_enabled);
     if seed {
         runtime
             .manager
@@ -971,6 +983,23 @@ fn decode_node_id(node_id: NodeId) -> u64 {
 mod tests {
     use super::*;
     use alopex_chirps_wire::frame::RaftFrame;
+
+    #[tokio::test]
+    async fn audit_digest_is_detachable_from_normal_measurement() {
+        let mut disabled = AuditStateMachine::new(false);
+        let mut enabled = AuditStateMachine::new(true);
+        let log_id = LogId::default();
+        StateMachine::apply(&mut disabled, log_id, vec![7; 1024])
+            .await
+            .unwrap();
+        StateMachine::apply(&mut enabled, log_id, vec![7; 1024])
+            .await
+            .unwrap();
+        assert_eq!(disabled.observation().await.digest, [0; 32]);
+        assert_ne!(enabled.observation().await.digest, [0; 32]);
+        assert_eq!(disabled.observation().await.applied, 1);
+        assert_eq!(enabled.observation().await.applied, 1);
+    }
 
     #[tokio::test]
     async fn fifo_queue_preserves_group_order() {
