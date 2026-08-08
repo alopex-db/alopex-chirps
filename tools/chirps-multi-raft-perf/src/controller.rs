@@ -59,7 +59,7 @@ fn bootstrap_owner(group_id: u64) -> usize {
 }
 
 async fn wait_group_ready(nodes: &[SocketAddr; 3], group_id: u64) -> anyhow::Result<()> {
-    timeout(GROUP_READY_TIMEOUT, async {
+    let result = timeout(GROUP_READY_TIMEOUT, async {
         loop {
             let mut states = Vec::with_capacity(nodes.len());
             for address in nodes {
@@ -76,8 +76,33 @@ async fn wait_group_ready(nodes: &[SocketAddr; 3], group_id: u64) -> anyhow::Res
             sleep(Duration::from_millis(50)).await;
         }
     })
-    .await
-    .map_err(|_| anyhow::anyhow!("group {group_id} did not converge before measurement"))
+    .await;
+    if result.is_ok() {
+        return Ok(());
+    }
+
+    // Preserve the final control-plane observation so a bootstrap timeout is
+    // actionable. This is an error-path diagnostic only and does not alter the
+    // readiness contract or the normal performance path.
+    let states = nodes
+        .iter()
+        .map(|address| async move { call(*address, Request::State { group_id }).await })
+        .collect::<Vec<_>>();
+    let mut observed = Vec::with_capacity(states.len());
+    for state in states {
+        observed.push(match state.await {
+            Ok(Response::State(state)) => format!(
+                "node{}:leader={},applied={},digest={}",
+                state.node_id, state.leader_id, state.last_applied, state.committed_digest
+            ),
+            Ok(other) => format!("unexpected={other:?}"),
+            Err(error) => format!("error={error:#}"),
+        });
+    }
+    anyhow::bail!(
+        "group {group_id} did not converge before measurement; {}",
+        observed.join("; ")
+    )
 }
 
 fn group_is_ready(states: &[crate::schema::ReplicaState]) -> bool {
