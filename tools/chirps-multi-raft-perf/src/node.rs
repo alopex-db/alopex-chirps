@@ -51,6 +51,7 @@ pub struct NodeArgs {
     pub metrics_path: PathBuf,
     pub send_queue_capacity: usize,
     pub snapshot_threshold: u64,
+    pub shared_wal: bool,
     pub resource_audit: bool,
     pub metrics_interval_ms: u64,
     pub await_peer_stop: bool,
@@ -193,6 +194,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
             fsync_interval: 0,
             durability_batch_wait_us: PERF_DURABILITY_BATCH_WAIT_US,
             durability_diagnostics_enabled: args.resource_audit,
+            shared_wal: args.shared_wal,
             log_cache_size: PERF_LOG_CACHE_SIZE,
             ..WalStorageConfig::default()
         },
