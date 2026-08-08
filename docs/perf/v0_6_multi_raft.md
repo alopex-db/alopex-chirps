@@ -1,6 +1,6 @@
 # Chirps v0.6 Multi-Raft performance procedure
 
-Status: PROCEDURE LOCKED — CONTROLLED NATIVE RUN COMPLETE; TIKV-COMPATIBLE CONTRACT ADDED
+Status: PROCEDURE LOCKED — CONTROLLED NATIVE RUN COMPLETE; TIKV CONTROL BASELINE NOT YET MEASURED
 
 This document fixes the measurement contract before any v0.6 performance
 claim. v0.5.2 FileTransfer evidence is unrelated and must not be reused.
@@ -200,6 +200,34 @@ Reference material:
 - TiKV Multi-Raft design and WriteBatch batching: <https://www.pingcap.com/blog/design-and-implementation-of-multi-raft/>
 - TiKV architecture and three-peer replication: <https://docs.pingcap.com/tidb/v8.1/tikv-overview/>
 
+### TiKV prerequisite and control-baseline status
+
+The published TiKV number is not a free-standing three-node Raft number. The
+official performance overview measures a 3-node **RawKV** cluster with Go YCSB,
+using 40 vCPUs, 64 GiB RAM, and a 500 GiB NVMe SSD per TiKV node; it reports
+212,000 point-get OPS and 43,200 update OPS, not committed Raft proposals/s.
+The benchmark instructions additionally require a separate YCSB worker and PD
+node and recommend local SSDs rather than network-attached storage. The current
+host is WSL2 on a Microsoft hypervisor with 12 logical CPUs (6 cores), 23 GiB
+RAM, 32 GiB swap, one shared filesystem, and three logical containers on the
+same host. Its controlled profile uses a per-container 8 GiB tmpfs and a
+synthetic 250 us netem delay; it has no three physical TiKV nodes, NVMe-per-node
+measurement, separate PD/YCSB worker, or 10 GbE path. These facts make the
+published TiKV result **non-comparable** to the current Chirps native run.
+
+As of 2026-08-08, TiKV itself has not been installed or run under this host
+profile, and no same-workload RawKV control result exists. Therefore the
+TiKV-compatible lane is a schema and workload contract only; it must not be
+used to justify a numeric TiKV-vs-Chirps claim or the native release gate.
+Before making such a claim, record for both systems: exact version and config,
+CPU/memory limits, storage device and filesystem, swap state, network RTT
+distribution, client placement, YCSB Workload A mix (50% read/50% update), key
+and value sizes, operation count, warm-up/measurement interval, throughput,
+latency percentiles, and error/timeout counts. If the official prerequisites
+cannot be reproduced (especially three independent SSD-backed nodes), report
+the control as unavailable rather than substituting a single-host container
+measurement.
+
 ## Required artifact schema
 
 The release artifact path is
@@ -284,3 +312,12 @@ medians were 722.9167 committed/s (Multi-Raft) and 214.0000 committed/s
 sole bottleneck. `transport_streams_opened` is now recorded separately from
 `transport_sent` so a follow-up run can verify the intended stream-count
 reduction directly.
+
+The pre-serialized envelope follow-up completed 10 summaries with exact
+medians 722.8833 committed/s (Multi-Raft) and 212.9833 committed/s
+(Single-Group). CPU medians were 341.37 s and 94.46 s. Compared with the
+preceding stream-batch run, this is within noise; redundant bincode traversal
+is therefore not the dominant remaining bottleneck. The new direct counter
+measured 181,508/183,948/183,886 Raft envelopes versus 5,673/5,749/5,747
+streams on nodes 1/2/3 (about 96.9% fewer opens), confirming stream setup was
+real but not sufficient to explain the throughput ceiling.
