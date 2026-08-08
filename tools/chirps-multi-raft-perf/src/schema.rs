@@ -266,6 +266,8 @@ pub struct RawMetricsLine {
     pub network_tx_bytes: u64,
     pub transport_sent: u64,
     pub transport_received: u64,
+    #[serde(default)]
+    pub transport_streams_opened: u64,
     pub transport_dropped: u64,
     pub transport_retried: u64,
     pub per_group_queue_depth: BTreeMap<u64, u64>,

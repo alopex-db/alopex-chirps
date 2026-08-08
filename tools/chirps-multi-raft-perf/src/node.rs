@@ -922,6 +922,7 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
         network_tx_bytes: network.1,
         transport_sent: transport.sent,
         transport_received: transport.received,
+        transport_streams_opened: transport.streams_opened,
         transport_dropped: transport.dropped,
         transport_retried: transport.retried,
         per_group_queue_depth,

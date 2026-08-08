@@ -1365,6 +1365,7 @@ mod tests {
                         network_tx_bytes: tick * 100,
                         transport_sent: tick,
                         transport_received: tick,
+                        transport_streams_opened: tick,
                         transport_dropped: 0,
                         transport_retried: 0,
                         per_group_queue_depth: groups.iter().map(|group| (*group, 0)).collect(),

@@ -150,6 +150,7 @@ struct TransportCounters {
     retried: AtomicU64,
     concurrent_sends: AtomicU64,
     max_concurrent_sends: AtomicU64,
+    streams_opened: AtomicU64,
 }
 
 struct BatchStream {
@@ -167,6 +168,8 @@ pub struct TransportMetricsSnapshot {
     pub concurrent_sends: u64,
     /// High-water mark of concurrently executing QUIC sends.
     pub max_concurrent_sends: u64,
+    /// Number of Raft data streams opened (not envelope count).
+    pub streams_opened: u64,
 }
 
 struct SendConcurrencyGuard {
@@ -419,6 +422,7 @@ impl QuicBackend {
             retried: self.metrics.retried.load(Ordering::Relaxed),
             concurrent_sends: self.metrics.concurrent_sends.load(Ordering::Relaxed),
             max_concurrent_sends: self.metrics.max_concurrent_sends.load(Ordering::Relaxed),
+            streams_opened: self.metrics.streams_opened.load(Ordering::Relaxed),
         }
     }
 
@@ -800,6 +804,7 @@ async fn send_batched_envelope(
     envelope: FrameEnvelopeV2,
     streams: &Arc<Mutex<HashMap<NodeId, BatchStream>>>,
     batch_size: usize,
+    streams_opened: &AtomicU64,
 ) -> Result<(), TransportError> {
     let encoded = envelope.encode();
     let encoded_len = u32::try_from(encoded.len())
@@ -818,6 +823,7 @@ async fn send_batched_envelope(
             stream,
             envelopes: 0,
         });
+        streams_opened.fetch_add(1, Ordering::Relaxed);
     }
 
     let write_result = async {
@@ -1254,9 +1260,11 @@ async fn send_to_peer(
             envelope,
             raft_batch_streams,
             raft_stream_batch_size,
+            &metrics.streams_opened,
         )
         .await
     } else {
+        metrics.streams_opened.fetch_add(1, Ordering::Relaxed);
         send_envelope(&conn, envelope, await_peer_stop).await
     };
     if let Ok(()) = res {
