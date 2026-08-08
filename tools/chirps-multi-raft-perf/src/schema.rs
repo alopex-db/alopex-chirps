@@ -84,6 +84,8 @@ pub struct ResolvedConfig {
     pub fsync_interval: u64,
     pub snapshot_threshold: u64,
     pub send_queue_capacity: u64,
+    #[serde(default)]
+    pub durability_batch_wait_us: u64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

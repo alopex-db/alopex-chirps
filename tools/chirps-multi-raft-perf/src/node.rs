@@ -33,6 +33,7 @@ const DISPATCH_FRAME_OVERHEAD_BYTES: usize = 128;
 const RESPONSE_DISPATCH_CAPACITY: usize = 256;
 const RESPONSE_SEND_CONCURRENCY: usize = 64;
 const PERF_LOG_CACHE_SIZE: usize = 256;
+const PERF_DURABILITY_BATCH_WAIT_US: u64 = 250;
 
 #[derive(Clone, Debug)]
 pub struct NodeArgs {
@@ -186,6 +187,7 @@ pub async fn run(args: NodeArgs) -> anyhow::Result<()> {
             wal_dir: args.storage_root.join("wal"),
             snapshot_dir: args.storage_root.join("snapshot"),
             fsync_interval: 0,
+            durability_batch_wait_us: PERF_DURABILITY_BATCH_WAIT_US,
             log_cache_size: PERF_LOG_CACHE_SIZE,
             ..WalStorageConfig::default()
         },

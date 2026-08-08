@@ -1530,6 +1530,7 @@ mod tests {
                 fsync_interval: 0,
                 snapshot_threshold: 10_000,
                 send_queue_capacity: 4_096,
+                durability_batch_wait_us: 0,
             },
             samples,
             per_group,

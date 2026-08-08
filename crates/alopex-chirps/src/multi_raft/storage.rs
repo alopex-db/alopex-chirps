@@ -7,7 +7,9 @@ use alopex_chirps_raft_storage::types::{
     ChirpsTypeConfig, Entry, LogFlushed, LogId, LogState, OptionalSend, RaftLogReader, Snapshot,
     SnapshotMeta, StorageError, StoredMembership, Vote,
 };
-use alopex_chirps_raft_storage::wal_storage::{WalRaftStorage, WalStorageConfig};
+use alopex_chirps_raft_storage::wal_storage::{
+    WalDurabilityCoordinator, WalRaftStorage, WalStorageConfig,
+};
 use async_trait::async_trait;
 use openraft::storage::{RaftLogStorage, RaftStateMachine};
 use std::fmt::Debug;
@@ -37,6 +39,7 @@ pub trait RaftStorageFactory: Send + Sync + 'static {
 pub struct WalRaftStorageFactory<SM> {
     base_config: WalStorageConfig,
     node_id: u64,
+    durability_coordinator: Arc<WalDurabilityCoordinator>,
     state_machine: PhantomData<SM>,
     snapshot_completion_router: Arc<SnapshotCompletionRouter>,
 }
@@ -71,9 +74,13 @@ impl SnapshotCompletionHook for SnapshotCompletionRouter {
 
 impl<SM> WalRaftStorageFactory<SM> {
     pub fn new(base_config: WalStorageConfig, node_id: u64) -> Self {
+        let durability_coordinator = Arc::new(WalDurabilityCoordinator::new(
+            std::time::Duration::from_micros(base_config.durability_batch_wait_us),
+        ));
         Self {
             base_config,
             node_id,
+            durability_coordinator,
             state_machine: PhantomData,
             snapshot_completion_router: Arc::new(SnapshotCompletionRouter::new()),
         }
@@ -109,7 +116,13 @@ where
         let wal_dir = config.wal_dir.clone();
         let snapshot_dir = config.snapshot_dir.clone();
 
-        match WalRaftStorage::new(config, group_id, self.node_id, state_machine) {
+        match WalRaftStorage::recover_with_coordinator(
+            config,
+            group_id,
+            self.node_id,
+            state_machine,
+            Arc::clone(&self.durability_coordinator),
+        ) {
             Ok(mut storage) => {
                 let hook: Arc<dyn SnapshotCompletionHook> =
                     Arc::clone(&self.snapshot_completion_router) as Arc<dyn SnapshotCompletionHook>;

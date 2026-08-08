@@ -22,8 +22,9 @@ use std::io::{self, BufWriter, Cursor, Read, Write};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 
 /// WALファイルのマジックナンバー。
@@ -99,6 +100,9 @@ pub struct WalStorageConfig {
     pub format_version: u32,
     /// スナップショットを書き出す際のチャンクサイズ（バイト）。
     pub snapshot_chunk_size: usize,
+    /// 複数グループのWAL durability barrierを束ねる待機時間（マイクロ秒）。
+    /// 0なら従来どおり各appendバッチごとに直ちにsyncする。
+    pub durability_batch_wait_us: u64,
 }
 
 impl Default for WalStorageConfig {
@@ -110,7 +114,100 @@ impl Default for WalStorageConfig {
             fsync_interval: 0,
             format_version: CURRENT_FORMAT_VERSION,
             snapshot_chunk_size: 4096,
+            durability_batch_wait_us: 0,
         }
+    }
+}
+
+struct CoordinatorGate {
+    syncing: bool,
+    generation: u64,
+    last_error: Option<String>,
+}
+
+/// Batches durability barriers from independently-owned group WAL files.
+///
+/// Each participant still owns and appends to its own file.  A sync request
+/// briefly coalesces concurrent requests, then flushes and syncs every
+/// registered participant before releasing all waiters.  This mirrors the
+/// cross-region ready/write batch boundary used by reference raftstores while
+/// preserving the per-group WAL layout and failure propagation.
+pub struct WalDurabilityCoordinator {
+    participants: Mutex<Vec<Weak<Mutex<BufWriter<File>>>>>,
+    gate: Mutex<CoordinatorGate>,
+    wake: Condvar,
+    batch_wait: Duration,
+}
+
+impl WalDurabilityCoordinator {
+    pub fn new(batch_wait: Duration) -> Self {
+        Self {
+            participants: Mutex::new(Vec::new()),
+            gate: Mutex::new(CoordinatorGate {
+                syncing: false,
+                generation: 0,
+                last_error: None,
+            }),
+            wake: Condvar::new(),
+            batch_wait,
+        }
+    }
+
+    fn register(&self, writer: &Arc<Mutex<BufWriter<File>>>) {
+        let mut participants = self.participants.lock().unwrap();
+        participants.retain(|entry| entry.strong_count() > 0);
+        participants.push(Arc::downgrade(writer));
+    }
+
+    fn sync(&self) -> Result<()> {
+        let mut gate = self.gate.lock().unwrap();
+        if gate.syncing {
+            let generation = gate.generation;
+            while gate.syncing || gate.generation == generation {
+                gate = self.wake.wait(gate).unwrap();
+            }
+            return gate
+                .last_error
+                .as_ref()
+                .map(|error| Err(anyhow!(error.clone())))
+                .unwrap_or(Ok(()));
+        }
+        gate.syncing = true;
+        let generation = gate.generation + 1;
+        drop(gate);
+
+        if !self.batch_wait.is_zero() {
+            thread::sleep(self.batch_wait);
+        }
+        let result = self.sync_participants();
+
+        let mut gate = self.gate.lock().unwrap();
+        gate.last_error = result.as_ref().err().map(ToString::to_string);
+        gate.generation = generation;
+        gate.syncing = false;
+        self.wake.notify_all();
+        result
+    }
+
+    fn sync_participants(&self) -> Result<()> {
+        let writers = {
+            let mut participants = self.participants.lock().unwrap();
+            let mut writers = Vec::with_capacity(participants.len());
+            participants.retain(|entry| {
+                if let Some(writer) = entry.upgrade() {
+                    writers.push(writer);
+                    true
+                } else {
+                    false
+                }
+            });
+            writers
+        };
+        for writer in writers {
+            let mut guard = writer.lock().unwrap();
+            RealWalSink::sync_writer(&mut guard)?;
+        }
+        Ok(())
     }
 }
 
@@ -165,15 +262,16 @@ pub(crate) trait WalSink: Send + Sync {
 }
 
 struct RealWalSink {
-    inner: Mutex<BufWriter<File>>,
+    inner: Arc<Mutex<BufWriter<File>>>,
+    coordinator: Arc<WalDurabilityCoordinator>,
 }
 
 impl RealWalSink {
-    fn new(path: &Path) -> Result<Self> {
+    fn new(path: &Path, coordinator: Arc<WalDurabilityCoordinator>) -> Result<Self> {
         let file = OpenOptions::new().append(true).create(true).open(path)?;
-        Ok(Self {
-            inner: Mutex::new(BufWriter::new(file)),
-        })
+        let inner = Arc::new(Mutex::new(BufWriter::new(file)));
+        coordinator.register(&inner);
+        Ok(Self { inner, coordinator })
     }
 
     fn append_record(writer: &mut BufWriter<File>, record: &CoreWalRecord) -> Result<()> {
@@ -195,17 +293,18 @@ impl RealWalSink {
 
 impl WalSink for RealWalSink {
     fn append(&mut self, record: &CoreWalRecord, sync: bool) -> Result<()> {
-        let mut guard = self.inner.lock().unwrap();
-        Self::append_record(&mut guard, record)?;
+        {
+            let mut guard = self.inner.lock().unwrap();
+            Self::append_record(&mut guard, record)?;
+        }
         if sync {
-            Self::sync_writer(&mut guard)?;
+            self.coordinator.sync()?;
         }
         Ok(())
     }
 
     fn sync(&mut self) -> Result<()> {
-        let mut guard = self.inner.lock().unwrap();
-        Self::sync_writer(&mut guard)
+        self.coordinator.sync()
     }
 
     #[cfg(test)]
@@ -309,11 +408,26 @@ where
         node_id: ChirpsNodeId,
         state_machine: SM,
     ) -> Result<Self> {
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::from_micros(
+            config.durability_batch_wait_us,
+        )));
+        Self::recover_with_coordinator(config, group_id, node_id, state_machine, coordinator)
+    }
+
+    /// Restores storage using a node-wide durability coordinator shared by
+    /// multiple Raft groups.
+    pub fn recover_with_coordinator(
+        config: WalStorageConfig,
+        group_id: GroupId,
+        node_id: ChirpsNodeId,
+        state_machine: SM,
+        coordinator: Arc<WalDurabilityCoordinator>,
+    ) -> Result<Self> {
         std::fs::create_dir_all(&config.wal_dir)?;
         std::fs::create_dir_all(&config.snapshot_dir)?;
 
         let wal_path = wal_path(&config.wal_dir, group_id, node_id);
-        let wal_writer = Box::new(RealWalSink::new(&wal_path)?);
+        let wal_writer = Box::new(RealWalSink::new(&wal_path, coordinator)?);
         Self::recover_with_sink(
             config,
             group_id,
@@ -1357,7 +1471,11 @@ mod tests {
     impl CountingWalSink {
         fn new(path: &Path) -> Self {
             Self {
-                inner: RealWalSink::new(path).unwrap(),
+                inner: RealWalSink::new(
+                    path,
+                    Arc::new(WalDurabilityCoordinator::new(Duration::ZERO)),
+                )
+                .unwrap(),
                 appended: Arc::new(Mutex::new(0)),
                 synced: Arc::new(Mutex::new(0)),
             }
@@ -1391,6 +1509,28 @@ mod tests {
         fn as_any(&self) -> &dyn Any {
             self
         }
+    }
+
+    #[test]
+    fn durability_coordinator_flushes_concurrent_group_wals() {
+        let root = tempfile::tempdir().unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::from_millis(1)));
+        let mut left =
+            RealWalSink::new(&root.path().join("left.wal"), Arc::clone(&coordinator)).unwrap();
+        let mut right =
+            RealWalSink::new(&root.path().join("right.wal"), Arc::clone(&coordinator)).unwrap();
+        let record = CoreWalRecord::Put(TxnId(0), b"k".to_vec(), b"v".to_vec());
+        left.append(&record, false).unwrap();
+        right.append(&record, false).unwrap();
+
+        let left_coordinator = Arc::clone(&coordinator);
+        let left_thread = std::thread::spawn(move || left_coordinator.sync());
+        let right_coordinator = Arc::clone(&coordinator);
+        let right_thread = std::thread::spawn(move || right_coordinator.sync());
+        left_thread.join().unwrap().unwrap();
+        right_thread.join().unwrap().unwrap();
+        assert!(root.path().join("left.wal").metadata().unwrap().len() > 0);
+        assert!(root.path().join("right.wal").metadata().unwrap().len() > 0);
     }
 
     #[tokio::test]
