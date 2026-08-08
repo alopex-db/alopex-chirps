@@ -23,8 +23,9 @@ stopped on the existing shaped RTT gate; sample 4 is taken directly from its
 immutable `samples/single_group-4/summary.json`. All ten loadgen samples had
 zero errors and timeouts.
 
-Multi-Raft median of the five samples: **716.8333 committed proposals/s**.
-Single-group median: **215.8833 committed proposals/s**.
+Using the exact middle value of each five-sample set, Multi-Raft median is
+**712.6667 committed proposals/s** and single-group median is **215.9000
+committed proposals/s**.
 
 The verifier rejected the run solely because shaped RTT p95 was outside the
 existing 1.0 +/- 0.2 ms gate. That gate was not weakened. The 100,000/s native
