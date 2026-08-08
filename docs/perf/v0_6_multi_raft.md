@@ -266,3 +266,12 @@ The TiKV-compatible contract and validation tests are present, but no
 RawKV/YCSB-compatible read/update service runner has been claimed or used as a
 release gate. This distinction is intentional: the current Chirps runner
 counts committed proposals, while TiKV reports YCSB operation classes.
+
+Transport diagnostics detach measurement (2026-08-08) completed 10 samples
+with diagnostics and node resource sampling disabled: Multi-Raft median
+717.3167 committed/s, Single-Group median 217.9833 committed/s, and zero
+errors/timeouts. Against the paired audit-enabled dispatch-batch medians
+(715.5500 and 217.0167), this is within run-to-run noise, so diagnostics are
+not the dominant throughput bottleneck. Resource claims still require the
+audit-enabled evidence because the normal path intentionally records no CPU,
+RSS, fsync, or network-byte samples.
