@@ -69,9 +69,12 @@ not be reported as one.
   `wsl`), namespace/container IDs, network shaper, governor, and whether swap
   changed during the run. Record NIC/link/IRQ/RSS only for optional physical
   deployment evidence; these fields are not required for loopback evidence.
-- Pin each Chirps process and its load generator to declared, non-overlapping
-  CPU sets. Record the exact affinity; do not silently reduce the available
-  cores between baseline and Multi-Raft.
+- Pin each Chirps process, its load generator, and the controller to declared,
+  non-overlapping CPU sets. The 12-CPU default reserves two CPUs per node and
+  one each for its load generator and the controller (`0-1/2`, `3-4/5`,
+  `6-7/8`, `9`). The runner rejects overlapping or malformed sets before
+  starting Docker. Record the exact affinity; do not silently reduce the
+  available cores between baseline and Multi-Raft.
 - Start from empty WAL/snapshot directories for every sample. Keep fsync and
   snapshot settings identical. Record the resolved configuration, not only CLI
   defaults.

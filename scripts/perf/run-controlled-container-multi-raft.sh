@@ -42,10 +42,42 @@ if [[ "$resource_audit" == true ]]; then
 else
   export RESOURCE_AUDIT_ARGS="" METRICS_INTERVAL_ARGS=""
 fi
-export NODE1_CPU="${NODE1_CPU:-0-2}" LOADGEN1_CPU="${LOADGEN1_CPU:-3}"
-export NODE2_CPU="${NODE2_CPU:-4-6}" LOADGEN2_CPU="${LOADGEN2_CPU:-7}"
-export NODE3_CPU="${NODE3_CPU:-8-10}" LOADGEN3_CPU="${LOADGEN3_CPU:-11}"
-export CONTROLLER_CPU="${CONTROLLER_CPU:-11}"
+export NODE1_CPU="${NODE1_CPU:-0-1}" LOADGEN1_CPU="${LOADGEN1_CPU:-2}"
+export NODE2_CPU="${NODE2_CPU:-3-4}" LOADGEN2_CPU="${LOADGEN2_CPU:-5}"
+export NODE3_CPU="${NODE3_CPU:-6-7}" LOADGEN3_CPU="${LOADGEN3_CPU:-8}"
+export CONTROLLER_CPU="${CONTROLLER_CPU:-9}"
+
+validate_disjoint_cpu_sets() {
+  local -a labels=(node1 loadgen1 node2 loadgen2 node3 loadgen3 controller)
+  local -a specs=("$NODE1_CPU" "$LOADGEN1_CPU" "$NODE2_CPU" "$LOADGEN2_CPU" "$NODE3_CPU" "$LOADGEN3_CPU" "$CONTROLLER_CPU")
+  local label spec chunk start end cpu
+  declare -A owners=()
+  for ((i = 0; i < ${#labels[@]}; i++)); do
+    label="${labels[$i]}"
+    spec="${specs[$i]}"
+    IFS=',' read -ra chunks <<<"$spec"
+    for chunk in "${chunks[@]}"; do
+      if [[ "$chunk" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+        start="${BASH_REMATCH[1]}"; end="${BASH_REMATCH[2]}"
+      elif [[ "$chunk" =~ ^[0-9]+$ ]]; then
+        start="$chunk"; end="$chunk"
+      else
+        printf 'invalid CPU set for %s: %s\n' "$label" "$spec" >&2
+        return 2
+      fi
+      (( start <= end )) || { printf 'reversed CPU range for %s: %s\n' "$label" "$spec" >&2; return 2; }
+      for ((cpu = start; cpu <= end; cpu++)); do
+        if [[ -n "${owners[$cpu]:-}" ]]; then
+          printf 'overlapping CPU %s: %s and %s\n' "$cpu" "${owners[$cpu]}" "$label" >&2
+          return 2
+        fi
+        owners[$cpu]="$label"
+      done
+    done
+  done
+}
+
+validate_disjoint_cpu_sets
 
 cleanup() {
   local status=$?
