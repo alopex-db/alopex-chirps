@@ -62,6 +62,7 @@ pub use handshake::{
 pub use metrics::{ExtendedTransportMetrics, LatencySnapshot, MetricsSnapshot};
 use priority::{Priority, PriorityScheduler, ScheduledMessage, SchedulerConfig};
 pub use qos::{QosController, QosError, QosMetrics, TokenBucket};
+use receive::RAFT_BATCH_STREAM_MAGIC;
 pub use receive::ReceiveHandler;
 use reconnect::{ReconnectCommand, start_seed_reconnector};
 pub use retransmit::{BufferError, BufferStats, BufferedMessage, RetransmissionBuffer};
@@ -151,6 +152,11 @@ struct TransportCounters {
     max_concurrent_sends: AtomicU64,
 }
 
+struct BatchStream {
+    stream: quinn::SendStream,
+    envelopes: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TransportMetricsSnapshot {
     pub sent: u64,
@@ -225,6 +231,7 @@ pub struct QuicBackend {
     await_peer_stop: bool,
     metrics: Arc<TransportCounters>,
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
+    raft_batch_streams: Arc<Mutex<HashMap<NodeId, BatchStream>>>,
     metrics_ext: Arc<ExtendedTransportMetrics>,
     receive_handler: Arc<ReceiveHandler>,
     handshake_config: HandshakeConfig,
@@ -250,6 +257,9 @@ impl QuicBackend {
         if transport_config.send_queue_capacity == 0 {
             anyhow::bail!("send_queue_capacity must be greater than zero");
         }
+        if transport_config.raft_stream_batch_size == 0 {
+            anyhow::bail!("raft_stream_batch_size must be greater than zero");
+        }
         let (server_config, client_config) = build_tls_configs(&config)?;
         let mut endpoint = Endpoint::server(server_config, config.bind_addr)?;
         endpoint.set_default_client_config(client_config.clone());
@@ -268,6 +278,7 @@ impl QuicBackend {
         let retransmit_buffer = Arc::new(RwLock::new(RetransmissionBuffer::new(
             transport_config.retransmit.clone(),
         )));
+        let raft_batch_streams = Arc::new(Mutex::new(HashMap::new()));
         let receive_handler = Arc::new(ReceiveHandler::new_with_file_transfer(
             Arc::clone(&retransmit_buffer),
             incoming_tx.clone(),
@@ -304,6 +315,7 @@ impl QuicBackend {
             await_peer_stop: transport_config.await_peer_stop,
             metrics: Arc::clone(&metrics),
             retransmit_buffer: Arc::clone(&retransmit_buffer),
+            raft_batch_streams: Arc::clone(&raft_batch_streams),
             metrics_ext: Arc::clone(&metrics_ext),
             receive_handler: Arc::clone(&receive_handler),
             handshake_config: transport_config.handshake.clone(),
@@ -322,6 +334,8 @@ impl QuicBackend {
             backend.node_id,
             backend.send_timeout,
             backend.await_peer_stop,
+            Arc::clone(&backend.raft_batch_streams),
+            transport_config.raft_stream_batch_size,
             transport_config.priority.clone(),
         );
         let _ = backend.reconnect_tx.try_send(ReconnectCommand::Trigger);
@@ -777,6 +791,73 @@ async fn send_envelope(
     Ok(())
 }
 
+/// Append ordinary Raft envelopes to a bounded temporary stream. Closing the
+/// stream at the batch boundary keeps the existing stream lifecycle and
+/// retransmission semantics while amortizing QUIC stream setup.
+async fn send_batched_envelope(
+    connection: &Connection,
+    target: NodeId,
+    envelope: FrameEnvelopeV2,
+    streams: &Arc<Mutex<HashMap<NodeId, BatchStream>>>,
+    batch_size: usize,
+) -> Result<(), TransportError> {
+    let encoded = envelope.encode();
+    let encoded_len = u32::try_from(encoded.len())
+        .map_err(|_| TransportError::Send("raft envelope exceeds u32 length".into()))?;
+    let mut guard = streams.lock().await;
+    if let std::collections::hash_map::Entry::Vacant(entry) = guard.entry(target) {
+        let mut stream = connection
+            .open_uni()
+            .await
+            .map_err(|e| TransportError::Send(e.to_string()))?;
+        stream
+            .write_u8(RAFT_BATCH_STREAM_MAGIC)
+            .await
+            .map_err(|e| TransportError::Send(e.to_string()))?;
+        entry.insert(BatchStream {
+            stream,
+            envelopes: 0,
+        });
+    }
+
+    let write_result = async {
+        let batch = guard
+            .get_mut(&target)
+            .ok_or_else(|| TransportError::Send("raft batch stream disappeared".into()))?;
+        batch
+            .stream
+            .write_u32(encoded_len)
+            .await
+            .map_err(|e| TransportError::Send(e.to_string()))?;
+        batch
+            .stream
+            .write_all(&encoded)
+            .await
+            .map_err(|e| TransportError::Send(e.to_string()))?;
+        batch.envelopes += 1;
+        Ok::<bool, TransportError>(batch.envelopes >= batch_size)
+    }
+    .await;
+
+    let should_finish = match write_result {
+        Ok(value) => value,
+        Err(error) => {
+            guard.remove(&target);
+            return Err(error);
+        }
+    };
+    if should_finish {
+        let mut batch = guard
+            .remove(&target)
+            .ok_or_else(|| TransportError::Send("raft batch stream disappeared".into()))?;
+        batch
+            .stream
+            .finish()
+            .map_err(|e| TransportError::Send(e.to_string()))?;
+    }
+    Ok(())
+}
+
 async fn read_wire_message(
     mut recv: RecvStream,
 ) -> Result<(StreamKind, WireMessage), TransportError> {
@@ -858,6 +939,8 @@ fn spawn_send_loop(
     node_id: NodeId,
     timeout: Duration,
     await_peer_stop: bool,
+    raft_batch_streams: Arc<Mutex<HashMap<NodeId, BatchStream>>>,
+    raft_stream_batch_size: usize,
     priority_config: PriorityConfig,
 ) {
     tokio::spawn(async move {
@@ -876,6 +959,7 @@ fn spawn_send_loop(
                 let retransmit_buffer = Arc::clone(&retransmit_buffer);
                 let metrics_ext = Arc::clone(&metrics_ext);
                 let receive_handler = Arc::clone(&receive_handler);
+                let raft_batch_streams = Arc::clone(&raft_batch_streams);
                 in_flight.spawn(async move {
                     let _concurrency = SendConcurrencyGuard::enter(Arc::clone(&metrics));
                     match command.payload {
@@ -892,11 +976,13 @@ fn spawn_send_loop(
                                 &retransmit_buffer,
                                 &metrics_ext,
                                 &receive_handler,
+                                &raft_batch_streams,
                                 node_id,
                                 target,
                                 frame,
                                 timeout,
                                 await_peer_stop,
+                                raft_stream_batch_size,
                             )
                             .await;
                             let _ = respond_to.send(send_res);
@@ -911,10 +997,12 @@ fn spawn_send_loop(
                                 &retransmit_buffer,
                                 &metrics_ext,
                                 &receive_handler,
+                                &raft_batch_streams,
                                 node_id,
                                 frame,
                                 timeout,
                                 await_peer_stop,
+                                raft_stream_batch_size,
                             )
                             .await;
                             let _ = respond_to.send(send_res);
@@ -983,11 +1071,13 @@ async fn send_with_retry(
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
     metrics_ext: &Arc<ExtendedTransportMetrics>,
     receive_handler: &Arc<ReceiveHandler>,
+    raft_batch_streams: &Arc<Mutex<HashMap<NodeId, BatchStream>>>,
     node_id: NodeId,
     target: NodeId,
     frame: Frame,
     timeout: Duration,
     await_peer_stop: bool,
+    raft_stream_batch_size: usize,
 ) -> Result<(), TransportError> {
     let mut attempts = 0;
     loop {
@@ -1001,10 +1091,12 @@ async fn send_with_retry(
                 retransmit_buffer,
                 metrics_ext,
                 receive_handler,
+                raft_batch_streams,
                 node_id,
                 target,
                 frame_clone,
                 await_peer_stop,
+                raft_stream_batch_size,
             ),
         )
         .await
@@ -1036,10 +1128,12 @@ async fn broadcast_with_retry(
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
     metrics_ext: &Arc<ExtendedTransportMetrics>,
     receive_handler: &Arc<ReceiveHandler>,
+    raft_batch_streams: &Arc<Mutex<HashMap<NodeId, BatchStream>>>,
     node_id: NodeId,
     frame: Frame,
     timeout: Duration,
     await_peer_stop: bool,
+    raft_stream_batch_size: usize,
 ) -> Result<usize, TransportError> {
     let mut attempts = 0;
     loop {
@@ -1053,9 +1147,11 @@ async fn broadcast_with_retry(
                 retransmit_buffer,
                 metrics_ext,
                 receive_handler,
+                raft_batch_streams,
                 node_id,
                 frame_clone,
                 await_peer_stop,
+                raft_stream_batch_size,
             ),
         )
         .await
@@ -1109,10 +1205,12 @@ async fn send_to_peer(
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
     metrics_ext: &Arc<ExtendedTransportMetrics>,
     receive_handler: &Arc<ReceiveHandler>,
+    raft_batch_streams: &Arc<Mutex<HashMap<NodeId, BatchStream>>>,
     _node_id: NodeId,
     target: NodeId,
     frame: Frame,
     await_peer_stop: bool,
+    raft_stream_batch_size: usize,
 ) -> Result<(), TransportError> {
     let conn = {
         let map = connections.read().await;
@@ -1149,7 +1247,18 @@ async fn send_to_peer(
         frame,
     );
     let start = tokio::time::Instant::now();
-    let res = send_envelope(&conn, envelope, await_peer_stop).await;
+    let res = if kind == StreamKind::Raft && raft_stream_batch_size > 1 {
+        send_batched_envelope(
+            &conn,
+            target,
+            envelope,
+            raft_batch_streams,
+            raft_stream_batch_size,
+        )
+        .await
+    } else {
+        send_envelope(&conn, envelope, await_peer_stop).await
+    };
     if let Ok(()) = res {
         let elapsed = start.elapsed();
         metrics.sent.fetch_add(1, Ordering::Relaxed);
@@ -1165,9 +1274,11 @@ async fn broadcast_to_peers(
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
     metrics_ext: &Arc<ExtendedTransportMetrics>,
     receive_handler: &Arc<ReceiveHandler>,
+    raft_batch_streams: &Arc<Mutex<HashMap<NodeId, BatchStream>>>,
     node_id: NodeId,
     frame: Frame,
     await_peer_stop: bool,
+    raft_stream_batch_size: usize,
 ) -> Result<usize, TransportError> {
     let peers: Vec<(NodeId, Connection)> = {
         let map = connections.read().await;
@@ -1182,10 +1293,12 @@ async fn broadcast_to_peers(
             retransmit_buffer,
             metrics_ext,
             receive_handler,
+            raft_batch_streams,
             node_id,
             peer_id,
             frame.clone(),
             await_peer_stop,
+            raft_stream_batch_size,
         )
         .await
         {

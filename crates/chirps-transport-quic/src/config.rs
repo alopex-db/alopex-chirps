@@ -16,6 +16,9 @@ pub struct TransportConfigV04 {
     pub send_queue_capacity: usize,
     /// 優先度スケジューラ設定。
     pub priority: PriorityConfig,
+    /// Maximum number of ordinary Raft envelopes per temporary QUIC stream.
+    /// A value of one restores the legacy one-envelope-per-stream behavior.
+    pub raft_stream_batch_size: usize,
     /// 再送バッファ設定。
     pub retransmit: RetransmitConfig,
     /// QoS/バックプレッシャー設定。
@@ -32,6 +35,7 @@ impl Default for TransportConfigV04 {
             diagnostics_enabled: true,
             send_queue_capacity: 1024,
             priority: PriorityConfig::default(),
+            raft_stream_batch_size: 32,
             retransmit: RetransmitConfig::default(),
             qos: QosConfig::default(),
             handshake: HandshakeConfig::default(),
@@ -65,6 +69,16 @@ mod tests {
             ..TransportConfigV04::default()
         };
         assert!(!config.diagnostics_enabled);
+    }
+
+    #[test]
+    fn raft_stream_batching_defaults_to_thirty_two_and_is_disableable() {
+        assert_eq!(TransportConfigV04::default().raft_stream_batch_size, 32);
+        let config = TransportConfigV04 {
+            raft_stream_batch_size: 1,
+            ..TransportConfigV04::default()
+        };
+        assert_eq!(config.raft_stream_batch_size, 1);
     }
 }
 
