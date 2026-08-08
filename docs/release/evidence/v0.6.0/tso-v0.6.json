@@ -1,0 +1,10 @@
+{
+  "schema": "chirps.tso-evidence/v1",
+  "release_version": "0.6.0",
+  "source_commit": "ddbccf9ae6debe79e9d1d6ba79fb05d4042291a9",
+  "result": "pass",
+  "scope": "TSO oracle, lease handoff, client cache, authentication",
+  "command": "CARGO_TARGET_DIR=/tmp/chirps-release-tests cargo test --locked -p alopex-chirps --all-features -- --test-threads=1",
+  "tests": ["tso_oracle", "tso_handoff", "tso_client"],
+  "limitations": ["No physical deployment or performance claim"]
+}

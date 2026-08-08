@@ -1,0 +1,10 @@
+{
+  "schema": "chirps.qos-resilience-evidence/v1",
+  "release_version": "0.6.0",
+  "source_commit": "ddbccf9ae6debe79e9d1d6ba79fb05d4042291a9",
+  "result": "pass",
+  "scope": "Soft backpressure, hard overflow, hysteresis, and snapshot throttle timeout",
+  "command": "CARGO_TARGET_DIR=/tmp/chirps-release-tests cargo test --locked -p alopex-chirps-transport-quic --lib",
+  "tests": ["soft_backpressure_triggers_metrics_and_logs", "hard_overflow_increments_overflow_metrics_and_logs", "hysteresis_recovers_after_dequeue", "throttle_snapshot_timeout_emits_log_and_metrics"],
+  "limitations": ["Synthetic queue limits; no production traffic mix claim"]
+}

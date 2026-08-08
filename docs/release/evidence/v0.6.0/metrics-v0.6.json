@@ -1,0 +1,10 @@
+{
+  "schema": "chirps.metrics-evidence/v1",
+  "release_version": "0.6.0",
+  "source_commit": "ddbccf9ae6debe79e9d1d6ba79fb05d4042291a9",
+  "result": "pass",
+  "scope": "Metrics registry, protected/public endpoints, dashboard query coverage, transport counters",
+  "command": "CARGO_TARGET_DIR=/tmp/chirps-release-tests cargo test --locked -p alopex-chirps --all-features --test metrics_api && cargo test --locked -p alopex-chirps-transport-quic --lib",
+  "tests": ["registry_output_reflects_raft_tso_hlc_and_snapshot_state", "protected_endpoint_rejects_missing_or_invalid_token", "public_endpoint_remains_backward_compatible", "grafana_dashboard_is_valid_and_queries_every_required_family"],
+  "limitations": ["No external Prometheus deployment evidence"]
+}
