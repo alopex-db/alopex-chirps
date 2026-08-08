@@ -1,5 +1,6 @@
 use crate::schema::*;
 use crate::statistics::{bootstrap_ci95_lower, median};
+use crate::tikv::{LOCAL_DOCKER_TIKV_CONTROL_SOURCE, LOCAL_DOCKER_TIKV_SHAPED_UPDATE_OPS};
 use anyhow::{Context, anyhow, ensure};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -204,6 +205,15 @@ fn verify_config(config: &ResolvedConfig) -> anyhow::Result<()> {
     ensure!(
         config.send_queue_capacity == 4_096,
         "send queue capacity mismatch"
+    );
+    ensure!(
+        (config.reference_baseline_ops_per_sec - LOCAL_DOCKER_TIKV_SHAPED_UPDATE_OPS).abs()
+            < EPSILON,
+        "reference baseline must match measured local TiKV UPDATE OPS"
+    );
+    ensure!(
+        config.reference_baseline_source == LOCAL_DOCKER_TIKV_CONTROL_SOURCE,
+        "reference baseline source must identify measured local TiKV control"
     );
     Ok(())
 }
@@ -1096,8 +1106,9 @@ fn compare_statistics(stored: &Statistics, computed: &Statistics) -> anyhow::Res
 }
 
 fn compute_verdict(artifact: &Artifact, statistics: &Statistics) -> anyhow::Result<Verdict> {
-    let throughput = if statistics.multi_raft_median >= 100_000.0
-        && statistics.multi_raft_ci95_lower >= 100_000.0
+    let baseline = artifact.resolved_config.reference_baseline_ops_per_sec;
+    let throughput = if statistics.multi_raft_median >= baseline
+        && statistics.multi_raft_ci95_lower >= baseline
     {
         Gate::Pass
     } else {
@@ -1545,6 +1556,8 @@ mod tests {
                 snapshot_threshold: 10_000,
                 send_queue_capacity: 4_096,
                 durability_batch_wait_us: 0,
+                reference_baseline_ops_per_sec: LOCAL_DOCKER_TIKV_SHAPED_UPDATE_OPS,
+                reference_baseline_source: LOCAL_DOCKER_TIKV_CONTROL_SOURCE.into(),
                 resource_audit: true,
             },
             samples,

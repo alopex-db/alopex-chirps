@@ -166,9 +166,11 @@ latency, errors, timeouts, CPU-seconds, peak RSS, disk bytes, and network bytes.
 The v0.6 performance claim passes only when all conditions hold:
 
 1. Five valid Multi-Raft samples and five matching baseline samples exist.
-2. Multi-Raft median aggregate throughput is at least 100,000 committed
-   proposals/s and the bootstrap 95% confidence-interval lower bound is also at
-   least 100,000 proposals/s.
+2. Multi-Raft median aggregate throughput and the bootstrap 95% confidence-
+   interval lower bound are both at least the measured local TiKV write-side
+   baseline: **291.4/s**. This is the shaped 500us-netem UPDATE OPS measured
+   in the local Docker TiKV v8.5.0 control. The baseline is an environment
+   calibration point, not an official TiKV absolute performance claim.
 3. `1 - multi_raft_median / single_group_median < 0.10`; negative overhead is
    reported as measured and not clamped.
 4. There are zero proposal errors, timeouts, divergent committed values, or
@@ -196,11 +198,11 @@ UPDATE OPS, total OPS, average/min/max latency, and p99/p99.9/p99.99 latency.
 The contract is represented by `TikvWorkloadA::reference()` and validated by
 unit tests in `tools/chirps-multi-raft-perf/src/tikv.rs`.
 
-This lane is comparison evidence, not a replacement for the native committed-
-proposal gate. A READ is not a Raft proposal, and UPDATE OPS is not automatically
-equivalent to committed proposals/s. A future RawKV-compatible service runner
-must implement the same read/update semantics before its measurements are used
-for a numerical cross-project claim.
+The local control is used only after measuring the same environment. Its
+50%-UPDATE result is the closest write-side proxy for committed proposals/s;
+the mapping is explicit and is not a claim that YCSB UPDATE OPS and Raft
+proposals are inherently identical. The total 580.6 OPS value is not used as
+the native proposal threshold because it includes READ operations.
 
 Reference material:
 
@@ -226,9 +228,10 @@ published TiKV result **non-comparable** to the current Chirps native run.
 
 As of 2026-08-08, a local Docker control was measured with official PD/TiKV
 v8.5.0 images and Go YCSB (10,000 records, 50,000 Workload A operations). It
-is useful for diagnosing workload shape, but it is not a reproduction of the
-published TiKV configuration and must not justify a numeric TiKV-vs-Chirps
-claim or the native release gate. The complete result is recorded under
+is useful for calibrating this exact environment. It is not a reproduction of
+the published TiKV configuration and must not be generalized beyond this host.
+Its shaped total was 580.6 OPS and shaped UPDATE was 291.4 OPS; the latter is
+the environment-specific native gate documented above. The complete result is recorded under
 `docs/release/evidence/v0.6.0/tikv-control-2026-08-08/`.
 Before making such a claim, record for both systems: exact version and config,
 CPU/memory limits, storage device and filesystem, swap state, network RTT

@@ -86,8 +86,20 @@ pub struct ResolvedConfig {
     pub send_queue_capacity: u64,
     #[serde(default)]
     pub durability_batch_wait_us: u64,
+    #[serde(default = "default_reference_baseline_ops")]
+    pub reference_baseline_ops_per_sec: f64,
+    #[serde(default = "default_reference_baseline_source")]
+    pub reference_baseline_source: String,
     #[serde(default = "default_resource_audit")]
     pub resource_audit: bool,
+}
+
+fn default_reference_baseline_ops() -> f64 {
+    crate::tikv::LOCAL_DOCKER_TIKV_SHAPED_UPDATE_OPS
+}
+
+fn default_reference_baseline_source() -> String {
+    crate::tikv::LOCAL_DOCKER_TIKV_CONTROL_SOURCE.to_owned()
 }
 
 fn default_resource_audit() -> bool {

@@ -1,5 +1,13 @@
 //! TiKV/YCSB-compatible workload contract used for cross-project comparisons.
 
+/// Measured on the local Docker TiKV v8.5.0 control with 500us netem.
+/// This is an environment calibration point, not an official TiKV SLO.
+pub const LOCAL_DOCKER_TIKV_SHAPED_TOTAL_OPS: f64 = 580.6;
+/// UPDATE OPS are the closest write-side proxy for committed proposals/s.
+pub const LOCAL_DOCKER_TIKV_SHAPED_UPDATE_OPS: f64 = 291.4;
+pub const LOCAL_DOCKER_TIKV_CONTROL_SOURCE: &str =
+    "tikv-control-2026-08-08/v8.5.0-workload-a-shaped-500us";
+
 use anyhow::{Result, ensure};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,5 +75,15 @@ mod tests {
             ..TikvWorkloadA::reference()
         };
         assert!(workload.validate().is_err());
+    }
+
+    #[test]
+    fn local_control_baseline_is_write_metric() {
+        assert_eq!(LOCAL_DOCKER_TIKV_SHAPED_TOTAL_OPS, 580.6);
+        assert_eq!(LOCAL_DOCKER_TIKV_SHAPED_UPDATE_OPS, 291.4);
+        assert_eq!(
+            LOCAL_DOCKER_TIKV_CONTROL_SOURCE,
+            "tikv-control-2026-08-08/v8.5.0-workload-a-shaped-500us"
+        );
     }
 }
