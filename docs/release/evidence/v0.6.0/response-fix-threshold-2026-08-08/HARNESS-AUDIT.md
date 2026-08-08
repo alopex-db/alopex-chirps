@@ -26,3 +26,8 @@
   the heavy in-memory Raft integration tests with `--test-threads=1`; a prior
   no-feature invocation silently ran zero 3-voter tests, while concurrent host
   scheduling produced false timeout/leader-churn failures.
+- After extending the test-only readiness/proposal deadlines and using a 10x
+  election/heartbeat ratio, the complete `alopex-chirps --all-features` suite
+  passed: 24 unit, 3 HLC, 5 lifecycle, 6 storage, 10 three-voter, 3 transport,
+  1 node-id persistence, 7 raft-cluster, 6 snapshot-transfer, and all remaining
+  feature tests.
