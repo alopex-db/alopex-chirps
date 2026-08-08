@@ -16,14 +16,15 @@ Environment: one WSL2 host, three logical Docker nodes, fixed CPU sets, 250 us
 | single-group | 1 | 212.7833 | 0 | 0 |
 | single-group | 2 | 215.9000 | 0 | 0 |
 | single-group | 3 | 218.0167 | 0 | 0 |
+| single-group | 4 | 214.8167 | 0 | 0 |
 
-The final single-group sample was collected by the runner but was not emitted
-to `summaries.ndjson` before the verifier stopped on the existing shaped RTT
-gate. The nine emitted loadgen samples all had zero errors and timeouts.
+The runner's aggregate `summaries.ndjson` was finalized before the verifier
+stopped on the existing shaped RTT gate; sample 4 is taken directly from its
+immutable `samples/single_group-4/summary.json`. All ten loadgen samples had
+zero errors and timeouts.
 
 Multi-Raft median of the five samples: **716.8333 committed proposals/s**.
-Single-group median of the four emitted samples: **215.8917 committed
-proposals/s** (the missing fifth sample does not affect the WAL diagnosis).
+Single-group median: **215.8833 committed proposals/s**.
 
 The verifier rejected the run solely because shaped RTT p95 was outside the
 existing 1.0 +/- 0.2 ms gate. That gate was not weakened. The 100,000/s native
