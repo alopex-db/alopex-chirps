@@ -106,6 +106,15 @@ not charged an extra `sync_all`. A failed sync restores the dirty bit for retry.
 The default value is zero, preserving the previous per-group behavior; the
 controlled diagnostic profile uses 250 us.
 
+The diagnostic harness also drains each bounded per-group Raft dispatch FIFO in
+up to 32-frame batches and processes up to 32 already-enqueued frames per
+receiver wake. This is a detachable scheduling optimization: FIFO order,
+dispatch-byte admission, and response bypass are unchanged. In the 2026-08-08
+controlled run the exact five-sample Multi-Raft median was 715.55/s versus
+712.6667/s for the dirty-WAL-only baseline, while node CPU/RSS and queue depth
+remained comparable. The result is recorded as a small micro-optimization, not
+as proof that dispatch queues are the dominant bottleneck.
+
 ## Controlled-local execution
 
 Run only from a clean committed revision; the script builds from `git archive`
