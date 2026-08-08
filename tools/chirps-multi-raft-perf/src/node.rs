@@ -28,6 +28,7 @@ use tokio::time::{sleep, timeout};
 
 const PROBE_MAGIC: &[u8; 8] = b"MRPROBE1";
 const GROUP_QUEUE_CAPACITY: usize = 32;
+const GROUP_DRAIN_BATCH_SIZE: usize = 32;
 const DISPATCH_BACKLOG_BYTES: usize = 32 * 1024 * 1024;
 const DISPATCH_FRAME_OVERHEAD_BYTES: usize = 128;
 const RESPONSE_DISPATCH_CAPACITY: usize = 256;
@@ -404,11 +405,12 @@ impl GroupDispatchQueue {
 
     async fn drain(self) {
         loop {
-            let pending = {
+            let pending_batch = {
                 let mut state = self.state.lock().await;
-                state.pending.pop_front()
+                let count = state.pending.len().min(GROUP_DRAIN_BATCH_SIZE);
+                state.pending.drain(..count).collect::<Vec<_>>()
             };
-            let Some(pending) = pending else {
+            if pending_batch.is_empty() {
                 let restart = {
                     let mut state = self.state.lock().await;
                     if state.pending.is_empty() {
@@ -422,16 +424,18 @@ impl GroupDispatchQueue {
                     return;
                 }
                 continue;
-            };
-            if self
-                .sender
-                .send((pending.source, pending.frame))
-                .await
-                .is_err()
-            {
-                self.depth.fetch_sub(1, Ordering::Relaxed);
             }
-            drop(pending._slot);
+            for pending in pending_batch {
+                if self
+                    .sender
+                    .send((pending.source, pending.frame))
+                    .await
+                    .is_err()
+                {
+                    self.depth.fetch_sub(1, Ordering::Relaxed);
+                }
+                drop(pending._slot);
+            }
         }
     }
 }
@@ -444,13 +448,27 @@ where
 {
     let (sender, mut receiver) = mpsc::channel(GROUP_QUEUE_CAPACITY);
     tokio::spawn(async move {
-        while let Some(item) = receiver.recv().await {
-            depth
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                    Some(value.saturating_sub(1))
-                })
-                .ok();
-            handler(item).await;
+        loop {
+            let Some(first) = receiver.recv().await else {
+                break;
+            };
+            let mut batch = Vec::with_capacity(GROUP_DRAIN_BATCH_SIZE);
+            batch.push(first);
+            for _ in 1..GROUP_DRAIN_BATCH_SIZE {
+                match receiver.try_recv() {
+                    Ok(item) => batch.push(item),
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+                }
+            }
+            for item in batch {
+                depth
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                        Some(value.saturating_sub(1))
+                    })
+                    .ok();
+                handler(item).await;
+            }
         }
     });
     sender
@@ -460,6 +478,47 @@ fn frame_group_id(frame: &Frame) -> Option<u64> {
     match frame {
         Frame::Raft(frame) | Frame::RaftSnapshot(frame) => Some(frame.group_id),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod fifo_batch_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn fifo_queue_batch_drain_preserves_order_and_depth() {
+        let depth = Arc::new(AtomicU64::new(0));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let processed = Arc::new(AtomicUsize::new(0));
+        let seen_for_handler = Arc::clone(&seen);
+        let processed_for_handler = Arc::clone(&processed);
+        let sender = spawn_fifo_queue(Arc::clone(&depth), move |value: usize| {
+            let seen = Arc::clone(&seen_for_handler);
+            let processed = Arc::clone(&processed_for_handler);
+            async move {
+                seen.lock().await.push(value);
+                processed.fetch_add(1, Ordering::Release);
+            }
+        });
+
+        for value in 0..100 {
+            depth.fetch_add(1, Ordering::Relaxed);
+            sender.send(value).await.unwrap();
+        }
+        drop(sender);
+
+        timeout(Duration::from_secs(1), async {
+            while processed.load(Ordering::Acquire) != 100 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("fifo queue did not drain");
+
+        assert_eq!(*seen.lock().await, (0..100).collect::<Vec<_>>());
+        assert_eq!(depth.load(Ordering::Acquire), 0);
     }
 }
 
