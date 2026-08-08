@@ -98,6 +98,14 @@ operational evidence, not a claim about when a physical device persisted the
 bytes. `/proc/self/io` disk bytes may therefore legitimately be zero on this
 profile and are still preserved verbatim.
 
+When `durability_batch_wait_us` is non-zero, a node-wide
+`WalDurabilityCoordinator` coalesces concurrent group barriers while preserving
+per-group WAL files and synchronous durability. Participants carry a detachable
+dirty bit, so a barrier syncs only WALs that received writes; clean groups are
+not charged an extra `sync_all`. A failed sync restores the dirty bit for retry.
+The default value is zero, preserving the previous per-group behavior; the
+controlled diagnostic profile uses 250 us.
+
 ## Controlled-local execution
 
 Run only from a clean committed revision; the script builds from `git archive`
