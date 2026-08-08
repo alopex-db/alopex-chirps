@@ -808,6 +808,19 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
         .map(|(group, depth)| (*group, depth.load(Ordering::Relaxed)))
         .collect::<BTreeMap<_, _>>();
     let dispatch_queue_depth = per_group_queue_depth.values().sum();
+    let leader_by_group = runtime
+        .manager
+        .list_groups()
+        .into_iter()
+        .filter_map(|group_id| {
+            runtime.manager.get_group(group_id).and_then(|group| {
+                group
+                    .metrics()
+                    .current_leader
+                    .map(|leader| (group_id.0, leader))
+            })
+        })
+        .collect::<BTreeMap<_, _>>();
     let extended = runtime.backend.extended_metrics();
     let transport_queue_utilization = extended
         .queue_utilization
@@ -829,6 +842,7 @@ async fn collect_metrics(runtime: &Runtime) -> RawMetricsLine {
         transport_dropped: transport.dropped,
         transport_retried: transport.retried,
         per_group_queue_depth,
+        leader_by_group,
         proposal_inflight,
         dispatch_queue_depth,
         transport_queue_utilization,

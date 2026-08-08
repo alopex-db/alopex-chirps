@@ -1359,6 +1359,7 @@ mod tests {
                         transport_dropped: 0,
                         transport_retried: 0,
                         per_group_queue_depth: groups.iter().map(|group| (*group, 0)).collect(),
+                        leader_by_group: groups.iter().map(|group| (*group, 1)).collect(),
                         proposal_inflight: BTreeMap::new(),
                         dispatch_queue_depth: 0,
                         transport_queue_utilization: BTreeMap::new(),

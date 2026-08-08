@@ -261,6 +261,10 @@ pub struct RawMetricsLine {
     pub transport_dropped: u64,
     pub transport_retried: u64,
     pub per_group_queue_depth: BTreeMap<u64, u64>,
+    /// Optional detachable diagnostic: the latest observed leader per group.
+    /// Empty when the resource-audit sampler is not enabled.
+    #[serde(default)]
+    pub leader_by_group: BTreeMap<u64, u64>,
     /// Proposal RPCs admitted by the control-plane load generator; kept
     /// separate from the Raft dispatch queue to avoid conflating diagnostics.
     #[serde(default)]
@@ -290,6 +294,40 @@ pub struct RawMetricsLine {
     pub dispatch_budget_in_use_bytes: u64,
     #[serde(default)]
     pub dispatch_budget_waits: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RawMetricsLine;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn raw_metrics_old_artifacts_default_leader_map() {
+        let json = r#"{
+          "monotonic_ns": 1, "node_id": 1, "cpu_seconds": 0.0,
+          "rss_bytes": 0, "disk_read_bytes": 0, "disk_write_bytes": 0,
+          "fsync_calls": 0, "network_rx_bytes": 0, "network_tx_bytes": 0,
+          "transport_sent": 0, "transport_received": 0, "transport_dropped": 0,
+          "transport_retried": 0, "per_group_queue_depth": {}
+        }"#;
+        let metrics: RawMetricsLine = serde_json::from_str(json).expect("legacy metrics");
+        assert!(metrics.leader_by_group.is_empty());
+    }
+
+    #[test]
+    fn raw_metrics_round_trip_leader_map() {
+        let mut leaders = BTreeMap::new();
+        leaders.insert(7, 2);
+        let mut metrics = serde_json::from_str::<RawMetricsLine>(
+            r#"{"monotonic_ns":1,"node_id":1,"cpu_seconds":0.0,"rss_bytes":0,"disk_read_bytes":0,"disk_write_bytes":0,"fsync_calls":0,"network_rx_bytes":0,"network_tx_bytes":0,"transport_sent":0,"transport_received":0,"transport_dropped":0,"transport_retried":0,"per_group_queue_depth":{}}"#,
+        )
+        .expect("base metrics");
+        metrics.leader_by_group = leaders.clone();
+        let decoded: RawMetricsLine =
+            serde_json::from_str(&serde_json::to_string(&metrics).expect("serialize metrics"))
+                .expect("deserialize metrics");
+        assert_eq!(decoded.leader_by_group, leaders);
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
