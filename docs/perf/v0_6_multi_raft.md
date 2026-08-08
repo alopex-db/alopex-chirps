@@ -301,8 +301,10 @@ without charging the workload for diagnostic hashing.
 The controlled local native run was executed with three logical nodes in three
 containers on one host. Its artifact and result summary are recorded under
 `docs/release/evidence/v0.6.0/multi-raft-native-2026-08-07/`. Physical host
-availability was not used as a prerequisite. The native result is a measured
-engineering result, not a claim that the 100,000/s release target passed.
+availability was not used as a prerequisite. Those historical runs used the
+retired 100,000/s proposal gate; the current gate is the measured local TiKV
+write baseline and the authoritative replacement is recorded under
+`local-tikv-calibrated-native-2026-08-09/`.
 
 The TiKV-compatible contract and validation tests are present, but no
 RawKV/YCSB-compatible read/update service runner has been claimed or used as a
