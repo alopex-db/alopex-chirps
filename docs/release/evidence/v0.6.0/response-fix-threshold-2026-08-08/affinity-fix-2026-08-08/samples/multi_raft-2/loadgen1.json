@@ -1,0 +1,22 @@
+{
+  "mode": "multi_raft",
+  "sample_index": 2,
+  "origin_node": 1,
+  "clients": 100,
+  "payload_bytes": 1024,
+  "monotonic_start_ns": 59020696909149,
+  "monotonic_end_ns": 59080696909149,
+  "committed": 0,
+  "errors": 0,
+  "timeouts": 1200,
+  "server_errors": 0,
+  "transport_errors": 0,
+  "server_error_reasons": {},
+  "per_group_committed": {},
+  "latency_us": {},
+  "peak_rss_bytes": 5013504,
+  "rss_start_bytes": 4042752,
+  "rss_warmup_peak_bytes": 5005312,
+  "rss_measure_peak_bytes": 5013504,
+  "rss_drain_peak_bytes": 5013504
+}

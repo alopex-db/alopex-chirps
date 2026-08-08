@@ -1,0 +1,159 @@
+{
+  "sample": {
+    "mode": "single_group",
+    "index": 0,
+    "group_count": 1,
+    "clients": 300,
+    "process_or_container_ids": [
+      "264fb8321c22e4db868cde4760c1d961749094b973b1355c7cdf40052af20fc1",
+      "eabd2a8782dadb2be1979dbb2a2bd00dd13db4a52378a9a952938896fe0e832d",
+      "d9e7137c09f4670ce35eb261df903e2941ad08d8121558630a59a78af6959044"
+    ],
+    "actual_measure_duration_ms": 60000,
+    "monotonic_start_ns": 58330638759253,
+    "monotonic_end_ns": 58390638759253,
+    "network_rtt_ms": [
+      {
+        "source": 1,
+        "destination": 2,
+        "unloaded": {
+          "p50": 0.087,
+          "p95": 0.117
+        },
+        "shaped": {
+          "p50": 0.843,
+          "p95": 1.17
+        }
+      },
+      {
+        "source": 1,
+        "destination": 3,
+        "unloaded": {
+          "p50": 0.094,
+          "p95": 0.132
+        },
+        "shaped": {
+          "p50": 0.837,
+          "p95": 1.13
+        }
+      },
+      {
+        "source": 2,
+        "destination": 1,
+        "unloaded": {
+          "p50": 0.094,
+          "p95": 0.131
+        },
+        "shaped": {
+          "p50": 0.865,
+          "p95": 1.15
+        }
+      },
+      {
+        "source": 2,
+        "destination": 3,
+        "unloaded": {
+          "p50": 0.096,
+          "p95": 0.132
+        },
+        "shaped": {
+          "p50": 0.733,
+          "p95": 1.17
+        }
+      },
+      {
+        "source": 3,
+        "destination": 1,
+        "unloaded": {
+          "p50": 0.097,
+          "p95": 0.143
+        },
+        "shaped": {
+          "p50": 0.872,
+          "p95": 1.17
+        }
+      },
+      {
+        "source": 3,
+        "destination": 2,
+        "unloaded": {
+          "p50": 0.093,
+          "p95": 0.131
+        },
+        "shaped": {
+          "p50": 0.858,
+          "p95": 1.05
+        }
+      }
+    ],
+    "group_membership_after_drain": [
+      {
+        "group_id": 1,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 8926,
+            "committed_digest": "e3cf0c7e610d5984e56a7006f539204414d6ab15935be9a9204b149d72a1212c"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 8926,
+            "committed_digest": "e3cf0c7e610d5984e56a7006f539204414d6ab15935be9a9204b149d72a1212c"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 8926,
+            "committed_digest": "e3cf0c7e610d5984e56a7006f539204414d6ab15935be9a9204b149d72a1212c"
+          }
+        ]
+      }
+    ],
+    "committed": 5657,
+    "throughput_per_sec": 94.28333333333333,
+    "latency_ms": {
+      "p50": 2920.159,
+      "p95": 4388.052,
+      "p99": 4576.42
+    },
+    "errors": 0,
+    "timeouts": 0,
+    "server_errors": 0,
+    "transport_errors": 0,
+    "server_error_reasons": {},
+    "cpu_seconds": 94.76,
+    "peak_rss_bytes": 13369344,
+    "disk_bytes": 569344,
+    "fsync_calls": 8073,
+    "network_bytes": 45484506,
+    "oom_killed": false,
+    "process_restarted": false,
+    "shaper_mismatch": false
+  },
+  "per_group": [
+    {
+      "mode": "single_group",
+      "sample_index": 0,
+      "group_id": 1,
+      "committed": 5657,
+      "throughput_per_sec": 94.28333333333333
+    }
+  ]
+}

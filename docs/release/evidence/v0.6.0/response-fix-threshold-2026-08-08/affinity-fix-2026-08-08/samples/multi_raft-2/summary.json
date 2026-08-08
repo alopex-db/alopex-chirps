@@ -1,0 +1,3913 @@
+{
+  "sample": {
+    "mode": "multi_raft",
+    "index": 2,
+    "group_count": 100,
+    "clients": 300,
+    "process_or_container_ids": [
+      "d5d936ded50395eedc15a6e56d07cf90ae9d3f4c903e3dc9d3f6c92ce1500b55",
+      "a49620085fb0cc69a755ad1f937696419484091733d9aa11b937b0cdf3fd170b",
+      "96cd379fc7d6f2eb49da0837cef5ab83affa3e30eed4fc13d55cce14f49c83ea"
+    ],
+    "actual_measure_duration_ms": 60000,
+    "monotonic_start_ns": 59020696909149,
+    "monotonic_end_ns": 59080696909149,
+    "network_rtt_ms": [
+      {
+        "source": 1,
+        "destination": 2,
+        "unloaded": {
+          "p50": 0.098,
+          "p95": 0.148
+        },
+        "shaped": {
+          "p50": 0.847,
+          "p95": 1.15
+        }
+      },
+      {
+        "source": 1,
+        "destination": 3,
+        "unloaded": {
+          "p50": 0.095,
+          "p95": 0.131
+        },
+        "shaped": {
+          "p50": 0.72,
+          "p95": 1.07
+        }
+      },
+      {
+        "source": 2,
+        "destination": 1,
+        "unloaded": {
+          "p50": 0.094,
+          "p95": 0.13
+        },
+        "shaped": {
+          "p50": 0.75,
+          "p95": 0.991
+        }
+      },
+      {
+        "source": 2,
+        "destination": 3,
+        "unloaded": {
+          "p50": 0.089,
+          "p95": 0.123
+        },
+        "shaped": {
+          "p50": 0.811,
+          "p95": 1.05
+        }
+      },
+      {
+        "source": 3,
+        "destination": 1,
+        "unloaded": {
+          "p50": 0.092,
+          "p95": 0.117
+        },
+        "shaped": {
+          "p50": 0.872,
+          "p95": 1.13
+        }
+      },
+      {
+        "source": 3,
+        "destination": 2,
+        "unloaded": {
+          "p50": 0.097,
+          "p95": 0.132
+        },
+        "shaped": {
+          "p50": 0.945,
+          "p95": 1.22
+        }
+      }
+    ],
+    "group_membership_after_drain": [
+      {
+        "group_id": 1,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 2,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 3,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 4,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 5,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 6,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 7,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 8,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 9,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 10,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 11,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 12,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 13,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 14,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 15,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 16,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 17,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 18,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 19,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 20,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 21,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 22,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 23,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 24,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 25,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 26,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 27,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 28,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 29,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 30,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 31,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 32,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 33,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 34,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 35,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 36,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 37,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 38,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 39,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 40,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 41,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 42,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 43,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 44,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 45,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 46,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 47,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 48,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 49,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 50,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 51,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 52,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 53,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 54,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 55,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 56,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 57,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 58,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 59,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 60,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 61,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 62,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 63,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 64,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 65,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 66,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 67,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 68,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 69,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 70,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 71,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 72,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 73,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 74,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 75,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 76,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 77,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 78,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 79,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 80,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 81,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 82,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 83,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 84,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 85,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 86,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 87,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 88,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 89,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 90,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 91,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 92,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 93,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 94,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 95,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 96,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 97,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 98,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 2,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 99,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 3,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "group_id": 100,
+        "replicas": [
+          {
+            "node_id": 1,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 2,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 0,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "node_id": 3,
+            "voters": [
+              1,
+              2,
+              3
+            ],
+            "leader_id": 1,
+            "last_applied": 5,
+            "committed_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      }
+    ],
+    "committed": 0,
+    "throughput_per_sec": 0.0,
+    "latency_ms": {
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0
+    },
+    "errors": 0,
+    "timeouts": 3600,
+    "server_errors": 0,
+    "transport_errors": 0,
+    "server_error_reasons": {},
+    "cpu_seconds": 41.72,
+    "peak_rss_bytes": 147316736,
+    "disk_bytes": 1531904,
+    "fsync_calls": 813,
+    "network_bytes": 869079563,
+    "oom_killed": false,
+    "process_restarted": false,
+    "shaper_mismatch": false
+  },
+  "per_group": []
+}

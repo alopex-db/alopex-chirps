@@ -417,7 +417,7 @@ fn verify_raw_artifacts(base: &Path, artifact: &Artifact) -> anyhow::Result<()> 
             RawArtifactKind::ShaperConfig => {
                 let text = String::from_utf8(bytes)?;
                 ensure!(
-                    text.contains("netem") && text.contains("delay 250us"),
+                    shaper_evidence_matches(&text),
                     "shaper evidence mismatch in {}",
                     raw.path
                 );
@@ -664,6 +664,13 @@ fn verify_raw_artifacts(base: &Path, artifact: &Artifact) -> anyhow::Result<()> 
         "raw artifact-set digest mismatch"
     );
     Ok(())
+}
+
+/// Linux `tc` may render a requested 250us netem delay as 249us after
+/// converting the value through its kernel clock representation. Both strings
+/// describe the same configured evidence; larger deviations remain invalid.
+fn shaper_evidence_matches(text: &str) -> bool {
+    text.contains("netem") && (text.contains("delay 250us") || text.contains("delay 249us"))
 }
 
 fn parse_sample_raw_path(
@@ -1219,6 +1226,14 @@ mod tests {
                 .to_string()
                 .contains("raw digest mismatch")
         );
+    }
+
+    #[test]
+    fn shaper_verifier_accepts_kernel_rounded_delay_only() {
+        assert!(shaper_evidence_matches("qdisc netem delay 250us"));
+        assert!(shaper_evidence_matches("qdisc netem delay 249us"));
+        assert!(!shaper_evidence_matches("qdisc netem delay 248us"));
+        assert!(!shaper_evidence_matches("qdisc fq_codel delay 250us"));
     }
 
     fn fixture() -> Fixture {
