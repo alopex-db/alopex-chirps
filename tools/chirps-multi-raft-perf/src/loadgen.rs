@@ -221,6 +221,7 @@ struct ClientSession {
     nodes: [SocketAddr; 3],
     group_id: u64,
     leader: usize,
+    leader_initialized: bool,
     stream: Option<TcpStream>,
 }
 
@@ -237,6 +238,7 @@ impl ClientSession {
             nodes,
             group_id,
             leader: 0,
+            leader_initialized: false,
             stream: None,
         }
     }
@@ -247,6 +249,15 @@ impl ClientSession {
             let now = monotonic_ns();
             if now >= deadline {
                 return Err(observed_failure.unwrap_or(AttemptFailure::Timeout));
+            }
+            if !self.leader_initialized {
+                if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await {
+                    self.leader = leader;
+                    self.leader_initialized = true;
+                } else {
+                    sleep(Duration::from_millis(1)).await;
+                    continue;
+                }
             }
             if self.stream.is_none() && self.connect(deadline).await.is_err() {
                 sleep(Duration::from_millis(1)).await;
@@ -273,17 +284,21 @@ impl ClientSession {
                     let reason = reason.chars().take(256).collect();
                     observed_failure = Some(AttemptFailure::ServerError(reason));
                     self.stream = None;
+                    self.leader_initialized = false;
                     if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await
                     {
                         self.leader = leader;
+                        self.leader_initialized = true;
                     }
                 }
                 Ok(Ok(_)) | Ok(Err(_)) => {
                     observed_failure = Some(AttemptFailure::TransportError);
                     self.stream = None;
+                    self.leader_initialized = false;
                     if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await
                     {
                         self.leader = leader;
+                        self.leader_initialized = true;
                     }
                 }
                 Err(_) => {
@@ -304,6 +319,7 @@ impl ClientSession {
             _ => {
                 if let Some(leader) = resolve_leader(&self.nodes, self.group_id, deadline).await {
                     self.leader = leader;
+                    self.leader_initialized = true;
                 }
                 Err(())
             }
@@ -361,6 +377,7 @@ mod tests {
         node_id: u64,
         leader_id: u64,
         committed: Arc<AtomicU64>,
+        proposals: Arc<AtomicU64>,
     ) -> (SocketAddr, tokio::task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -370,6 +387,7 @@ mod tests {
                     break;
                 };
                 let committed = Arc::clone(&committed);
+                let proposals = Arc::clone(&proposals);
                 tokio::spawn(async move {
                     loop {
                         let Ok(Some(request)) = read_frame::<_, Request>(&mut stream).await else {
@@ -384,10 +402,12 @@ mod tests {
                                 committed_digest: "00".repeat(32),
                             }),
                             Request::Propose { payload, .. } if node_id == leader_id => {
+                                proposals.fetch_add(1, Ordering::Relaxed);
                                 committed.fetch_add(1, Ordering::Relaxed);
                                 Response::Proposal(payload)
                             }
                             Request::Propose { .. } => {
+                                proposals.fetch_add(1, Ordering::Relaxed);
                                 Response::Error(format!("forward to leader {leader_id}"))
                             }
                             _ => Response::Error("unsupported fake request".to_owned()),
@@ -405,9 +425,10 @@ mod tests {
     #[tokio::test]
     async fn proposal_re_resolves_the_current_leader() {
         let committed = Arc::new(AtomicU64::new(0));
-        let (node1, task1) = fake_node(1, 2, Arc::clone(&committed)).await;
-        let (node2, task2) = fake_node(2, 2, Arc::clone(&committed)).await;
-        let (node3, task3) = fake_node(3, 2, Arc::clone(&committed)).await;
+        let proposals = Arc::new(AtomicU64::new(0));
+        let (node1, task1) = fake_node(1, 2, Arc::clone(&committed), Arc::clone(&proposals)).await;
+        let (node2, task2) = fake_node(2, 2, Arc::clone(&committed), Arc::clone(&proposals)).await;
+        let (node3, task3) = fake_node(3, 2, Arc::clone(&committed), Arc::clone(&proposals)).await;
         let mut session = ClientSession::new([node1, node2, node3], 7);
         let value = payload(1, 2, 7, 11);
 
@@ -417,6 +438,30 @@ mod tests {
         );
         assert_eq!(session.leader, 1);
         assert_eq!(committed.load(Ordering::Relaxed), 1);
+        assert_eq!(proposals.load(Ordering::Relaxed), 1);
+
+        task1.abort();
+        task2.abort();
+        task3.abort();
+    }
+
+    #[tokio::test]
+    async fn first_proposal_resolves_leader_before_sending() {
+        let committed = Arc::new(AtomicU64::new(0));
+        let proposals = Arc::new(AtomicU64::new(0));
+        let (node1, task1) = fake_node(1, 2, Arc::clone(&committed), Arc::clone(&proposals)).await;
+        let (node2, task2) = fake_node(2, 2, Arc::clone(&committed), Arc::clone(&proposals)).await;
+        let (node3, task3) = fake_node(3, 2, Arc::clone(&committed), Arc::clone(&proposals)).await;
+        let mut session = ClientSession::new([node1, node2, node3], 83);
+
+        assert_eq!(
+            session
+                .propose(payload(1, 0, 83, 0), monotonic_ns() + 2_000_000_000)
+                .await,
+            Ok(())
+        );
+        assert_eq!(session.leader, 1);
+        assert_eq!(proposals.load(Ordering::Relaxed), 1);
 
         task1.abort();
         task2.abort();
