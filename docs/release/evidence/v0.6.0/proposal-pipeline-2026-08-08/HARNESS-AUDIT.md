@@ -34,3 +34,15 @@ with exactly 100 queue-depth keys; single-group records emitted exactly one
 key. All 10 loadgen samples had `errors=0` and `timeouts=0`. The final verifier
 failure was solely the shaped RTT p95 environmental gate described in
 `RESULT.md`, not missing queue evidence or loadgen failure.
+
+## Remaining bottleneck candidate
+
+The corrected resource trace shows Multi-Raft node RSS of roughly 144--149 MiB
+and dispatch-depth maxima of 11--27, ruling out the earlier unbounded harness
+queue/RSS symptom in this profile. Each node nevertheless records roughly
+56--58 thousand fsync calls during a 60-second, 100-group sample. This makes
+durability-barrier frequency the next implementation candidate. TiKV's
+Raft-Engine/WriteBatch path batches ready entries across regions before a
+durability barrier; Chirps currently owns one WAL sink per group, so a safe
+cross-group coordinator is required before changing this behavior. No unsafe
+fsync relaxation was made in this change.
