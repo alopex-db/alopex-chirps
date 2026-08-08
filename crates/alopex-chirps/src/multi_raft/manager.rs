@@ -135,6 +135,7 @@ where
         let transport = Arc::new(self.transport.fork_for_group(group_id));
         let mut config = self.raft_config.clone();
         config.group_id = group_id;
+        let proposal_concurrency = config.proposal_concurrency;
 
         let node = match RaftNode::new(
             config,
@@ -172,7 +173,11 @@ where
         // The lifecycle lock makes the following map insertion infallible with
         // respect to duplicate creation.
         drop(transaction.commit());
-        let handle = Arc::new(GroupHandle::new(group_id, Arc::clone(&node)));
+        let handle = Arc::new(GroupHandle::new(
+            group_id,
+            Arc::clone(&node),
+            proposal_concurrency,
+        ));
         if let Some(collector) = self
             .metrics_collector
             .read()

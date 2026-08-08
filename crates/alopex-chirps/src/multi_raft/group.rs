@@ -20,14 +20,16 @@ pub struct GroupHandle {
 }
 
 impl GroupHandle {
-    pub(crate) fn new(group_id: GroupId, node: Arc<RaftNode>) -> Self {
+    pub(crate) fn new(group_id: GroupId, node: Arc<RaftNode>, proposal_concurrency: usize) -> Self {
         Self {
             group_id,
             node,
             lifecycle: GroupLifecycle::new(),
             // Bound client_write concurrency per group so proposal floods do
             // not starve OpenRaft heartbeats/elections on the same runtime.
-            proposal_gate: Semaphore::new(8),
+            // The default is deliberately large enough to pipeline a
+            // single group's writes; zero is normalized to one below.
+            proposal_gate: Semaphore::new(proposal_concurrency.max(1)),
             tick_gate: Arc::new(Semaphore::new(1)),
         }
     }

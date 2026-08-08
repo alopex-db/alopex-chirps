@@ -32,6 +32,9 @@ pub struct RaftConfig {
     pub heartbeat_interval_ms: u64,
     /// AppendEntriesの最大バッチ数
     pub max_batch_size: usize,
+    /// 1グループあたりの同時client_write数。Raftのパイプラインを
+    /// バックプレッシャー付きで利用し、単一グループだけが直列化されないようにする。
+    pub proposal_concurrency: usize,
     /// スナップショット生成のしきい値（ログエントリ数）
     pub snapshot_threshold: u64,
     /// スナップショット後に保持するログ本数
@@ -58,6 +61,7 @@ impl Default for RaftConfig {
             election_timeout_ms: 150,
             heartbeat_interval_ms: 50,
             max_batch_size: 1_000,
+            proposal_concurrency: 64,
             snapshot_threshold: 10_000,
             max_in_snapshot_log_to_keep: 1_000,
             #[cfg(feature = "snapshot")]
@@ -81,5 +85,15 @@ impl RaftConfig {
             max_concurrent_chunks: self.snapshot_max_concurrent_chunks,
             max_retries: self.snapshot_max_retries,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RaftConfig;
+
+    #[test]
+    fn proposal_concurrency_defaults_to_pipelined_value() {
+        assert_eq!(RaftConfig::default().proposal_concurrency, 64);
     }
 }
