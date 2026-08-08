@@ -22,6 +22,8 @@ fn persists_and_reloads_same_node_id() {
     }
 
     let (second, inc2) = load_or_create_node_id(&path).expect("reload node id");
-    assert_eq!(inc2, 0);
+    // Reloading an existing identity allocates the next incarnation so a
+    // restarted process cannot be mistaken for its previous session.
+    assert_eq!(inc2, 1);
     assert_eq!(first, second);
 }
