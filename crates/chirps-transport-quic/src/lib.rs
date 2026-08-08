@@ -1328,6 +1328,12 @@ async fn broadcast_to_peers(
 }
 
 fn build_tls_configs(config: &NodeConfig) -> anyhow::Result<(ServerConfig, ClientConfig)> {
+    // Workspace-wide feature resolution can enable more than one rustls
+    // crypto provider, which makes automatic process-level selection panic.
+    // Chirps pins this transport to ring, so select it explicitly. Repeated
+    // calls are harmless when another test has already installed a provider.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let (cert_der, key_der) = if let (Some(cert_path), Some(key_path)) =
         (config.cert_path.as_ref(), config.key_path.as_ref())
     {
