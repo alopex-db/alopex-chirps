@@ -21,7 +21,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Cursor, Read, Write};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -125,6 +125,11 @@ struct CoordinatorGate {
     last_error: Option<String>,
 }
 
+struct DurabilityParticipant {
+    writer: Weak<Mutex<BufWriter<File>>>,
+    dirty: Weak<AtomicBool>,
+}
+
 /// Batches durability barriers from independently-owned group WAL files.
 ///
 /// Each participant still owns and appends to its own file.  A sync request
@@ -133,7 +138,7 @@ struct CoordinatorGate {
 /// cross-region ready/write batch boundary used by reference raftstores while
 /// preserving the per-group WAL layout and failure propagation.
 pub struct WalDurabilityCoordinator {
-    participants: Mutex<Vec<Weak<Mutex<BufWriter<File>>>>>,
+    participants: Mutex<Vec<DurabilityParticipant>>,
     gate: Mutex<CoordinatorGate>,
     wake: Condvar,
     batch_wait: Duration,
@@ -153,10 +158,14 @@ impl WalDurabilityCoordinator {
         }
     }
 
-    fn register(&self, writer: &Arc<Mutex<BufWriter<File>>>) {
+    fn register(&self, writer: &Arc<Mutex<BufWriter<File>>>, dirty: &Arc<AtomicBool>) {
         let mut participants = self.participants.lock().unwrap();
-        participants.retain(|entry| entry.strong_count() > 0);
-        participants.push(Arc::downgrade(writer));
+        participants
+            .retain(|entry| entry.writer.strong_count() > 0 && entry.dirty.strong_count() > 0);
+        participants.push(DurabilityParticipant {
+            writer: Arc::downgrade(writer),
+            dirty: Arc::downgrade(dirty),
+        });
     }
 
     fn sync(&self) -> Result<()> {
@@ -194,8 +203,12 @@ impl WalDurabilityCoordinator {
             let mut participants = self.participants.lock().unwrap();
             let mut writers = Vec::with_capacity(participants.len());
             participants.retain(|entry| {
-                if let Some(writer) = entry.upgrade() {
-                    writers.push(writer);
+                if let (Some(writer), Some(dirty)) = (entry.writer.upgrade(), entry.dirty.upgrade())
+                {
+                    if !dirty.swap(false, Ordering::AcqRel) {
+                        return true;
+                    }
+                    writers.push((writer, dirty));
                     true
                 } else {
                     false
@@ -203,9 +216,12 @@ impl WalDurabilityCoordinator {
             });
             writers
         };
-        for writer in writers {
+        for (writer, dirty) in writers {
             let mut guard = writer.lock().unwrap();
-            RealWalSink::sync_writer(&mut guard)?;
+            if let Err(error) = RealWalSink::sync_writer(&mut guard) {
+                dirty.store(true, Ordering::Release);
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -263,6 +279,7 @@ pub(crate) trait WalSink: Send + Sync {
 
 struct RealWalSink {
     inner: Arc<Mutex<BufWriter<File>>>,
+    dirty: Arc<AtomicBool>,
     coordinator: Arc<WalDurabilityCoordinator>,
 }
 
@@ -270,8 +287,13 @@ impl RealWalSink {
     fn new(path: &Path, coordinator: Arc<WalDurabilityCoordinator>) -> Result<Self> {
         let file = OpenOptions::new().append(true).create(true).open(path)?;
         let inner = Arc::new(Mutex::new(BufWriter::new(file)));
-        coordinator.register(&inner);
-        Ok(Self { inner, coordinator })
+        let dirty = Arc::new(AtomicBool::new(false));
+        coordinator.register(&inner, &dirty);
+        Ok(Self {
+            inner,
+            dirty,
+            coordinator,
+        })
     }
 
     fn append_record(writer: &mut BufWriter<File>, record: &CoreWalRecord) -> Result<()> {
@@ -297,6 +319,7 @@ impl WalSink for RealWalSink {
             let mut guard = self.inner.lock().unwrap();
             Self::append_record(&mut guard, record)?;
         }
+        self.dirty.store(true, Ordering::Release);
         if sync {
             self.coordinator.sync()?;
         }
