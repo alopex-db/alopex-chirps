@@ -1,0 +1,2 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.19s
+     Running tests/multi_raft_three_voter.rs (target/debug/deps/multi_raft_three_voter-441e6f118ae5041e)

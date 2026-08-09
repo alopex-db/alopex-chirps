@@ -1,0 +1,13 @@
+   Compiling getrandom v0.2.17
+   Compiling tokio v1.53.1
+   Compiling alopex-chirps-wire v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-wire)
+   Compiling rand_core v0.6.4
+   Compiling rand_chacha v0.3.1
+   Compiling rand v0.8.7
+   Compiling alopex-chirps-gossip-swim v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-gossip-swim)
+    Finished `test` profile [optimized + debuginfo] target(s) in 6.76s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_gossip_swim-8c2f0856d43c09f1)
+     Running tests/hlc_ordering.rs (target/debug/deps/hlc_ordering-d1a171189f98a12f)
+     Running tests/resilience.rs (target/debug/deps/resilience-8e01ba41a0271f48)
+     Running tests/util_integration.rs (target/debug/deps/util_integration-a7f6baf801d538e9)
+   Doc-tests alopex_chirps_gossip_swim

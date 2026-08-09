@@ -1,0 +1,45 @@
+
+running 30 tests
+test controller::tests::bootstrap_owner_round_robins_groups_across_three_nodes ... ok
+test controller::tests::bootstrap_ready_requires_caught_up_replicas ... ok
+test loadgen::tests::first_proposal_resolves_leader_before_sending ... ok
+test loadgen::tests::one_client_payload_working_set_is_fixed ... ok
+test loadgen::tests::proposal_payload_includes_the_sequence ... ok
+test loadgen::tests::proposal_re_resolves_the_current_leader ... ok
+test loadgen::tests::rss_phase_boundaries_are_explicit_and_non_overlapping ... ok
+test loadgen::tests::rss_probe_returns_a_byte_count ... ok
+test node::fifo_batch_tests::fifo_queue_batch_drain_preserves_order_and_depth ... ok
+test node::tests::audit_digest_is_detachable_from_normal_measurement ... ok
+test node::tests::bounded_global_dispatch_backlog_does_not_block_other_groups ... ok
+test node::tests::bounded_group_queue_has_a_finite_payload_budget ... ok
+test node::tests::dispatch_budget_is_payload_bounded_and_not_frame_count_only ... ok
+test node::tests::fifo_queue_preserves_group_order ... ok
+test node::tests::group_queue_is_bounded_instead_of_accumulating_unbounded_frames ... ok
+test node::tests::perf_election_timeout_has_heartbeat_slack ... ok
+test node::tests::queue_depth_audit_emits_zero_for_groups_without_frames ... ok
+test node::tests::raft_frame_exposes_its_outer_group_for_dispatch ... ok
+test node::tests::response_dispatch_reuses_the_pump_permit ... ok
+test node::tests::response_send_concurrency_matches_transport_send_bound ... ok
+test node::tests::separate_group_queues_do_not_head_of_line_block ... ok
+test schema::tests::raw_metrics_old_artifacts_default_leader_map ... ok
+test schema::tests::raw_metrics_round_trip_leader_map ... ok
+test schema::tests::resource_audit_contract_defaults_are_explicit ... ok
+test statistics::tests::statistics_are_deterministic ... ok
+test tikv::tests::invalid_mix_is_rejected ... ok
+test tikv::tests::local_control_baseline_is_write_metric ... ok
+test tikv::tests::reference_matches_tikv_workload_a_contract ... ok
+test verifier::tests::shaper_verifier_accepts_kernel_rounded_delay_only ... ok
+test verifier::tests::strict_fixture_verifies_and_rejects_tampering ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

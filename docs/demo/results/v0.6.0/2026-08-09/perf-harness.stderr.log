@@ -1,0 +1,5 @@
+   Compiling chirps-multi-raft-perf v0.6.0 (/home/roomtv/works/alopex-db/chirps/tools/chirps-multi-raft-perf)
+    Finished `test` profile [optimized + debuginfo] target(s) in 37.99s
+     Running unittests src/lib.rs (target/debug/deps/chirps_multi_raft_perf-649d6a5cc59ff8f3)
+     Running unittests src/main.rs (target/debug/deps/chirps_multi_raft_perf-298a7fda033d884e)
+   Doc-tests chirps_multi_raft_perf

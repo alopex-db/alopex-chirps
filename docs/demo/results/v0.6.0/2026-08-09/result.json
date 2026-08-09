@@ -1,0 +1,371 @@
+{
+  "schema": "chirps-v0.6.0-demo-result-v1",
+  "started_at": "2026-08-09T13:17:54.525082+00:00",
+  "commit": "b6f52ccd4d7776cc155b47604f51b0ca1d99582c",
+  "host": "Linux x86_64 6.18.35.2-microsoft-standard-WSL2",
+  "scenes": [
+    {
+      "name": "workspace-all-features",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 310.094,
+      "stdout": "workspace-all-features.stdout.log",
+      "stderr": "workspace-all-features.stderr.log"
+    },
+    {
+      "name": "wire",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps-wire",
+        "--all-features",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 8.721,
+      "stdout": "wire.stdout.log",
+      "stderr": "wire.stderr.log"
+    },
+    {
+      "name": "core",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps-core",
+        "--all-features",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 4.166,
+      "stdout": "core.stdout.log",
+      "stderr": "core.stderr.log"
+    },
+    {
+      "name": "raft-storage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps-raft-storage",
+        "--all-features",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 26.405,
+      "stdout": "raft-storage.stdout.log",
+      "stderr": "raft-storage.stderr.log"
+    },
+    {
+      "name": "gossip-swim",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps-gossip-swim",
+        "--all-features",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 6.893,
+      "stdout": "gossip-swim.stdout.log",
+      "stderr": "gossip-swim.stderr.log"
+    },
+    {
+      "name": "transport-quic",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps-transport-quic",
+        "--all-features",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 44.427,
+      "stdout": "transport-quic.stdout.log",
+      "stderr": "transport-quic.stderr.log"
+    },
+    {
+      "name": "quic-ignored",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps-transport-quic",
+        "--test",
+        "quic_integration",
+        "--",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 36.021,
+      "stdout": "quic-ignored.stdout.log",
+      "stderr": "quic-ignored.stderr.log"
+    },
+    {
+      "name": "raft-cluster",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps",
+        "--all-features",
+        "--test",
+        "raft_cluster",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 15.841,
+      "stdout": "raft-cluster.stdout.log",
+      "stderr": "raft-cluster.stderr.log"
+    },
+    {
+      "name": "deterministic-harness",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "chirps-deterministic-harness",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 61.105,
+      "stdout": "deterministic-harness.stdout.log",
+      "stderr": "deterministic-harness.stderr.log"
+    },
+    {
+      "name": "perf-harness",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "chirps-multi-raft-perf",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 38.715,
+      "stdout": "perf-harness.stdout.log",
+      "stderr": "perf-harness.stderr.log"
+    },
+    {
+      "name": "three-node-mesh",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "chirps-e2e",
+        "--test",
+        "three_node_mesh",
+        "--",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 27.797,
+      "stdout": "three-node-mesh.stdout.log",
+      "stderr": "three-node-mesh.stderr.log"
+    },
+    {
+      "name": "multinode-read-write",
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "chirps-v06-demo",
+        "--",
+        "--writes",
+        "6"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 0.836,
+      "stdout": "multinode-read-write.stdout.log",
+      "stderr": "multinode-read-write.stderr.log",
+      "demo": {
+        "scenario": "v0.6.0-three-node-multi-raft-read-write",
+        "group_id": 600,
+        "nodes": 3,
+        "writes_requested": 6,
+        "writes_committed": 6,
+        "leader": 1,
+        "reads_consistent": true,
+        "replica_key_counts": {
+          "node-1": 6,
+          "node-2": 6,
+          "node-3": 6
+        },
+        "values_sha256_inputs": {
+          "node-1": [
+            "key-0=value-0",
+            "key-1=value-1",
+            "key-2=value-2",
+            "key-3=value-3",
+            "key-4=value-4",
+            "key-5=value-5"
+          ],
+          "node-2": [
+            "key-0=value-0",
+            "key-1=value-1",
+            "key-2=value-2",
+            "key-3=value-3",
+            "key-4=value-4",
+            "key-5=value-5"
+          ],
+          "node-3": [
+            "key-0=value-0",
+            "key-1=value-1",
+            "key-2=value-2",
+            "key-3=value-3",
+            "key-4=value-4",
+            "key-5=value-5"
+          ]
+        },
+        "scope": "three logical nodes in one process using MockNetwork and WAL-backed storage; not physical-node evidence",
+        "elapsed_ms": 578
+      }
+    },
+    {
+      "name": "multi-raft",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps",
+        "--all-features",
+        "--test",
+        "multi_raft_three_voter",
+        "--",
+        "three_voters_elect_one_leader_and_commit_consistently",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 0.879,
+      "stdout": "multi-raft.stdout.log",
+      "stderr": "multi-raft.stderr.log"
+    },
+    {
+      "name": "tso",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps",
+        "--all-features",
+        "--test",
+        "tso_client",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 0.25,
+      "stdout": "tso.stdout.log",
+      "stderr": "tso.stderr.log"
+    },
+    {
+      "name": "snapshot",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps",
+        "--all-features",
+        "--test",
+        "snapshot_transfer",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 0.483,
+      "stdout": "snapshot.stdout.log",
+      "stderr": "snapshot.stderr.log"
+    },
+    {
+      "name": "hlc-metrics",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps",
+        "--all-features",
+        "--test",
+        "hlc_metrics",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 0.233,
+      "stdout": "hlc-metrics.stdout.log",
+      "stderr": "hlc-metrics.stderr.log"
+    },
+    {
+      "name": "file-transfer",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "alopex-chirps",
+        "--all-features",
+        "--test",
+        "mesh_file_transfer",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "ok": true,
+      "elapsed_seconds": 1.451,
+      "stdout": "file-transfer.stdout.log",
+      "stderr": "file-transfer.stderr.log"
+    }
+  ],
+  "ok": true
+}

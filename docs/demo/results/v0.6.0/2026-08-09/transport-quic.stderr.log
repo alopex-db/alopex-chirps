@@ -1,0 +1,33 @@
+   Compiling subtle v2.6.1
+   Compiling num-traits v0.2.19
+   Compiling regex-automata v0.4.16
+   Compiling rand_chacha v0.9.0
+   Compiling serde_json v1.0.151
+   Compiling tracing-serde v0.2.0
+   Compiling uuid v1.24.0
+   Compiling rustls v0.23.43
+   Compiling rand v0.9.5
+   Compiling alopex-chirps-wire v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-wire)
+   Compiling ordered-float v5.3.0
+   Compiling metrics-util v0.20.4
+   Compiling alopex-chirps-core v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-core)
+   Compiling matchers v0.2.0
+   Compiling tracing-subscriber v0.3.23
+   Compiling tracing-test v0.2.6
+   Compiling tokio-rustls v0.26.4
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling quinn-proto v0.11.16
+   Compiling hyper-rustls v0.27.9
+   Compiling metrics-exporter-prometheus v0.18.3
+   Compiling quinn v0.11.11
+   Compiling alopex-chirps-transport-quic v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-transport-quic)
+    Finished `test` profile [optimized + debuginfo] target(s) in 43.59s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_transport_quic-46ceb1bb52b405a3)
+     Running tests/priority_integration.rs (target/debug/deps/priority_integration-645e1d12400448b1)
+     Running tests/qos_integration.rs (target/debug/deps/qos_integration-b7d3f0e12b3c6dee)
+     Running tests/quic_integration.rs (target/debug/deps/quic_integration-f0a5c462569e3807)
+     Running tests/resilience_qos.rs (target/debug/deps/resilience_qos-81f3ad15211bae83)
+     Running tests/retransmit_integration.rs (target/debug/deps/retransmit_integration-4e04400a0bc07968)
+     Running tests/snapshot_integration.rs (target/debug/deps/snapshot_integration-765d82e7983bcee0)
+     Running tests/version_integration.rs (target/debug/deps/version_integration-3af653dd25e04403)
+   Doc-tests alopex_chirps_transport_quic

@@ -11,6 +11,7 @@ members = [
     "tests/e2e",
     "tools/chirps-deterministic-harness",
     "tools/chirps-multi-raft-perf",
+    "tools/chirps-v06-demo",
 ]
 resolver = "2"
 

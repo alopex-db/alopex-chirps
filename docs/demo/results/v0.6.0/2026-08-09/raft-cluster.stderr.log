@@ -1,0 +1,3 @@
+   Compiling alopex-chirps v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/alopex-chirps)
+    Finished `test` profile [optimized + debuginfo] target(s) in 14.97s
+     Running tests/raft_cluster.rs (target/debug/deps/raft_cluster-dc45af2111715676)

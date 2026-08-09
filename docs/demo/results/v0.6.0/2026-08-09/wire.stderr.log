@@ -1,0 +1,15 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling getrandom v0.4.3
+   Compiling syn v3.0.3
+   Compiling uuid v1.24.0
+   Compiling serde_derive v1.0.229
+   Compiling bincode v1.3.3
+   Compiling alopex-chirps-wire v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-wire)
+    Finished `test` profile [optimized + debuginfo] target(s) in 8.51s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_wire-974b885ee153f8c0)
+     Running tests/file_transfer.rs (target/debug/deps/file_transfer-0e5b7421f73f6e15)
+   Doc-tests alopex_chirps_wire

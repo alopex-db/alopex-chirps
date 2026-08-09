@@ -1,0 +1,13 @@
+   Compiling syn v2.0.119
+   Compiling getrandom v0.4.3
+   Compiling serde v1.0.229
+   Compiling uuid v1.24.0
+   Compiling bincode v1.3.3
+   Compiling alopex-chirps-wire v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-wire)
+   Compiling thiserror-impl v1.0.69
+   Compiling thiserror v1.0.69
+   Compiling alopex-chirps-core v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-core)
+    Finished `test` profile [optimized + debuginfo] target(s) in 4.09s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_core-95e9909129abf88d)
+     Running tests/backend_profile_contract.rs (target/debug/deps/backend_profile_contract-3d3970d37e591618)
+   Doc-tests alopex_chirps_core

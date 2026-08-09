@@ -1,0 +1,48 @@
+
+running 23 tests
+test traits::tests::raft_storage_trait_is_implementable ... ok
+test traits::tests::state_machine_trait_is_usable ... ok
+test wal_storage::tests::append_and_get_entries ... ok
+test wal_storage::tests::apply_returns_one_response_for_every_entry_kind ... ok
+test wal_storage::tests::automatic_snapshot_builder_emits_completion_after_durable_checkpoint ... ok
+test wal_storage::tests::durability_coordinator_flushes_concurrent_group_wals ... ok
+test wal_storage::tests::durability_diagnostics_count_barriers_and_dirty_participants ... ok
+test wal_storage::tests::evicted_entries_can_be_read_from_wal ... ok
+test wal_storage::tests::fsync_interval_controls_sync_frequency ... ok
+test wal_storage::tests::install_snapshot_updates_applied_state ... ok
+test wal_storage::tests::membership_replay_updates_state ... ok
+test wal_storage::tests::recover_replays_logs ... ok
+test wal_storage::tests::replacing_a_log_index_does_not_grow_cache_order ... ok
+test wal_storage::tests::restore_failure_does_not_publish_or_emit_completion ... ok
+test wal_storage::tests::snapshot_applied_persisted_via_wal ... ok
+test wal_storage::tests::snapshot_chunked_with_terminator ... ok
+test wal_storage::tests::snapshot_file_uses_udf_structure ... ok
+test wal_storage::tests::snapshot_files_follow_udf_header ... ok
+test wal_storage::tests::truncate_and_purge_updates_state ... ok
+test wal_storage::tests::vote_is_persisted ... ok
+test wal_storage::tests::wal_header_and_records_follow_spec ... ok
+test wal_storage::tests::wal_range_read_does_not_materialize_unrequested_entries ... ok
+test wal_storage::tests::zero_fsync_interval_group_commits_one_append_batch ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.50s
+
+
+running 4 tests
+test corrupted_and_truncated_wal_are_rejected_during_recovery ... ok
+test corrupted_truncated_and_version_mismatched_snapshots_are_never_returned ... ok
+test read_only_wal_directory_reports_an_error ... ok
+test wal_format_mismatch_and_vote_regression_across_restart_are_observable ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+
+running 5 tests
+test crates/chirps-raft-storage/src/traits.rs - traits::RaftStorage (line 83) ... ignored
+test crates/chirps-raft-storage/src/traits.rs - traits::StateMachine (line 24) ... ignored
+test crates/chirps-raft-storage/src/wal_storage.rs - wal_storage::RaftWalRecord (line 284) ... ignored
+test crates/chirps-raft-storage/src/wal_storage.rs - wal_storage::WalRaftStorage (line 380) ... ignored
+test crates/chirps-raft-storage/src/wal_storage.rs - wal_storage::WalStorageConfig (line 102) ... ignored
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.27s; merged doctests compilation took 0.26s

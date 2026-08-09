@@ -1,0 +1,11 @@
+
+running 6 tests
+test broadcast_delivers_to_connected_peers ... ok
+test close_after_send_preserves_file_transfer_control_frames ... ok
+test gossip_not_blocked_by_large_user_stream ... ok
+test ping_ack_roundtrip ... ok
+test reconnects_when_seed_becomes_available ... ok
+test send_queue_overflow_returns_error ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+

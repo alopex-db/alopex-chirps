@@ -1,0 +1,22 @@
+   Compiling uuid v1.24.0
+   Compiling serde_json v1.0.151
+   Compiling ordered-float v5.3.0
+   Compiling tracing-serde v0.2.0
+   Compiling alopex-core v0.3.4
+   Compiling openraft v0.9.17
+   Compiling metrics-util v0.20.4
+   Compiling alopex-chirps-wire v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-wire)
+   Compiling tracing-subscriber v0.3.23
+   Compiling alopex-chirps-core v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-core)
+   Compiling alopex-chirps-gossip-swim v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-gossip-swim)
+   Compiling alopex-chirps-file-transfer v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-file-transfer)
+   Compiling alopex-chirps-mock v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-mock)
+   Compiling alopex-chirps-transport-quic v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-transport-quic)
+   Compiling alopex-chirps-raft-storage v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-raft-storage)
+   Compiling alopex-chirps v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/alopex-chirps)
+   Compiling chirps-deterministic-harness v0.6.0 (/home/roomtv/works/alopex-db/chirps/tools/chirps-deterministic-harness)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 00s
+     Running unittests src/lib.rs (target/debug/deps/chirps_deterministic_harness-a2e1348493fe5f14)
+     Running unittests src/main.rs (target/debug/deps/chirps_deterministic_harness-3c3ddf91b8d8a0cf)
+     Running tests/replay.rs (target/debug/deps/replay-901a49901914922a)
+   Doc-tests chirps_deterministic_harness
