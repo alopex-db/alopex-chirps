@@ -491,7 +491,11 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore)]
     fn rss_probe_returns_a_byte_count() {
+        // The /proc RSS probe is Linux-specific; non-Linux hosts report an
+        // explicit zero and must not turn that portability boundary into a
+        // false product failure.
         assert!(current_rss_bytes() > 0);
     }
 }
