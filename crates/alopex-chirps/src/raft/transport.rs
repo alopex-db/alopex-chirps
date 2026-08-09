@@ -343,11 +343,13 @@ impl ChirpsRaftTransport {
 
     /// Stops admission of new outbound RPCs while keeping already pending
     /// responses deliverable during lifecycle drain.
+    #[cfg(feature = "multi-raft")]
     pub(crate) fn close_rpc_admission(&self) {
         self.accepting_rpcs.store(false, Ordering::Release);
     }
 
     /// Cancels any residual RPCs after lifecycle-held operations have drained.
+    #[cfg(feature = "multi-raft")]
     pub(crate) fn cancel_pending_rpcs(&self) {
         self.pending
             .lock()
