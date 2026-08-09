@@ -1,0 +1,2 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.61s
+     Running tests/raft_cluster.rs (target/debug/deps/raft_cluster-dc45af2111715676)

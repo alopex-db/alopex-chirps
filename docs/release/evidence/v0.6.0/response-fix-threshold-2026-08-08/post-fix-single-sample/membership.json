@@ -1,0 +1,3802 @@
+[
+  {
+    "group_id": 1,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 772,
+        "committed_digest": "210381248d5d67d7e5284f030740d843968ea84e0cf8dcb7c1960aa757fcf525"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 772,
+        "committed_digest": "210381248d5d67d7e5284f030740d843968ea84e0cf8dcb7c1960aa757fcf525"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 772,
+        "committed_digest": "210381248d5d67d7e5284f030740d843968ea84e0cf8dcb7c1960aa757fcf525"
+      }
+    ]
+  },
+  {
+    "group_id": 2,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 852,
+        "committed_digest": "0f1148322e65d8e219a9bf2a8b9952cefa0a8c7c6c28dc24dcfc738b4040eaf2"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 852,
+        "committed_digest": "0f1148322e65d8e219a9bf2a8b9952cefa0a8c7c6c28dc24dcfc738b4040eaf2"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 852,
+        "committed_digest": "0f1148322e65d8e219a9bf2a8b9952cefa0a8c7c6c28dc24dcfc738b4040eaf2"
+      }
+    ]
+  },
+  {
+    "group_id": 3,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 859,
+        "committed_digest": "fca1ad382686d0ae1d0012413899f294d768a6b523c987b3582cc6921e7eaa7e"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 859,
+        "committed_digest": "fca1ad382686d0ae1d0012413899f294d768a6b523c987b3582cc6921e7eaa7e"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 859,
+        "committed_digest": "fca1ad382686d0ae1d0012413899f294d768a6b523c987b3582cc6921e7eaa7e"
+      }
+    ]
+  },
+  {
+    "group_id": 4,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 765,
+        "committed_digest": "f67ee78fae255e026905c4aff8e49c9d40851fadce4995a8e26ad34a2169ab95"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 765,
+        "committed_digest": "f67ee78fae255e026905c4aff8e49c9d40851fadce4995a8e26ad34a2169ab95"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 765,
+        "committed_digest": "f67ee78fae255e026905c4aff8e49c9d40851fadce4995a8e26ad34a2169ab95"
+      }
+    ]
+  },
+  {
+    "group_id": 5,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "2dd6853d1962a5297837fd2dc93e21986ffb2ac1d1cc3667be12933d9e45f8b4"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "2dd6853d1962a5297837fd2dc93e21986ffb2ac1d1cc3667be12933d9e45f8b4"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "2dd6853d1962a5297837fd2dc93e21986ffb2ac1d1cc3667be12933d9e45f8b4"
+      }
+    ]
+  },
+  {
+    "group_id": 6,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 854,
+        "committed_digest": "e2c2942242898469f6961f516a1f2d50b8f0aa5a0b5f03bc522314b35568659e"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 854,
+        "committed_digest": "e2c2942242898469f6961f516a1f2d50b8f0aa5a0b5f03bc522314b35568659e"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 854,
+        "committed_digest": "e2c2942242898469f6961f516a1f2d50b8f0aa5a0b5f03bc522314b35568659e"
+      }
+    ]
+  },
+  {
+    "group_id": 7,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 777,
+        "committed_digest": "c4b8917b9394c0b0b53a2725699249331fa084a847c9ad198030ec250b8622be"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 777,
+        "committed_digest": "c4b8917b9394c0b0b53a2725699249331fa084a847c9ad198030ec250b8622be"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 777,
+        "committed_digest": "c4b8917b9394c0b0b53a2725699249331fa084a847c9ad198030ec250b8622be"
+      }
+    ]
+  },
+  {
+    "group_id": 8,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 871,
+        "committed_digest": "4bdbd886e24b0db01f8dca187c2c0b9fd7108fa3ce660b301633966ee16df0af"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 871,
+        "committed_digest": "4bdbd886e24b0db01f8dca187c2c0b9fd7108fa3ce660b301633966ee16df0af"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 871,
+        "committed_digest": "4bdbd886e24b0db01f8dca187c2c0b9fd7108fa3ce660b301633966ee16df0af"
+      }
+    ]
+  },
+  {
+    "group_id": 9,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 857,
+        "committed_digest": "08cc4b9c724bf9c6924e9d57d8220ab326d5b6a1e5085bb43876581b0bdc3656"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 857,
+        "committed_digest": "08cc4b9c724bf9c6924e9d57d8220ab326d5b6a1e5085bb43876581b0bdc3656"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 857,
+        "committed_digest": "08cc4b9c724bf9c6924e9d57d8220ab326d5b6a1e5085bb43876581b0bdc3656"
+      }
+    ]
+  },
+  {
+    "group_id": 10,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 746,
+        "committed_digest": "e8c4c4780bf68dd0a21bc5330dea4cea71bbb7a5b60f8f78f3400ae107689c75"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 746,
+        "committed_digest": "e8c4c4780bf68dd0a21bc5330dea4cea71bbb7a5b60f8f78f3400ae107689c75"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 746,
+        "committed_digest": "e8c4c4780bf68dd0a21bc5330dea4cea71bbb7a5b60f8f78f3400ae107689c75"
+      }
+    ]
+  },
+  {
+    "group_id": 11,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "725b74a1e3e67ccbbaef1d4024b9dacca09bb76e6dc4e8cb5bf41363b9c7408d"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "725b74a1e3e67ccbbaef1d4024b9dacca09bb76e6dc4e8cb5bf41363b9c7408d"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "725b74a1e3e67ccbbaef1d4024b9dacca09bb76e6dc4e8cb5bf41363b9c7408d"
+      }
+    ]
+  },
+  {
+    "group_id": 12,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "566e34ad9706cff7c7423d1ff9c033946eca44f77f0c8cdb6bcec6f1af1acb7d"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "566e34ad9706cff7c7423d1ff9c033946eca44f77f0c8cdb6bcec6f1af1acb7d"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "566e34ad9706cff7c7423d1ff9c033946eca44f77f0c8cdb6bcec6f1af1acb7d"
+      }
+    ]
+  },
+  {
+    "group_id": 13,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 774,
+        "committed_digest": "05c602f582d9183798512599d4e0c4a9cfd891038af4f0aa4651a0650756763c"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 774,
+        "committed_digest": "05c602f582d9183798512599d4e0c4a9cfd891038af4f0aa4651a0650756763c"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 774,
+        "committed_digest": "05c602f582d9183798512599d4e0c4a9cfd891038af4f0aa4651a0650756763c"
+      }
+    ]
+  },
+  {
+    "group_id": 14,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 868,
+        "committed_digest": "1d1986b638135d5b109c5e48874ba9285a4a1c34e1b7f7a46afe3876c75f2d06"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 868,
+        "committed_digest": "1d1986b638135d5b109c5e48874ba9285a4a1c34e1b7f7a46afe3876c75f2d06"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 868,
+        "committed_digest": "1d1986b638135d5b109c5e48874ba9285a4a1c34e1b7f7a46afe3876c75f2d06"
+      }
+    ]
+  },
+  {
+    "group_id": 15,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 831,
+        "committed_digest": "3ff97db195b32ffd15816e206bbfcf6624492fbb87e444ac3c220d563adc2cb5"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 831,
+        "committed_digest": "3ff97db195b32ffd15816e206bbfcf6624492fbb87e444ac3c220d563adc2cb5"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 831,
+        "committed_digest": "3ff97db195b32ffd15816e206bbfcf6624492fbb87e444ac3c220d563adc2cb5"
+      }
+    ]
+  },
+  {
+    "group_id": 16,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "d341cf4c0c18dd11e10efb9579effe9603bd2bc1575f77c79f1cde459e5adbb6"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "d341cf4c0c18dd11e10efb9579effe9603bd2bc1575f77c79f1cde459e5adbb6"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "d341cf4c0c18dd11e10efb9579effe9603bd2bc1575f77c79f1cde459e5adbb6"
+      }
+    ]
+  },
+  {
+    "group_id": 17,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 868,
+        "committed_digest": "c1db7a545ee0ca3f470efda5066238bd1d16f7da09295aa387dee608b5bb0def"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 868,
+        "committed_digest": "c1db7a545ee0ca3f470efda5066238bd1d16f7da09295aa387dee608b5bb0def"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 868,
+        "committed_digest": "c1db7a545ee0ca3f470efda5066238bd1d16f7da09295aa387dee608b5bb0def"
+      }
+    ]
+  },
+  {
+    "group_id": 18,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 847,
+        "committed_digest": "d8e7ecd3218f8e898b7c6c2a5d1d4237da7d950db83adac5231bf86d0cc3ad1c"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 847,
+        "committed_digest": "d8e7ecd3218f8e898b7c6c2a5d1d4237da7d950db83adac5231bf86d0cc3ad1c"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 847,
+        "committed_digest": "d8e7ecd3218f8e898b7c6c2a5d1d4237da7d950db83adac5231bf86d0cc3ad1c"
+      }
+    ]
+  },
+  {
+    "group_id": 19,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 756,
+        "committed_digest": "8e41bbd19710bcb9d3cec6e98ee87c17ede5e5bfa4bc0c9da989cbf6534fba25"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 756,
+        "committed_digest": "8e41bbd19710bcb9d3cec6e98ee87c17ede5e5bfa4bc0c9da989cbf6534fba25"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 756,
+        "committed_digest": "8e41bbd19710bcb9d3cec6e98ee87c17ede5e5bfa4bc0c9da989cbf6534fba25"
+      }
+    ]
+  },
+  {
+    "group_id": 20,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 844,
+        "committed_digest": "5cbf2f03ae956fddf9975af0efbd5ea0b255b0998afcb0c8744495ab973e0b21"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 844,
+        "committed_digest": "5cbf2f03ae956fddf9975af0efbd5ea0b255b0998afcb0c8744495ab973e0b21"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 844,
+        "committed_digest": "5cbf2f03ae956fddf9975af0efbd5ea0b255b0998afcb0c8744495ab973e0b21"
+      }
+    ]
+  },
+  {
+    "group_id": 21,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 863,
+        "committed_digest": "4b1400729ac97c5cba160204caf506ca9d7ac05f351af775174c02dcad2cf4d4"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 863,
+        "committed_digest": "4b1400729ac97c5cba160204caf506ca9d7ac05f351af775174c02dcad2cf4d4"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 863,
+        "committed_digest": "4b1400729ac97c5cba160204caf506ca9d7ac05f351af775174c02dcad2cf4d4"
+      }
+    ]
+  },
+  {
+    "group_id": 22,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 753,
+        "committed_digest": "7b9309dad658ef2f923c1aebc8ee22069e142b5daed3b6f01b86f1c188f87581"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 753,
+        "committed_digest": "7b9309dad658ef2f923c1aebc8ee22069e142b5daed3b6f01b86f1c188f87581"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 753,
+        "committed_digest": "7b9309dad658ef2f923c1aebc8ee22069e142b5daed3b6f01b86f1c188f87581"
+      }
+    ]
+  },
+  {
+    "group_id": 23,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 882,
+        "committed_digest": "473969966a2adfffafcab700f7e19115bda8120e389e0dea53cd3b6d12409fb3"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 882,
+        "committed_digest": "473969966a2adfffafcab700f7e19115bda8120e389e0dea53cd3b6d12409fb3"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 882,
+        "committed_digest": "473969966a2adfffafcab700f7e19115bda8120e389e0dea53cd3b6d12409fb3"
+      }
+    ]
+  },
+  {
+    "group_id": 24,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 840,
+        "committed_digest": "56915387e5a589a6f2a1fbbf7e2029c46411c871298af71ba617e8b57fa974c8"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 840,
+        "committed_digest": "56915387e5a589a6f2a1fbbf7e2029c46411c871298af71ba617e8b57fa974c8"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 840,
+        "committed_digest": "56915387e5a589a6f2a1fbbf7e2029c46411c871298af71ba617e8b57fa974c8"
+      }
+    ]
+  },
+  {
+    "group_id": 25,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 790,
+        "committed_digest": "eb2e7e5b3810ff47d7d8b3c728de7708cc469dbbc4896388b7ac90723d105800"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 790,
+        "committed_digest": "eb2e7e5b3810ff47d7d8b3c728de7708cc469dbbc4896388b7ac90723d105800"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 790,
+        "committed_digest": "eb2e7e5b3810ff47d7d8b3c728de7708cc469dbbc4896388b7ac90723d105800"
+      }
+    ]
+  },
+  {
+    "group_id": 26,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "f7119111c15d3c16f5565ea2e6643f9ddab43c4896159b8b9cd5f957ffdd2a64"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "f7119111c15d3c16f5565ea2e6643f9ddab43c4896159b8b9cd5f957ffdd2a64"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "f7119111c15d3c16f5565ea2e6643f9ddab43c4896159b8b9cd5f957ffdd2a64"
+      }
+    ]
+  },
+  {
+    "group_id": 27,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 850,
+        "committed_digest": "767716e918c86028f141242af9b6d745ae7b2b277e61f2c8e81b67d72965e876"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 850,
+        "committed_digest": "767716e918c86028f141242af9b6d745ae7b2b277e61f2c8e81b67d72965e876"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 850,
+        "committed_digest": "767716e918c86028f141242af9b6d745ae7b2b277e61f2c8e81b67d72965e876"
+      }
+    ]
+  },
+  {
+    "group_id": 28,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 768,
+        "committed_digest": "6e3a45d9ed2bca794f54a4b116d8c812bb72a7ae563d927c11aa4e461b5df359"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 768,
+        "committed_digest": "6e3a45d9ed2bca794f54a4b116d8c812bb72a7ae563d927c11aa4e461b5df359"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 768,
+        "committed_digest": "6e3a45d9ed2bca794f54a4b116d8c812bb72a7ae563d927c11aa4e461b5df359"
+      }
+    ]
+  },
+  {
+    "group_id": 29,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 862,
+        "committed_digest": "3026f3e652cf44d06f069c6d104addb18925cf87c7a298045919553e0a324ebf"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 862,
+        "committed_digest": "3026f3e652cf44d06f069c6d104addb18925cf87c7a298045919553e0a324ebf"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 862,
+        "committed_digest": "3026f3e652cf44d06f069c6d104addb18925cf87c7a298045919553e0a324ebf"
+      }
+    ]
+  },
+  {
+    "group_id": 30,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 861,
+        "committed_digest": "13c04a69eb8c5657d7ad5265bf3dd0d8e74c6c1f793611ebc45139fe6ebf869c"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 861,
+        "committed_digest": "13c04a69eb8c5657d7ad5265bf3dd0d8e74c6c1f793611ebc45139fe6ebf869c"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 861,
+        "committed_digest": "13c04a69eb8c5657d7ad5265bf3dd0d8e74c6c1f793611ebc45139fe6ebf869c"
+      }
+    ]
+  },
+  {
+    "group_id": 31,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 788,
+        "committed_digest": "fb14a7b17c61e436fa9c14c422a797ab52d3fa746bdc2edbab75619873009181"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 788,
+        "committed_digest": "fb14a7b17c61e436fa9c14c422a797ab52d3fa746bdc2edbab75619873009181"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 788,
+        "committed_digest": "fb14a7b17c61e436fa9c14c422a797ab52d3fa746bdc2edbab75619873009181"
+      }
+    ]
+  },
+  {
+    "group_id": 32,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 851,
+        "committed_digest": "6274a7676364a7e13517696b1abb37524e661cdaacce167f7b7dee87ed5c119d"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 851,
+        "committed_digest": "6274a7676364a7e13517696b1abb37524e661cdaacce167f7b7dee87ed5c119d"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 851,
+        "committed_digest": "6274a7676364a7e13517696b1abb37524e661cdaacce167f7b7dee87ed5c119d"
+      }
+    ]
+  },
+  {
+    "group_id": 33,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "3d547ad680167a7393c3b0de6cb5b0acfa323bf867d9a960b48c5d0a598758e9"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "3d547ad680167a7393c3b0de6cb5b0acfa323bf867d9a960b48c5d0a598758e9"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "3d547ad680167a7393c3b0de6cb5b0acfa323bf867d9a960b48c5d0a598758e9"
+      }
+    ]
+  },
+  {
+    "group_id": 34,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 796,
+        "committed_digest": "17257f193abfe84c321a1c1eedd9f13e416f0c870c605772940db86fcbf6ce72"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 796,
+        "committed_digest": "17257f193abfe84c321a1c1eedd9f13e416f0c870c605772940db86fcbf6ce72"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 796,
+        "committed_digest": "17257f193abfe84c321a1c1eedd9f13e416f0c870c605772940db86fcbf6ce72"
+      }
+    ]
+  },
+  {
+    "group_id": 35,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 877,
+        "committed_digest": "602fabc65a5d9641c2defc1d1f0928849989dde26273e03df054e30be96a051b"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 877,
+        "committed_digest": "602fabc65a5d9641c2defc1d1f0928849989dde26273e03df054e30be96a051b"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 877,
+        "committed_digest": "602fabc65a5d9641c2defc1d1f0928849989dde26273e03df054e30be96a051b"
+      }
+    ]
+  },
+  {
+    "group_id": 36,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 836,
+        "committed_digest": "3c419b17be1b74d1fc1018413dce6c179a6653b237772e56743bfab5524d7db0"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 836,
+        "committed_digest": "3c419b17be1b74d1fc1018413dce6c179a6653b237772e56743bfab5524d7db0"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 836,
+        "committed_digest": "3c419b17be1b74d1fc1018413dce6c179a6653b237772e56743bfab5524d7db0"
+      }
+    ]
+  },
+  {
+    "group_id": 37,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 774,
+        "committed_digest": "7b4f96e2604a43139c86ffa454ba54822314b8c543fbf285fcc3ce86abf1c0bf"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 774,
+        "committed_digest": "7b4f96e2604a43139c86ffa454ba54822314b8c543fbf285fcc3ce86abf1c0bf"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 774,
+        "committed_digest": "7b4f96e2604a43139c86ffa454ba54822314b8c543fbf285fcc3ce86abf1c0bf"
+      }
+    ]
+  },
+  {
+    "group_id": 38,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 850,
+        "committed_digest": "ec132212c2d9bd3c8237bde3e8e8c0e7a1c0da11040e5c5dbf4822c08f9f9d80"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 850,
+        "committed_digest": "ec132212c2d9bd3c8237bde3e8e8c0e7a1c0da11040e5c5dbf4822c08f9f9d80"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 850,
+        "committed_digest": "ec132212c2d9bd3c8237bde3e8e8c0e7a1c0da11040e5c5dbf4822c08f9f9d80"
+      }
+    ]
+  },
+  {
+    "group_id": 39,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 854,
+        "committed_digest": "dfb7b70f20e38dfba80a9c7c67365972513025484bb32bbc502f04bbfc3e6abf"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 854,
+        "committed_digest": "dfb7b70f20e38dfba80a9c7c67365972513025484bb32bbc502f04bbfc3e6abf"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 854,
+        "committed_digest": "dfb7b70f20e38dfba80a9c7c67365972513025484bb32bbc502f04bbfc3e6abf"
+      }
+    ]
+  },
+  {
+    "group_id": 40,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 763,
+        "committed_digest": "aa9f6dbeeb56c6f2008b3e6c8807afe236194add50e462bd5b5f9762616a5906"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 763,
+        "committed_digest": "aa9f6dbeeb56c6f2008b3e6c8807afe236194add50e462bd5b5f9762616a5906"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 763,
+        "committed_digest": "aa9f6dbeeb56c6f2008b3e6c8807afe236194add50e462bd5b5f9762616a5906"
+      }
+    ]
+  },
+  {
+    "group_id": 41,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "91bc700f7cbc237d6170c740fd98b38a33578adb3c052a2fa12ab3340ecdea3b"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "91bc700f7cbc237d6170c740fd98b38a33578adb3c052a2fa12ab3340ecdea3b"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "91bc700f7cbc237d6170c740fd98b38a33578adb3c052a2fa12ab3340ecdea3b"
+      }
+    ]
+  },
+  {
+    "group_id": 42,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 853,
+        "committed_digest": "5f4f2e8f4a8cd45022032b377aba0034d0819053ec059c304fea59f14ac6252b"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 853,
+        "committed_digest": "5f4f2e8f4a8cd45022032b377aba0034d0819053ec059c304fea59f14ac6252b"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 853,
+        "committed_digest": "5f4f2e8f4a8cd45022032b377aba0034d0819053ec059c304fea59f14ac6252b"
+      }
+    ]
+  },
+  {
+    "group_id": 43,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 773,
+        "committed_digest": "eadba463f9c68a471501826434e1020cf46185aba482e19936e4aceb9909e3ee"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 773,
+        "committed_digest": "eadba463f9c68a471501826434e1020cf46185aba482e19936e4aceb9909e3ee"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 773,
+        "committed_digest": "eadba463f9c68a471501826434e1020cf46185aba482e19936e4aceb9909e3ee"
+      }
+    ]
+  },
+  {
+    "group_id": 44,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 841,
+        "committed_digest": "c0133eeec445cc0c28c65c65d29f9d20e76cebb4254a02110d12e0d5280ef0ed"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 841,
+        "committed_digest": "c0133eeec445cc0c28c65c65d29f9d20e76cebb4254a02110d12e0d5280ef0ed"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 841,
+        "committed_digest": "c0133eeec445cc0c28c65c65d29f9d20e76cebb4254a02110d12e0d5280ef0ed"
+      }
+    ]
+  },
+  {
+    "group_id": 45,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 863,
+        "committed_digest": "257f1a4ba1681bf5d665d145e94eee4f242bf38705a8339c6d42713040640883"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 863,
+        "committed_digest": "257f1a4ba1681bf5d665d145e94eee4f242bf38705a8339c6d42713040640883"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 863,
+        "committed_digest": "257f1a4ba1681bf5d665d145e94eee4f242bf38705a8339c6d42713040640883"
+      }
+    ]
+  },
+  {
+    "group_id": 46,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 757,
+        "committed_digest": "2600a76419e69887213fd33a632fb53ef097fac589c4b27c20478f891b614777"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 757,
+        "committed_digest": "2600a76419e69887213fd33a632fb53ef097fac589c4b27c20478f891b614777"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 757,
+        "committed_digest": "2600a76419e69887213fd33a632fb53ef097fac589c4b27c20478f891b614777"
+      }
+    ]
+  },
+  {
+    "group_id": 47,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 855,
+        "committed_digest": "031f4a757cf48617228bfafee73c533fb8bd799f4a34e563cbac837b0c93089a"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 855,
+        "committed_digest": "031f4a757cf48617228bfafee73c533fb8bd799f4a34e563cbac837b0c93089a"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 855,
+        "committed_digest": "031f4a757cf48617228bfafee73c533fb8bd799f4a34e563cbac837b0c93089a"
+      }
+    ]
+  },
+  {
+    "group_id": 48,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 852,
+        "committed_digest": "a89b618dc7e175ae0dea6f95f93ee2856ac27420de67b21e3cdb54fe34ed3e54"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 852,
+        "committed_digest": "a89b618dc7e175ae0dea6f95f93ee2856ac27420de67b21e3cdb54fe34ed3e54"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 852,
+        "committed_digest": "a89b618dc7e175ae0dea6f95f93ee2856ac27420de67b21e3cdb54fe34ed3e54"
+      }
+    ]
+  },
+  {
+    "group_id": 49,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 767,
+        "committed_digest": "b5818eacaf8220dc14501542c418c69d554bc882e778b1d597e7b467b0b2dc96"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 767,
+        "committed_digest": "b5818eacaf8220dc14501542c418c69d554bc882e778b1d597e7b467b0b2dc96"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 767,
+        "committed_digest": "b5818eacaf8220dc14501542c418c69d554bc882e778b1d597e7b467b0b2dc96"
+      }
+    ]
+  },
+  {
+    "group_id": 50,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 828,
+        "committed_digest": "a744c0bb30bc04c47a8140b476a4fb32a5738fbd27823571e9dac4c3ffb4f6ed"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 828,
+        "committed_digest": "a744c0bb30bc04c47a8140b476a4fb32a5738fbd27823571e9dac4c3ffb4f6ed"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 828,
+        "committed_digest": "a744c0bb30bc04c47a8140b476a4fb32a5738fbd27823571e9dac4c3ffb4f6ed"
+      }
+    ]
+  },
+  {
+    "group_id": 51,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 828,
+        "committed_digest": "2eef98cee767d9d7411401a902183f1102d720dbda9b52f95d863bb2985f7b47"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 828,
+        "committed_digest": "2eef98cee767d9d7411401a902183f1102d720dbda9b52f95d863bb2985f7b47"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 828,
+        "committed_digest": "2eef98cee767d9d7411401a902183f1102d720dbda9b52f95d863bb2985f7b47"
+      }
+    ]
+  },
+  {
+    "group_id": 52,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "18ed664a18b7f4018e9baea20c385d0658f71afcf9ec3369969966f264dbbd0a"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "18ed664a18b7f4018e9baea20c385d0658f71afcf9ec3369969966f264dbbd0a"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "18ed664a18b7f4018e9baea20c385d0658f71afcf9ec3369969966f264dbbd0a"
+      }
+    ]
+  },
+  {
+    "group_id": 53,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 834,
+        "committed_digest": "c6c24c0c92c9f9d25dac6bce7d17651a8ba7de55304402890a2ec8292bb3a11a"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 834,
+        "committed_digest": "c6c24c0c92c9f9d25dac6bce7d17651a8ba7de55304402890a2ec8292bb3a11a"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 834,
+        "committed_digest": "c6c24c0c92c9f9d25dac6bce7d17651a8ba7de55304402890a2ec8292bb3a11a"
+      }
+    ]
+  },
+  {
+    "group_id": 54,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 829,
+        "committed_digest": "7b63815c4938b15fa8e9988984fc0ca108dbbf0141dfabe28ccf9ae6ed41ade5"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 829,
+        "committed_digest": "7b63815c4938b15fa8e9988984fc0ca108dbbf0141dfabe28ccf9ae6ed41ade5"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 829,
+        "committed_digest": "7b63815c4938b15fa8e9988984fc0ca108dbbf0141dfabe28ccf9ae6ed41ade5"
+      }
+    ]
+  },
+  {
+    "group_id": 55,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 748,
+        "committed_digest": "42f090a3ab8a2091b5bf102fc042c8832472bb000c10ee069ed9a5d9733ba9b0"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 748,
+        "committed_digest": "42f090a3ab8a2091b5bf102fc042c8832472bb000c10ee069ed9a5d9733ba9b0"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 748,
+        "committed_digest": "42f090a3ab8a2091b5bf102fc042c8832472bb000c10ee069ed9a5d9733ba9b0"
+      }
+    ]
+  },
+  {
+    "group_id": 56,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "005545e87a08c8f9fb8c9944798458c5fdeb40555060571078499b3e6e4bfb3b"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "005545e87a08c8f9fb8c9944798458c5fdeb40555060571078499b3e6e4bfb3b"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 846,
+        "committed_digest": "005545e87a08c8f9fb8c9944798458c5fdeb40555060571078499b3e6e4bfb3b"
+      }
+    ]
+  },
+  {
+    "group_id": 57,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "d6c24879a7f3b135e2c05a916d866bc36d5a964583308a4a0744c0916d25a3a7"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "d6c24879a7f3b135e2c05a916d866bc36d5a964583308a4a0744c0916d25a3a7"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "d6c24879a7f3b135e2c05a916d866bc36d5a964583308a4a0744c0916d25a3a7"
+      }
+    ]
+  },
+  {
+    "group_id": 58,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 762,
+        "committed_digest": "fcdceac34bd1d2e39271591f2e0456520a81e27f166e0a22f67c6889c9a0a697"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 762,
+        "committed_digest": "fcdceac34bd1d2e39271591f2e0456520a81e27f166e0a22f67c6889c9a0a697"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 762,
+        "committed_digest": "fcdceac34bd1d2e39271591f2e0456520a81e27f166e0a22f67c6889c9a0a697"
+      }
+    ]
+  },
+  {
+    "group_id": 59,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "29a25a0c57f9984d7ae9385cd61822cbbde698f70c8bbc17758b9a404dee3d77"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "29a25a0c57f9984d7ae9385cd61822cbbde698f70c8bbc17758b9a404dee3d77"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "29a25a0c57f9984d7ae9385cd61822cbbde698f70c8bbc17758b9a404dee3d77"
+      }
+    ]
+  },
+  {
+    "group_id": 60,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 867,
+        "committed_digest": "04335dca45843c801b10b4a2bef290b033d112383234127960a8e6b07e781e9d"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 867,
+        "committed_digest": "04335dca45843c801b10b4a2bef290b033d112383234127960a8e6b07e781e9d"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 867,
+        "committed_digest": "04335dca45843c801b10b4a2bef290b033d112383234127960a8e6b07e781e9d"
+      }
+    ]
+  },
+  {
+    "group_id": 61,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 808,
+        "committed_digest": "160408d1cd1529e0d83df3f0a706d454425eda883c54aace9b6c4b28d8bbff98"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 808,
+        "committed_digest": "160408d1cd1529e0d83df3f0a706d454425eda883c54aace9b6c4b28d8bbff98"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 808,
+        "committed_digest": "160408d1cd1529e0d83df3f0a706d454425eda883c54aace9b6c4b28d8bbff98"
+      }
+    ]
+  },
+  {
+    "group_id": 62,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 826,
+        "committed_digest": "f95e4758c28f51b55760b8c03a788c5b4ecb0363081210df046d9244214a9910"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 826,
+        "committed_digest": "f95e4758c28f51b55760b8c03a788c5b4ecb0363081210df046d9244214a9910"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 826,
+        "committed_digest": "f95e4758c28f51b55760b8c03a788c5b4ecb0363081210df046d9244214a9910"
+      }
+    ]
+  },
+  {
+    "group_id": 63,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "10ba29a8460048a039178a1c954cd5ee6316e8325b5aeee21d5e54da86d261bd"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "10ba29a8460048a039178a1c954cd5ee6316e8325b5aeee21d5e54da86d261bd"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "10ba29a8460048a039178a1c954cd5ee6316e8325b5aeee21d5e54da86d261bd"
+      }
+    ]
+  },
+  {
+    "group_id": 64,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 773,
+        "committed_digest": "2fb2f8beef80e90d9ae36d7362d907fac555ea74920174b4fb95072f56d6d3c2"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 773,
+        "committed_digest": "2fb2f8beef80e90d9ae36d7362d907fac555ea74920174b4fb95072f56d6d3c2"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 773,
+        "committed_digest": "2fb2f8beef80e90d9ae36d7362d907fac555ea74920174b4fb95072f56d6d3c2"
+      }
+    ]
+  },
+  {
+    "group_id": 65,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 861,
+        "committed_digest": "4b69c29a5ff98370435a92fa9976c7bb2084619229643aa2c107d5be2e7485b6"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 861,
+        "committed_digest": "4b69c29a5ff98370435a92fa9976c7bb2084619229643aa2c107d5be2e7485b6"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 861,
+        "committed_digest": "4b69c29a5ff98370435a92fa9976c7bb2084619229643aa2c107d5be2e7485b6"
+      }
+    ]
+  },
+  {
+    "group_id": 66,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "10bbb45bfe0be6987aab9bd74d99bbdf1a259933c7978e7f72fcc0ec644135f2"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "10bbb45bfe0be6987aab9bd74d99bbdf1a259933c7978e7f72fcc0ec644135f2"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "10bbb45bfe0be6987aab9bd74d99bbdf1a259933c7978e7f72fcc0ec644135f2"
+      }
+    ]
+  },
+  {
+    "group_id": 67,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 766,
+        "committed_digest": "7a9a9c31f87a68d300390e917e18cc5df4c182d89dc6b576208053b95ad1ecf9"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 766,
+        "committed_digest": "7a9a9c31f87a68d300390e917e18cc5df4c182d89dc6b576208053b95ad1ecf9"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 766,
+        "committed_digest": "7a9a9c31f87a68d300390e917e18cc5df4c182d89dc6b576208053b95ad1ecf9"
+      }
+    ]
+  },
+  {
+    "group_id": 68,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 854,
+        "committed_digest": "d835b745522ab45f12e48798de1b8e628d20effe6c800d7bb30501ef58c6c4a2"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 854,
+        "committed_digest": "d835b745522ab45f12e48798de1b8e628d20effe6c800d7bb30501ef58c6c4a2"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 854,
+        "committed_digest": "d835b745522ab45f12e48798de1b8e628d20effe6c800d7bb30501ef58c6c4a2"
+      }
+    ]
+  },
+  {
+    "group_id": 69,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 849,
+        "committed_digest": "1565f55e8201547d6ab05c3ed5967180d4a8f76230f4ce53431afdffd92fff3c"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 849,
+        "committed_digest": "1565f55e8201547d6ab05c3ed5967180d4a8f76230f4ce53431afdffd92fff3c"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 849,
+        "committed_digest": "1565f55e8201547d6ab05c3ed5967180d4a8f76230f4ce53431afdffd92fff3c"
+      }
+    ]
+  },
+  {
+    "group_id": 70,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 782,
+        "committed_digest": "a29ba60bcd388fe929a41b14d15b6da5571528ff29d94b24c8caf9e6517250b5"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 782,
+        "committed_digest": "a29ba60bcd388fe929a41b14d15b6da5571528ff29d94b24c8caf9e6517250b5"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 782,
+        "committed_digest": "a29ba60bcd388fe929a41b14d15b6da5571528ff29d94b24c8caf9e6517250b5"
+      }
+    ]
+  },
+  {
+    "group_id": 71,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 862,
+        "committed_digest": "c0e7a5cfc57e57861c343b662269ebe7271af1f770c102c27bc87a39e0c83f90"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 862,
+        "committed_digest": "c0e7a5cfc57e57861c343b662269ebe7271af1f770c102c27bc87a39e0c83f90"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 862,
+        "committed_digest": "c0e7a5cfc57e57861c343b662269ebe7271af1f770c102c27bc87a39e0c83f90"
+      }
+    ]
+  },
+  {
+    "group_id": 72,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 848,
+        "committed_digest": "12f3ae3f68d4c4aff968b195a9bde023b38bdae33954a2d100201cce02a6b1f8"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 848,
+        "committed_digest": "12f3ae3f68d4c4aff968b195a9bde023b38bdae33954a2d100201cce02a6b1f8"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 848,
+        "committed_digest": "12f3ae3f68d4c4aff968b195a9bde023b38bdae33954a2d100201cce02a6b1f8"
+      }
+    ]
+  },
+  {
+    "group_id": 73,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 783,
+        "committed_digest": "5a94078a512524350e55328e2257676f384da02d44322c46ac251f07b647e1cb"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 783,
+        "committed_digest": "5a94078a512524350e55328e2257676f384da02d44322c46ac251f07b647e1cb"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 783,
+        "committed_digest": "5a94078a512524350e55328e2257676f384da02d44322c46ac251f07b647e1cb"
+      }
+    ]
+  },
+  {
+    "group_id": 74,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 860,
+        "committed_digest": "a74626bdecc3c053f195968b20c1831b1c82acb93e72145e662206ee207d47e0"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 860,
+        "committed_digest": "a74626bdecc3c053f195968b20c1831b1c82acb93e72145e662206ee207d47e0"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 860,
+        "committed_digest": "a74626bdecc3c053f195968b20c1831b1c82acb93e72145e662206ee207d47e0"
+      }
+    ]
+  },
+  {
+    "group_id": 75,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "105a59f1ae1866c809dc18f4116d4b473fe44b7bba65f40a23ab0a94192578b1"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "105a59f1ae1866c809dc18f4116d4b473fe44b7bba65f40a23ab0a94192578b1"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 860,
+        "committed_digest": "105a59f1ae1866c809dc18f4116d4b473fe44b7bba65f40a23ab0a94192578b1"
+      }
+    ]
+  },
+  {
+    "group_id": 76,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 755,
+        "committed_digest": "3eb257636771b2291d8ac6d095019bc4ce70fc3cba9c7244dc6df76d2c0d7f2b"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 755,
+        "committed_digest": "3eb257636771b2291d8ac6d095019bc4ce70fc3cba9c7244dc6df76d2c0d7f2b"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 755,
+        "committed_digest": "3eb257636771b2291d8ac6d095019bc4ce70fc3cba9c7244dc6df76d2c0d7f2b"
+      }
+    ]
+  },
+  {
+    "group_id": 77,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 878,
+        "committed_digest": "7f5c7daba0d390485088b58783ca773d7d0827666d7f98a99c4c2f88e0692e08"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 878,
+        "committed_digest": "7f5c7daba0d390485088b58783ca773d7d0827666d7f98a99c4c2f88e0692e08"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 878,
+        "committed_digest": "7f5c7daba0d390485088b58783ca773d7d0827666d7f98a99c4c2f88e0692e08"
+      }
+    ]
+  },
+  {
+    "group_id": 78,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 872,
+        "committed_digest": "91b0fdba11857b9d028049478db3736d2aa4514531cff34e3566ce8194426c9a"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 872,
+        "committed_digest": "91b0fdba11857b9d028049478db3736d2aa4514531cff34e3566ce8194426c9a"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 872,
+        "committed_digest": "91b0fdba11857b9d028049478db3736d2aa4514531cff34e3566ce8194426c9a"
+      }
+    ]
+  },
+  {
+    "group_id": 79,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 776,
+        "committed_digest": "c430a8e0a1c09f8ad8eeab2e5c771466c3353fe018f1602090739ed7e207b16a"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 776,
+        "committed_digest": "c430a8e0a1c09f8ad8eeab2e5c771466c3353fe018f1602090739ed7e207b16a"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 776,
+        "committed_digest": "c430a8e0a1c09f8ad8eeab2e5c771466c3353fe018f1602090739ed7e207b16a"
+      }
+    ]
+  },
+  {
+    "group_id": 80,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 856,
+        "committed_digest": "85418b330a701b9a200290a3c17b9aa98a2e3ccadd4b203508a9b20bd5e18145"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 856,
+        "committed_digest": "85418b330a701b9a200290a3c17b9aa98a2e3ccadd4b203508a9b20bd5e18145"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 856,
+        "committed_digest": "85418b330a701b9a200290a3c17b9aa98a2e3ccadd4b203508a9b20bd5e18145"
+      }
+    ]
+  },
+  {
+    "group_id": 81,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 878,
+        "committed_digest": "269b43b044440e509dd7872d863d9e3149b84341d7c55f2ca6908a0ba5332f50"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 878,
+        "committed_digest": "269b43b044440e509dd7872d863d9e3149b84341d7c55f2ca6908a0ba5332f50"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 878,
+        "committed_digest": "269b43b044440e509dd7872d863d9e3149b84341d7c55f2ca6908a0ba5332f50"
+      }
+    ]
+  },
+  {
+    "group_id": 82,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 752,
+        "committed_digest": "42c6734d511cf51b2efc93c1ff327c0d44dee588af1ad996e9258cfc94861a30"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 752,
+        "committed_digest": "42c6734d511cf51b2efc93c1ff327c0d44dee588af1ad996e9258cfc94861a30"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 752,
+        "committed_digest": "42c6734d511cf51b2efc93c1ff327c0d44dee588af1ad996e9258cfc94861a30"
+      }
+    ]
+  },
+  {
+    "group_id": 83,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 856,
+        "committed_digest": "83addaf9ebcb25997d0fead1ab1bef73b32e00df9faaf9fab0c43c3351023e22"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 856,
+        "committed_digest": "83addaf9ebcb25997d0fead1ab1bef73b32e00df9faaf9fab0c43c3351023e22"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 856,
+        "committed_digest": "83addaf9ebcb25997d0fead1ab1bef73b32e00df9faaf9fab0c43c3351023e22"
+      }
+    ]
+  },
+  {
+    "group_id": 84,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "b490d89b0028da508cc886753cf629ff7c12f994ebe6a67323543816905f44ef"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "b490d89b0028da508cc886753cf629ff7c12f994ebe6a67323543816905f44ef"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "b490d89b0028da508cc886753cf629ff7c12f994ebe6a67323543816905f44ef"
+      }
+    ]
+  },
+  {
+    "group_id": 85,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 763,
+        "committed_digest": "88e00173de6f1ee5edca03d4182c1c31cf26e6e895ddd24af68e55e2b3d7c02f"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 763,
+        "committed_digest": "88e00173de6f1ee5edca03d4182c1c31cf26e6e895ddd24af68e55e2b3d7c02f"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 763,
+        "committed_digest": "88e00173de6f1ee5edca03d4182c1c31cf26e6e895ddd24af68e55e2b3d7c02f"
+      }
+    ]
+  },
+  {
+    "group_id": 86,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 832,
+        "committed_digest": "6913464cd8429658c36ca46a6217ea07106807a198997ca2fec5acaeadb76657"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 832,
+        "committed_digest": "6913464cd8429658c36ca46a6217ea07106807a198997ca2fec5acaeadb76657"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 832,
+        "committed_digest": "6913464cd8429658c36ca46a6217ea07106807a198997ca2fec5acaeadb76657"
+      }
+    ]
+  },
+  {
+    "group_id": 87,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "9e76dd8aac129bcd07eef7b9afaf9401037706d697a73f6676ca8553d80f281b"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "9e76dd8aac129bcd07eef7b9afaf9401037706d697a73f6676ca8553d80f281b"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 869,
+        "committed_digest": "9e76dd8aac129bcd07eef7b9afaf9401037706d697a73f6676ca8553d80f281b"
+      }
+    ]
+  },
+  {
+    "group_id": 88,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 782,
+        "committed_digest": "e2893acc88509337d71ce5337aafbdc2706917716855eefa6ff95c35f06c1d35"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 782,
+        "committed_digest": "e2893acc88509337d71ce5337aafbdc2706917716855eefa6ff95c35f06c1d35"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 782,
+        "committed_digest": "e2893acc88509337d71ce5337aafbdc2706917716855eefa6ff95c35f06c1d35"
+      }
+    ]
+  },
+  {
+    "group_id": 89,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 858,
+        "committed_digest": "86e29e6f7f38958a597a9716512c0a107dc0e813b179de7cca770fa87fab799a"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 858,
+        "committed_digest": "86e29e6f7f38958a597a9716512c0a107dc0e813b179de7cca770fa87fab799a"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 858,
+        "committed_digest": "86e29e6f7f38958a597a9716512c0a107dc0e813b179de7cca770fa87fab799a"
+      }
+    ]
+  },
+  {
+    "group_id": 90,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 874,
+        "committed_digest": "5dd247dae34155c76a4d38c9516adcc3a829419b4765982a3af5c3cf7fc23ef6"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 874,
+        "committed_digest": "5dd247dae34155c76a4d38c9516adcc3a829419b4765982a3af5c3cf7fc23ef6"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 874,
+        "committed_digest": "5dd247dae34155c76a4d38c9516adcc3a829419b4765982a3af5c3cf7fc23ef6"
+      }
+    ]
+  },
+  {
+    "group_id": 91,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 794,
+        "committed_digest": "7a9335183494f02a09de7c0b873a57288ed28b9d41763e0bbbae4fa2ef253cdc"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 794,
+        "committed_digest": "7a9335183494f02a09de7c0b873a57288ed28b9d41763e0bbbae4fa2ef253cdc"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 794,
+        "committed_digest": "7a9335183494f02a09de7c0b873a57288ed28b9d41763e0bbbae4fa2ef253cdc"
+      }
+    ]
+  },
+  {
+    "group_id": 92,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 858,
+        "committed_digest": "a534eded59a2edd4d5a739f57acf91da57c4934f3836e2b7f3d293586d22e2a7"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 858,
+        "committed_digest": "a534eded59a2edd4d5a739f57acf91da57c4934f3836e2b7f3d293586d22e2a7"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 858,
+        "committed_digest": "a534eded59a2edd4d5a739f57acf91da57c4934f3836e2b7f3d293586d22e2a7"
+      }
+    ]
+  },
+  {
+    "group_id": 93,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 849,
+        "committed_digest": "f10a71b8f7d89a3dfa085c054ffdc8ed02bbfcb79cb7f7910b4f95609d024a08"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 849,
+        "committed_digest": "f10a71b8f7d89a3dfa085c054ffdc8ed02bbfcb79cb7f7910b4f95609d024a08"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 849,
+        "committed_digest": "f10a71b8f7d89a3dfa085c054ffdc8ed02bbfcb79cb7f7910b4f95609d024a08"
+      }
+    ]
+  },
+  {
+    "group_id": 94,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "a3db7568c1bbce47a77489dea560cc90dbf61fb49491e8543fd221ac06f15ca6"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "a3db7568c1bbce47a77489dea560cc90dbf61fb49491e8543fd221ac06f15ca6"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 760,
+        "committed_digest": "a3db7568c1bbce47a77489dea560cc90dbf61fb49491e8543fd221ac06f15ca6"
+      }
+    ]
+  },
+  {
+    "group_id": 95,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 859,
+        "committed_digest": "30ffabf0861923fca41b4c49ff00f8667d7d13a7e3452483d4dff352ef2aa45a"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 859,
+        "committed_digest": "30ffabf0861923fca41b4c49ff00f8667d7d13a7e3452483d4dff352ef2aa45a"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 859,
+        "committed_digest": "30ffabf0861923fca41b4c49ff00f8667d7d13a7e3452483d4dff352ef2aa45a"
+      }
+    ]
+  },
+  {
+    "group_id": 96,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "a12b028dbef4d32cbb552e5fe7fa1cbcd1373f3bbeb37d6956a947ec416a9ddc"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "a12b028dbef4d32cbb552e5fe7fa1cbcd1373f3bbeb37d6956a947ec416a9ddc"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 870,
+        "committed_digest": "a12b028dbef4d32cbb552e5fe7fa1cbcd1373f3bbeb37d6956a947ec416a9ddc"
+      }
+    ]
+  },
+  {
+    "group_id": 97,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 776,
+        "committed_digest": "636c07977c000f0efb7139eada3c1c3dbe682b763f23e3d5904a392049ced274"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 776,
+        "committed_digest": "636c07977c000f0efb7139eada3c1c3dbe682b763f23e3d5904a392049ced274"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 776,
+        "committed_digest": "636c07977c000f0efb7139eada3c1c3dbe682b763f23e3d5904a392049ced274"
+      }
+    ]
+  },
+  {
+    "group_id": 98,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "aea9608a2623d7850aba3ae00fc39dc2f6a2adc3ff8ed0683f9e8353a9800545"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "aea9608a2623d7850aba3ae00fc39dc2f6a2adc3ff8ed0683f9e8353a9800545"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 2,
+        "last_applied": 853,
+        "committed_digest": "aea9608a2623d7850aba3ae00fc39dc2f6a2adc3ff8ed0683f9e8353a9800545"
+      }
+    ]
+  },
+  {
+    "group_id": 99,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 819,
+        "committed_digest": "a65c0d8f73c4a426fe01593fe6df40ce64eb032055f61a961bff23af88c5ad0e"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 819,
+        "committed_digest": "a65c0d8f73c4a426fe01593fe6df40ce64eb032055f61a961bff23af88c5ad0e"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 3,
+        "last_applied": 819,
+        "committed_digest": "a65c0d8f73c4a426fe01593fe6df40ce64eb032055f61a961bff23af88c5ad0e"
+      }
+    ]
+  },
+  {
+    "group_id": 100,
+    "replicas": [
+      {
+        "node_id": 1,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 769,
+        "committed_digest": "706694f4e094d02c543948110f46687329ed3185cbc5c0b60c28df553b8f3b9a"
+      },
+      {
+        "node_id": 2,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 769,
+        "committed_digest": "706694f4e094d02c543948110f46687329ed3185cbc5c0b60c28df553b8f3b9a"
+      },
+      {
+        "node_id": 3,
+        "voters": [
+          1,
+          2,
+          3
+        ],
+        "leader_id": 1,
+        "last_applied": 769,
+        "committed_digest": "706694f4e094d02c543948110f46687329ed3185cbc5c0b60c28df553b8f3b9a"
+      }
+    ]
+  }
+]

@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::time::Instant;
 
 use alopex_chirps_wire::{frame::Frame, node_id::NodeId};
@@ -19,48 +19,74 @@ pub struct BufferStats {
     pub unacked_count: usize,
 }
 
-/// Track last-seen sequence numbers per peer to perform receive-side deduplication.
+#[derive(Default)]
+struct PeerDedupState {
+    contiguous_seq: u64,
+    out_of_order: BTreeSet<u64>,
+}
+
+/// Track received sequence numbers per peer to perform receive-side deduplication.
+///
+/// Independent QUIC streams may complete out of order. `contiguous_seq` is the
+/// cumulative ACK boundary, while `out_of_order` remembers newer frames that
+/// have already been delivered without acknowledging across a gap.
 #[derive(Default)]
 pub struct DeduplicationTable {
-    last_seen: std::collections::HashMap<NodeId, u64>,
-    #[allow(dead_code)]
+    peers: HashMap<NodeId, PeerDedupState>,
     window_size: usize,
 }
 
 impl DeduplicationTable {
     pub fn new() -> Self {
         DeduplicationTable {
-            last_seen: std::collections::HashMap::new(),
+            peers: HashMap::new(),
             window_size: 1000,
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn with_window(window_size: usize) -> Self {
         DeduplicationTable {
-            last_seen: std::collections::HashMap::new(),
-            window_size,
+            peers: HashMap::new(),
+            window_size: window_size.max(1),
         }
     }
 
-    /// Returns true if this seq is new and updates the last-seen value; false if duplicate/old.
+    /// Returns true once for each sequence in the receive window.
+    ///
+    /// The cumulative ACK boundary advances only when every preceding sequence
+    /// has arrived. Frames beyond the configured window are rejected so a peer
+    /// cannot grow the out-of-order set without bound.
     pub fn check_and_update(&mut self, peer: NodeId, seq: u64) -> bool {
-        let entry = self.last_seen.entry(peer).or_insert(0);
-        if seq <= *entry {
-            false
-        } else {
-            *entry = seq;
-            true
+        let state = self.peers.entry(peer).or_default();
+        if seq <= state.contiguous_seq || state.out_of_order.contains(&seq) {
+            return false;
         }
+        let window_end = state.contiguous_seq.saturating_add(self.window_size as u64);
+        if seq > window_end {
+            return false;
+        }
+
+        state.out_of_order.insert(seq);
+        while state
+            .out_of_order
+            .remove(&state.contiguous_seq.saturating_add(1))
+        {
+            state.contiguous_seq = state.contiguous_seq.saturating_add(1);
+        }
+        true
     }
 
     pub fn last_seen_seq(&self, peer: NodeId) -> u64 {
-        self.last_seen.get(&peer).copied().unwrap_or(0)
+        self.peers
+            .get(&peer)
+            .map(|state| state.contiguous_seq)
+            .unwrap_or(0)
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn remove_peer(&mut self, peer: NodeId) {
-        self.last_seen.remove(&peer);
+        self.peers.remove(&peer);
     }
 }
 
@@ -118,10 +144,20 @@ impl RetransmissionBuffer {
     /// Buffer a frame for a peer, assigning a monotonically increasing sequence number.
     /// Returns the assigned sequence number. Drops oldest messages on overflow.
     pub fn buffer(&mut self, peer: NodeId, frame: Frame) -> Result<u64, BufferError> {
-        let seq;
         let size_bytes = serialized_size(&frame)
             .map(|s| s as usize)
             .map_err(|e| BufferError::Serialize(e.to_string()))?;
+        self.buffer_with_size(peer, frame, size_bytes)
+    }
+
+    /// Buffer a frame when its serialized size is already known by the caller.
+    pub fn buffer_with_size(
+        &mut self,
+        peer: NodeId,
+        frame: Frame,
+        size_bytes: usize,
+    ) -> Result<u64, BufferError> {
+        let seq;
 
         {
             let peer_buf = self.buffers.entry(peer).or_default();
@@ -309,6 +345,17 @@ mod tests {
         assert!(logs_contain("seq=1"));
     }
 
+    #[test]
+    fn buffer_with_size_reuses_precomputed_frame_size() {
+        let mut buf = RetransmissionBuffer::new(RetransmitConfig::default());
+        let peer = NodeId::new();
+        let frame = frame_for(peer, 10);
+        let size = serialized_size(&frame).expect("frame size") as usize;
+        let seq = buf.buffer_with_size(peer, frame, size).expect("buffer");
+        assert_eq!(seq, 1);
+        assert_eq!(buf.stats(peer).buffered_bytes, size);
+    }
+
     #[traced_test]
     #[test]
     fn process_ack_clears_messages_and_logs() {
@@ -367,17 +414,32 @@ mod tests {
     }
 
     #[test]
-    fn deduplication_rejects_duplicates_and_tracks_last_seen() {
+    fn deduplication_accepts_out_of_order_once_and_acks_only_contiguous() {
         let mut table = DeduplicationTable::new();
         let peer = NodeId::new();
 
-        assert!(table.check_and_update(peer, 10));
-        assert!(!table.check_and_update(peer, 9));
-        assert!(!table.check_and_update(peer, 10));
-        assert!(table.check_and_update(peer, 11));
-        assert_eq!(table.last_seen_seq(peer), 11);
+        assert!(table.check_and_update(peer, 1));
+        assert!(table.check_and_update(peer, 3));
+        assert_eq!(table.last_seen_seq(peer), 1);
+        assert!(!table.check_and_update(peer, 3));
+        assert!(table.check_and_update(peer, 2));
+        assert_eq!(table.last_seen_seq(peer), 3);
+        assert!(!table.check_and_update(peer, 1));
 
         table.remove_peer(peer);
         assert_eq!(table.last_seen_seq(peer), 0);
+    }
+
+    #[test]
+    fn deduplication_rejects_frames_beyond_the_receive_window() {
+        let mut table = DeduplicationTable::with_window(2);
+        let peer = NodeId::new();
+
+        assert!(table.check_and_update(peer, 2));
+        assert!(!table.check_and_update(peer, 3));
+        assert!(table.check_and_update(peer, 1));
+        assert_eq!(table.last_seen_seq(peer), 2);
+        assert!(table.check_and_update(peer, 3));
+        assert_eq!(table.last_seen_seq(peer), 3);
     }
 }

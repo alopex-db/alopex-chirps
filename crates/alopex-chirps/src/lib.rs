@@ -3,20 +3,38 @@
 pub mod backend;
 pub mod config;
 pub mod error;
+#[cfg(feature = "hlc")]
+pub mod hlc;
 pub mod mesh;
+#[cfg(feature = "multi-raft")]
+pub mod multi_raft;
 pub mod node_id;
 pub mod profile;
 pub mod raft;
+#[cfg(feature = "snapshot")]
+pub mod snapshot;
+#[cfg(feature = "tso")]
+pub mod tso;
 
-use crate::config::NodeConfig;
+pub use crate::config::NodeConfig;
 use crate::error::MeshError;
+#[cfg(feature = "hlc")]
+pub use crate::hlc::{
+    Clock, HlcAdvance, HlcError, HlcMetricsSink, HlcReceiveResult, HybridTimestamp, LocalHlc,
+    SystemClock,
+};
 use crate::mesh::Mesh;
 pub use crate::mesh::MeshHandle;
 pub use crate::node_id::NodeId;
-pub use crate::profile::{MessageProfile, enforce_profile};
+pub use crate::profile::{
+    BackendCapabilities, EnvelopeMetadata, MessageProfile, ProfileError, enforce_profile,
+    resolve_profile,
+};
 pub use crate::raft::{
-    ChirpsRaftTransport, MetricsError, RaftConfig, RaftError, RaftMessage, RaftMetricsCollector,
-    RaftMetricsUpdate, RaftNode, serve_metrics,
+    ChirpsMetricsCollector, ChirpsRaftTransport, HlcMetricsUpdate, MetricsAuthError,
+    MetricsEndpointAuth, MetricsError, RaftConfig, RaftError, RaftMessage, RaftMessageMetric,
+    RaftMetricsCollector, RaftMetricsUpdate, RaftNode, TsoMetricsUpdate, serve_metrics,
+    serve_metrics_authorized,
 };
 pub use alopex_chirps_file_transfer::{
     BroadcastHandle, CompressionAlgorithm, ConflictResolution, FileInfo, FileMetadata,
@@ -33,4 +51,13 @@ pub use alopex_chirps_wire::frame::{Frame, UserMessage};
 /// 成功時は `MeshHandle` を返す。エラー時は設定・永続化・トランスポートの各失敗を `MeshError` で返す。
 pub async fn start(config: NodeConfig) -> Result<MeshHandle, MeshError> {
     Mesh::start(config).await
+}
+
+/// Starts a mesh and connects real HLC operations to the unified registry.
+#[cfg(feature = "hlc")]
+pub async fn start_with_metrics(
+    config: NodeConfig,
+    metrics: std::sync::Arc<ChirpsMetricsCollector>,
+) -> Result<MeshHandle, MeshError> {
+    Mesh::start_with_metrics(config, metrics).await
 }

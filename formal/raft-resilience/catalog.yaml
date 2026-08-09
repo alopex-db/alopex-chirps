@@ -1,0 +1,25 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-raft-resilience-v0-6
+  language: TLA+
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    type_features: no-rows
+    max_steps: 10
+  scope: "Three finite voters, leader loss, one-node partition, stale proposal, heal, catch-up, and membership epoch."
+  exclusions: ["Five-node exhaustive schedule", "Unbounded election liveness"]
+requirements:
+  - id: RAFT-RESILIENCE-SAFETY
+    classification: concurrent/distributed
+    failure_mode: "A minority or stale leader commits, or applied state exceeds the unique committed history."
+    properties: [AppliedNeverExceedsCommit, MinorityNeverCommits, SingleCommittedHistory]
+    refinement:
+      - crates/alopex-chirps/src/raft/node.rs
+      - crates/alopex-chirps/src/multi_raft/manager.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/raft_cluster.rs::cluster_handles_node_failure_and_partition
+      - crates/alopex-chirps/tests/multi_raft_three_voter.rs
+    release_evidence:
+      - docs/release/evidence/v0.6.0/consensus-resilience-v0.6.json

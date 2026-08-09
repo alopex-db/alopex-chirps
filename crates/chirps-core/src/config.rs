@@ -22,6 +22,11 @@ pub struct NodeConfig {
     pub cert_path: Option<PathBuf>,
     /// Path to the TLS private key file.
     pub key_path: Option<PathBuf>,
+    /// DER-encoded TLS trust anchors accepted for peer certificates.
+    ///
+    /// Each node should include the cluster CA certificate or the public
+    /// certificates of the self-signed peers it is allowed to contact.
+    pub trusted_cert_paths: Vec<PathBuf>,
     /// Timeout for a direct ping to a node.
     pub ping_timeout: Duration,
     /// Timeout for an indirect ping (via neighbors).
@@ -30,6 +35,8 @@ pub struct NodeConfig {
     pub suspect_to_dead_timeout: Duration,
     /// Interval for periodic gossip ticks.
     pub gossip_interval: Duration,
+    /// Maximum accepted future skew for HLC-stamped gossip messages.
+    pub max_clock_skew: Duration,
     /// Timeout for send/broadcast operations.
     pub broadcast_timeout: Duration,
     /// Maximum number of in-flight send/broadcast requests.
@@ -49,10 +56,12 @@ impl Default for NodeConfig {
             seeds: Vec::new(),
             cert_path: None,
             key_path: None,
+            trusted_cert_paths: Vec::new(),
             ping_timeout: Duration::from_secs(1),
             indirect_ping_timeout: Duration::from_secs(3),
             suspect_to_dead_timeout: Duration::from_secs(6),
             gossip_interval: Duration::from_millis(200),
+            max_clock_skew: Duration::from_secs(1),
             broadcast_timeout: Duration::from_millis(200),
             send_queue_capacity: 1024,
             fanout: None,
@@ -92,6 +101,14 @@ impl NodeConfig {
             }
             (None, None) => {
                 // Self-signed certificates will be generated in this case.
+            }
+        }
+        for cert in &self.trusted_cert_paths {
+            if !cert.exists() {
+                return Err(ConfigError::Certificate(format!(
+                    "Trusted certificate file not found: {}",
+                    cert.display()
+                )));
             }
         }
         Ok(())

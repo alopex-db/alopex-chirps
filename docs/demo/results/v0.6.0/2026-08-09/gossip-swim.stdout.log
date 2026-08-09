@@ -1,0 +1,43 @@
+
+running 11 tests
+test engine::tests::equal_incarnation_alive_gossip_does_not_refresh_liveness ... ok
+test engine::tests::handle_ping_req_forwards_ping_from_requester ... ok
+test engine::tests::only_higher_incarnation_alive_gossip_refutes_suspicion ... ok
+test engine::tests::ping_timeout_requests_indirect_and_marks_suspect ... ok
+test engine::tests::tick_sends_ping ... ok
+test engine::tests::timeouts_mark_suspect_and_dead ... ok
+test types::tests::test_peer_state_creation ... ok
+test util::tests::alive_transitions_to_suspect ... ok
+test util::tests::fanout_defaults_and_caps ... ok
+test util::tests::suspect_recovers_to_alive_on_recent_activity ... ok
+test util::tests::suspect_transitions_to_dead_after_timeout ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 3 tests
+test reordered_and_duplicate_delivery_preserves_receiver_order ... ok
+test skewed_gossip_is_rejected_without_clock_or_membership_mutation ... ok
+test swim_and_gossip_messages_include_sender_hlc ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test simulated_clock_replays_direct_indirect_suspect_and_recovery ... ok
+test stale_incarnations_and_reordered_gossip_cannot_override_rejoin ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test fanout_respects_defaults_and_caps ... ok
+test timeouts_produce_status_changes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

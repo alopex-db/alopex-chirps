@@ -23,8 +23,15 @@ pub struct TransferManifest {
 }
 
 impl TransferManifest {
+    /// Original manifest format with eager file and chunk checksums.
+    pub const EAGER_HASH_VERSION: u16 = 1;
     /// Current supported manifest version.
-    pub const CURRENT_VERSION: u16 = 1;
+    pub const CURRENT_VERSION: u16 = 2;
+
+    /// Returns whether integrity values arrive with chunks and at finalization.
+    pub fn uses_trailing_integrity(&self) -> bool {
+        self.version >= 2
+    }
 
     /// Validates chunk layout, size totals, and manifest version.
     ///

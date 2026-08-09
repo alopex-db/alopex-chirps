@@ -1,0 +1,4 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (target/debug/deps/chirps_multi_raft_perf-649d6a5cc59ff8f3)
+     Running unittests src/main.rs (target/debug/deps/chirps_multi_raft_perf-298a7fda033d884e)
+   Doc-tests chirps_multi_raft_perf

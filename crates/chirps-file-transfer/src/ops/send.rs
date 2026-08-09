@@ -1,15 +1,16 @@
 use crate::TransferSessionId;
 use crate::bandwidth::BandwidthThrottle;
 use crate::chunk::ChunkManager;
+use crate::compression::compress_bytes;
 use crate::config::FileTransferConfig;
 use crate::error::FileTransferError;
-use crate::integrity::IntegrityVerifier;
+use crate::integrity::{IncrementalFileHasher, IntegrityVerifier};
 use crate::manifest::{FileMetadata, FileType, TransferManifest};
 use crate::metrics::PrometheusMetrics;
 use crate::ops::conversions::to_wire_manifest;
 use crate::ops::conversions::to_wire_transfer_options;
 use crate::ops::{ChunkStreamOpener, ControlDispatcher};
-use crate::options::TransferOptions;
+use crate::options::{CompressionAlgorithm, TransferOptions};
 use crate::persistence::SessionPersistence;
 use crate::progress::TransferHandle;
 use crate::session::{TransferControlState, TransferKind, TransferSession, TransferState};
@@ -22,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs;
+use tokio::io::AsyncReadExt;
 use tokio::sync::{RwLock, mpsc};
 use tokio::time::sleep;
 
@@ -66,6 +68,7 @@ pub async fn send_file(
         None,
         None,
         None,
+        None,
         true,
     )
     .await
@@ -80,14 +83,17 @@ pub(crate) async fn send_file_with_context(
     target: NodeId,
     source_path: &Path,
     dest_path: &Path,
-    options: TransferOptions,
+    mut options: TransferOptions,
     kind: TransferKind,
     session_store: Option<SessionRegistry>,
     persistence: Option<Arc<SessionPersistence>>,
     metrics: Option<Arc<PrometheusMetrics>>,
     resume_session: Option<TransferSession>,
+    requested_session_id: Option<TransferSessionId>,
     delete_source: bool,
 ) -> Result<SendFileResult, FileTransferError> {
+    options = resolve_transfer_options(&config, options)?;
+    let source_prepare_started = Instant::now();
     let metadata = fs::metadata(source_path).await?;
     if !metadata.is_file() {
         return Err(FileTransferError::FileNotFound(
@@ -131,11 +137,12 @@ pub(crate) async fn send_file_with_context(
         }
         resume.id
     } else {
-        TransferSessionId::new()
+        requested_session_id.unwrap_or_default()
     };
 
-    let file_hash =
-        IntegrityVerifier::compute_file_hash(source_path, options.hash_algorithm).await?;
+    // Manifest v2 contains layout only. Per-chunk checksums travel with the
+    // chunk and the whole-file hash is computed concurrently with transfer.
+    let chunks = IntegrityVerifier::build_chunk_layout(file_size, chunk_manager.chunk_size())?;
 
     if let Some(resume) = resume_session.as_ref() {
         let manifest = &resume.manifest;
@@ -143,7 +150,6 @@ pub(crate) async fn send_file_with_context(
             || manifest.chunk_count != chunk_count
             || manifest.chunk_size != chunk_manager.chunk_size() as u32
             || manifest.hash_algorithm != options.hash_algorithm
-            || manifest.file_hash != file_hash
             || manifest.source_path != source_path_str
             || manifest.dest_path != dest_path_str
         {
@@ -160,11 +166,19 @@ pub(crate) async fn send_file_with_context(
         chunk_count,
         &chunk_manager,
         &options,
-        file_hash,
+        Vec::new(),
+        chunks,
         &metadata,
         session_id,
     )
     .await?;
+    if let Some(metrics) = &metrics {
+        metrics.observe_phase(
+            "sender_source_prepare",
+            source_prepare_started.elapsed(),
+            file_size,
+        );
+    }
 
     let mut session = TransferSession::new(
         session_id,
@@ -301,12 +315,32 @@ pub(crate) async fn send_file_with_context(
     }
 
     let throttle = build_throttle(&config, &options);
-    let mut pending: VecDeque<u32> = (0..chunk_count)
-        .filter(|index| !skip_chunks.contains(index))
-        .collect();
+    let mut pending = VecDeque::new();
+    let mut prepared_chunks: HashMap<u32, Arc<PreparedChunk>> = HashMap::new();
     let mut in_flight: HashMap<u32, Instant> = HashMap::new();
     let mut retry_counts: HashMap<u32, u8> = HashMap::new();
+    let mut scheduled_retries = 0usize;
     let concurrency = options.concurrency.max(1).min(config.max_concurrency);
+    let mut max_in_flight = 0usize;
+
+    let (prepared_tx, mut prepared_rx) = mpsc::channel(concurrency.saturating_mul(2));
+    let producer_path = source_path.to_path_buf();
+    let producer_chunks = session.manifest.chunks.clone();
+    let producer_skips = skip_chunks.clone();
+    let producer_algorithm = session.manifest.hash_algorithm;
+    let producer_metrics = metrics.clone();
+    let file_hash_task = tokio::spawn(async move {
+        prepare_chunks_single_pass(
+            producer_path,
+            producer_chunks,
+            producer_skips,
+            producer_algorithm,
+            producer_metrics,
+            prepared_tx,
+        )
+        .await
+    });
+    let mut producer_done = false;
 
     let (send_tx, mut send_rx) =
         mpsc::channel::<(u32, Result<(), FileTransferError>)>(concurrency.saturating_mul(2));
@@ -314,7 +348,7 @@ pub(crate) async fn send_file_with_context(
 
     let start_time = Instant::now();
 
-    while !pending.is_empty() || !in_flight.is_empty() {
+    while !producer_done || !pending.is_empty() || !in_flight.is_empty() || scheduled_retries != 0 {
         loop {
             let state = *control_rx.borrow();
             match state {
@@ -346,23 +380,31 @@ pub(crate) async fn send_file_with_context(
 
         while in_flight.len() < concurrency && !pending.is_empty() {
             let index = pending.pop_front().expect("pending checked");
+            let prepared = prepared_chunks
+                .get(&index)
+                .cloned()
+                .expect("pending chunk is prepared");
             in_flight.insert(index, Instant::now());
+            max_in_flight = max_in_flight.max(in_flight.len());
             update_chunks_in_flight(&metrics, in_flight.len());
             let send_tx = send_tx.clone();
             let opener = Arc::clone(&stream_opener);
             let throttle = throttle.clone();
-            let source_path = source_path.to_path_buf();
             let session_id = session.id;
-            let chunk_size = chunk_manager.chunk_size();
+            let compression = options.compression;
+            let trailing_integrity = session.manifest.uses_trailing_integrity();
+            let metrics = metrics.clone();
             tokio::spawn(async move {
-                let result = send_chunk(
+                let result = send_prepared_chunk(
                     opener,
                     target,
-                    source_path,
                     session_id,
                     index,
-                    chunk_size,
+                    prepared,
+                    compression,
+                    trailing_integrity,
                     throttle,
+                    metrics,
                 )
                 .await;
                 let _ = send_tx.send((index, result)).await;
@@ -370,6 +412,16 @@ pub(crate) async fn send_file_with_context(
         }
 
         tokio::select! {
+            prepared = prepared_rx.recv(), if !producer_done => {
+                match prepared {
+                    Some(prepared) => {
+                        let index = prepared.index;
+                        prepared_chunks.insert(index, Arc::new(prepared));
+                        pending.push_back(index);
+                    }
+                    None => producer_done = true,
+                }
+            }
             _ = control_rx.changed() => {
                 if matches!(*control_rx.borrow(), TransferControlState::Cancelled) {
                     return Err(cancel_session(
@@ -399,6 +451,7 @@ pub(crate) async fn send_file_with_context(
                             metrics.record_retry();
                         }
                         schedule_retry(index, &options.retry_policy, attempt, &retry_tx);
+                        scheduled_retries = scheduled_retries.saturating_add(1);
                     } else {
                         return Err(fail_session(
                             &mut session,
@@ -413,6 +466,7 @@ pub(crate) async fn send_file_with_context(
                 }
             }
             Some(retry_index) = retry_rx.recv() => {
+                scheduled_retries = scheduled_retries.saturating_sub(1);
                 if !session.chunk_tracker.completed.contains(&retry_index)
                     && !in_flight.contains_key(&retry_index)
                 {
@@ -448,6 +502,7 @@ pub(crate) async fn send_file_with_context(
                         }
                         if verified {
                             session.chunk_tracker.mark_completed(index);
+                            prepared_chunks.remove(&index);
                             let meta = session.manifest.chunks.get(index as usize);
                             if let Some(meta) = meta {
                                 handle.update_progress(meta.size as u64, 1).await;
@@ -464,6 +519,7 @@ pub(crate) async fn send_file_with_context(
                                     metrics.record_retry();
                                 }
                                 schedule_retry(index, &options.retry_policy, attempt, &retry_tx);
+                                scheduled_retries = scheduled_retries.saturating_add(1);
                             } else {
                                 return Err(fail_session(
                                     &mut session,
@@ -520,20 +576,38 @@ pub(crate) async fn send_file_with_context(
         .await);
     }
 
-    let duration_ms = start_time.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    let complete = TransferComplete {
-        bytes_transferred: file_size,
-        duration_ms,
-        file_hash: session.manifest.file_hash.clone(),
-        hash_algorithm: to_wire_hash_algorithm(session.manifest.hash_algorithm),
-    };
-    if let Err(err) = control
+    let file_hash = file_hash_task.await.map_err(|error| {
+        FileTransferError::Internal(format!("file hash task failed: {error}"))
+    })??;
+    session.manifest.file_hash.clone_from(&file_hash);
+
+    control
         .send_message(
-            session.target_nodes[0],
+            target,
             session.id,
-            FileTransferMessage::Complete(complete),
+            FileTransferMessage::FinalizeRequest(TransferComplete {
+                bytes_transferred: file_size,
+                duration_ms: start_time.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                file_hash: file_hash.clone(),
+                hash_algorithm: to_wire_hash_algorithm(session.manifest.hash_algorithm),
+            }),
         )
-        .await
+        .await?;
+
+    // The receiver emits Complete only after it has verified the final hash,
+    // restored requested metadata, and atomically renamed the temporary file.
+    // Empty files are finalized while accepting the manifest, so its accepted
+    // ManifestAck is already that completion proof.
+    if let Err(err) = wait_for_receiver_completion(
+        &control,
+        session.id,
+        target,
+        config.idle_timeout,
+        &file_hash,
+        session.manifest.hash_algorithm,
+        file_size,
+    )
+    .await
     {
         return Err(fail_session(
             &mut session,
@@ -570,6 +644,7 @@ pub(crate) async fn send_file_with_context(
         metrics.record_transfer(kind, "completed");
         metrics.active_transfers.dec();
         metrics.observe_transfer_duration(kind, duration_secs);
+        metrics.observe_chunk_concurrency(kind, max_in_flight);
         if duration_secs > 0.0 {
             metrics.observe_throughput(kind, file_size as f64 / duration_secs);
         }
@@ -728,32 +803,185 @@ async fn wait_for_manifest_ack(
     }
 }
 
-async fn send_chunk(
-    opener: Arc<dyn ChunkStreamOpener>,
-    target: NodeId,
-    source_path: PathBuf,
+#[allow(clippy::too_many_arguments)]
+async fn wait_for_receiver_completion(
+    control: &ControlDispatcher,
     session_id: TransferSessionId,
-    index: u32,
-    chunk_size: usize,
-    throttle: Option<Arc<BandwidthThrottle>>,
+    target: NodeId,
+    timeout: Duration,
+    expected_hash: &[u8],
+    expected_algorithm: crate::options::HashAlgorithm,
+    expected_bytes: u64,
 ) -> Result<(), FileTransferError> {
-    let mut file = fs::File::open(&source_path).await?;
-    let chunk_manager = ChunkManager::new(chunk_size);
-    let chunk = chunk_manager
-        .read_chunk(&mut file, index)
-        .await
-        .map_err(FileTransferError::Io)?;
-
-    if let Some(throttle) = throttle {
-        throttle.acquire(chunk.data.len() as u64).await;
+    let (sender, message) = control
+        .recv_filtered(session_id, timeout, |message| {
+            matches!(
+                message,
+                FileTransferMessage::Complete(_)
+                    | FileTransferMessage::Error(_)
+                    | FileTransferMessage::Cancel(_)
+            )
+        })
+        .await?;
+    if sender != target {
+        return Err(FileTransferError::Transport(
+            "receiver completion came from an unexpected peer".into(),
+        ));
     }
 
+    match message {
+        FileTransferMessage::Complete(TransferComplete {
+            bytes_transferred,
+            file_hash,
+            hash_algorithm,
+            ..
+        }) if bytes_transferred == expected_bytes
+            && file_hash == expected_hash
+            && hash_algorithm == to_wire_hash_algorithm(expected_algorithm) =>
+        {
+            Ok(())
+        }
+        FileTransferMessage::Complete(_) => Err(FileTransferError::FileHashMismatch),
+        FileTransferMessage::Error(error) => Err(FileTransferError::Transport(error.message)),
+        FileTransferMessage::Cancel(_) => Err(FileTransferError::Cancelled),
+        _ => Err(FileTransferError::Internal(
+            "unexpected receiver completion message".into(),
+        )),
+    }
+}
+
+fn resolve_transfer_options(
+    config: &FileTransferConfig,
+    mut options: TransferOptions,
+) -> Result<TransferOptions, FileTransferError> {
+    let defaults = TransferOptions::default();
+    if options.chunk_size == defaults.chunk_size {
+        options.chunk_size = config.default_chunk_size;
+    }
+    if options.concurrency == defaults.concurrency {
+        options.concurrency = config.default_concurrency;
+    }
+    if options.compression == defaults.compression {
+        options.compression = config.default_compression;
+    }
+
+    if options.chunk_size == 0 || options.chunk_size > u32::MAX as usize {
+        return Err(FileTransferError::Internal(
+            "chunk size must be between 1 and u32::MAX".into(),
+        ));
+    }
+    if config.max_concurrency == 0 || options.concurrency == 0 {
+        return Err(FileTransferError::Internal(
+            "transfer concurrency must be greater than zero".into(),
+        ));
+    }
+    options.concurrency = options.concurrency.min(config.max_concurrency);
+    Ok(options)
+}
+
+#[allow(clippy::too_many_arguments)]
+struct PreparedChunk {
+    index: u32,
+    data: Vec<u8>,
+    checksum: u64,
+}
+
+async fn prepare_chunks_single_pass(
+    source_path: PathBuf,
+    chunks: Vec<crate::ChunkMeta>,
+    skip_chunks: HashSet<u32>,
+    hash_algorithm: crate::options::HashAlgorithm,
+    metrics: Option<Arc<PrometheusMetrics>>,
+    prepared_tx: mpsc::Sender<PreparedChunk>,
+) -> Result<Vec<u8>, FileTransferError> {
+    let mut file = fs::File::open(source_path).await?;
+    let mut hasher = IncrementalFileHasher::new(hash_algorithm);
+    for meta in chunks {
+        let read_started = Instant::now();
+        let mut data = vec![0u8; meta.size as usize];
+        file.read_exact(&mut data).await?;
+        hasher.update(&data);
+        let checksum = IntegrityVerifier::compute_chunk_checksum(&data);
+        if let Some(metrics) = &metrics {
+            metrics.observe_phase(
+                "sender_chunk_read",
+                read_started.elapsed(),
+                data.len() as u64,
+            );
+        }
+        if !skip_chunks.contains(&meta.index)
+            && prepared_tx
+                .send(PreparedChunk {
+                    index: meta.index,
+                    data,
+                    checksum,
+                })
+                .await
+                .is_err()
+        {
+            return Err(FileTransferError::Cancelled);
+        }
+    }
+    Ok(hasher.finalize())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_prepared_chunk(
+    opener: Arc<dyn ChunkStreamOpener>,
+    target: NodeId,
+    session_id: TransferSessionId,
+    index: u32,
+    prepared: Arc<PreparedChunk>,
+    compression: CompressionAlgorithm,
+    trailing_integrity: bool,
+    throttle: Option<Arc<BandwidthThrottle>>,
+    metrics: Option<Arc<PrometheusMetrics>>,
+) -> Result<(), FileTransferError> {
+    let compression_started = Instant::now();
+    let compressed = (!matches!(compression, CompressionAlgorithm::None))
+        .then(|| compress_bytes(&prepared.data, compression))
+        .transpose()?;
+    let payload = compressed.as_deref().unwrap_or(&prepared.data);
+    if let Some(metrics) = &metrics {
+        metrics.observe_phase(
+            "sender_chunk_compress",
+            compression_started.elapsed(),
+            payload.len() as u64,
+        );
+    }
+
+    if let Some(throttle) = throttle {
+        throttle.acquire(payload.len() as u64).await;
+    }
+
+    let stream_started = Instant::now();
     let mut stream = opener.open_chunk_stream(target).await?;
-    crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, &chunk.data).await?;
+    if trailing_integrity {
+        crate::stream::ChunkStreamCodec::encode_with_checksum(
+            &mut stream,
+            &session_id,
+            index,
+            payload,
+            prepared.checksum,
+        )
+        .await?;
+    } else {
+        crate::stream::ChunkStreamCodec::encode(&mut stream, &session_id, index, payload).await?;
+    }
     stream
         .finish()
-        .await
         .map_err(|e| FileTransferError::Transport(e.to_string()))?;
+    // Do not wait for QUIC-level acknowledgement here. The transfer loop already
+    // keeps this chunk in flight until the receiver verifies it and returns a
+    // ChunkAck, so awaiting SendStream::stopped would duplicate that acknowledgement
+    // and serialize every chunk on a transport round trip.
+    if let Some(metrics) = &metrics {
+        metrics.observe_phase(
+            "sender_chunk_stream",
+            stream_started.elapsed(),
+            payload.len() as u64,
+        );
+    }
     Ok(())
 }
 
@@ -781,14 +1009,10 @@ async fn build_manifest(
     chunk_manager: &ChunkManager,
     options: &TransferOptions,
     file_hash: Vec<u8>,
+    chunks: Vec<crate::ChunkMeta>,
     metadata: &std::fs::Metadata,
     session_id: TransferSessionId,
 ) -> Result<TransferManifest, FileTransferError> {
-    let mut file = fs::File::open(source_path).await?;
-    let chunks = chunk_manager
-        .generate_chunk_metas(&mut file, file_size)
-        .await
-        .map_err(FileTransferError::Io)?;
     let created_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::from_secs(0))
@@ -919,5 +1143,186 @@ fn to_wire_file_metadata(
             FileType::Symlink => alopex_chirps_wire::file_transfer::FileType::Symlink,
         },
         size: metadata.size,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PreparedChunk, resolve_transfer_options, send_prepared_chunk, should_retry};
+    use crate::compression::decompress_bytes;
+    use crate::integrity::IntegrityVerifier;
+    use crate::ops::ChunkStreamOpener;
+    use crate::{
+        CHUNK_STREAM_MAGIC, CompressionAlgorithm, FileTransferConfig, FileTransferError,
+        TransferSessionId,
+    };
+    use alopex_chirps_wire::node_id::NodeId;
+    use async_trait::async_trait;
+    use quinn::{ClientConfig, Endpoint, ServerConfig};
+    use rcgen::generate_simple_self_signed;
+    use rustls::RootCertStore;
+    use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+    use std::net::{Ipv4Addr, SocketAddr};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    const SERVER_NAME: &str = "localhost";
+
+    #[test]
+    fn retry_coordinator_is_bounded_per_chunk() {
+        let mut retries = std::collections::HashMap::new();
+        assert_eq!(should_retry(&mut retries, 7, 2), Some(1));
+        assert_eq!(should_retry(&mut retries, 7, 2), Some(2));
+        assert_eq!(should_retry(&mut retries, 7, 2), None);
+        assert_eq!(should_retry(&mut retries, 8, 2), Some(1));
+    }
+
+    #[test]
+    fn config_defaults_are_applied_to_default_transfer_options() {
+        let config = FileTransferConfig {
+            default_chunk_size: 32 * 1024,
+            default_concurrency: 3,
+            default_compression: CompressionAlgorithm::ZstdLevel(5),
+            max_concurrency: 4,
+            ..FileTransferConfig::default()
+        };
+        let options = resolve_transfer_options(&config, crate::TransferOptions::default())
+            .expect("resolve defaults");
+        assert_eq!(options.chunk_size, 32 * 1024);
+        assert_eq!(options.concurrency, 3);
+        assert_eq!(options.compression, CompressionAlgorithm::ZstdLevel(5));
+    }
+
+    #[test]
+    fn invalid_configured_transfer_defaults_are_rejected() {
+        let config = FileTransferConfig {
+            default_chunk_size: 0,
+            ..FileTransferConfig::default()
+        };
+        assert!(resolve_transfer_options(&config, crate::TransferOptions::default()).is_err());
+    }
+
+    #[derive(Clone)]
+    struct FixedChunkOpener {
+        endpoint: Endpoint,
+        target_addr: SocketAddr,
+        connection: Arc<Mutex<Option<quinn::Connection>>>,
+    }
+
+    #[async_trait]
+    impl ChunkStreamOpener for FixedChunkOpener {
+        async fn open_chunk_stream(
+            &self,
+            _target: NodeId,
+        ) -> Result<quinn::SendStream, FileTransferError> {
+            let connection = {
+                let mut connection = self.connection.lock().await;
+                if let Some(existing) = connection.as_ref() {
+                    existing.clone()
+                } else {
+                    let established = self
+                        .endpoint
+                        .connect(self.target_addr, SERVER_NAME)
+                        .map_err(|error| FileTransferError::Transport(error.to_string()))?
+                        .await
+                        .map_err(|error| FileTransferError::Transport(error.to_string()))?;
+                    connection.replace(established.clone());
+                    established
+                }
+            };
+            connection
+                .open_uni()
+                .await
+                .map_err(|error| FileTransferError::Transport(error.to_string()))
+        }
+    }
+
+    fn build_tls_configs() -> (ServerConfig, ClientConfig) {
+        let cert = generate_simple_self_signed([SERVER_NAME.to_owned()]).expect("certificate");
+        let cert_der = cert.serialize_der().expect("certificate DER");
+        let key_der = cert.serialize_private_key_der();
+        let cert_chain = vec![CertificateDer::from(cert_der.clone())];
+        let key = PrivatePkcs8KeyDer::from(key_der).into();
+        let server_config = ServerConfig::with_single_cert(cert_chain, key).expect("server TLS");
+
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(CertificateDer::from(cert_der))
+            .expect("trusted certificate");
+        let client_config =
+            ClientConfig::with_root_certificates(Arc::new(roots)).expect("client config");
+        (server_config, client_config)
+    }
+
+    #[tokio::test]
+    async fn zstd_compresses_chunk_payload_on_the_wire() {
+        let source_data = vec![b'x'; 64 * 1024];
+
+        let (server_config, client_config) = build_tls_configs();
+        let receiver = Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .expect("receiver endpoint");
+        let receiver_addr = receiver.local_addr().expect("receiver address");
+
+        let mut sender =
+            Endpoint::client(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).expect("sender endpoint");
+        sender.set_default_client_config(client_config);
+
+        let received_payload = tokio::spawn(async move {
+            let connection = receiver
+                .accept()
+                .await
+                .expect("incoming connection")
+                .await
+                .expect("connection");
+            let mut stream = connection.accept_uni().await.expect("chunk stream");
+            let mut magic = [0u8; 1];
+            stream.read_exact(&mut magic).await.expect("stream magic");
+            assert_eq!(magic[0], CHUNK_STREAM_MAGIC);
+            let (_, chunk_index, payload) = crate::stream::ChunkStreamCodec::decode(&mut stream)
+                .await
+                .expect("chunk frame");
+            assert_eq!(chunk_index, 0);
+            payload
+        });
+
+        let opener = Arc::new(FixedChunkOpener {
+            endpoint: sender,
+            target_addr: receiver_addr,
+            connection: Arc::new(Mutex::new(None)),
+        });
+        let prepared = Arc::new(PreparedChunk {
+            index: 0,
+            checksum: IntegrityVerifier::compute_chunk_checksum(&source_data),
+            data: source_data.clone(),
+        });
+        send_prepared_chunk(
+            opener.clone(),
+            NodeId::new(),
+            TransferSessionId::new(),
+            0,
+            prepared,
+            CompressionAlgorithm::Zstd,
+            false,
+            None,
+            None,
+        )
+        .await
+        .expect("send compressed chunk");
+
+        let payload = received_payload.await.expect("receiver task");
+        drop(opener);
+        assert!(
+            payload.len() < source_data.len(),
+            "Zstd payload should be smaller than the original chunk"
+        );
+        assert_eq!(
+            decompress_bytes(
+                &payload,
+                CompressionAlgorithm::Zstd,
+                Some(source_data.len()),
+            )
+            .expect("decompress payload"),
+            source_data
+        );
     }
 }

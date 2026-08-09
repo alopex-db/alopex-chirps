@@ -1,0 +1,29 @@
+warning: methods `close_transport_admission` and `cancel_pending_transport_rpcs` are never used
+   --> crates/alopex-chirps/src/raft/node.rs:583:19
+    |
+188 | impl RaftNode {
+    | ------------- methods in this implementation
+...
+583 |     pub(crate) fn close_transport_admission(&self) {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+587 |     pub(crate) fn cancel_pending_transport_rpcs(&self) {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `close_rpc_admission` and `cancel_pending_rpcs` are never used
+   --> crates/alopex-chirps/src/raft/transport.rs:346:19
+    |
+110 | impl ChirpsRaftTransport {
+    | ------------------------ methods in this implementation
+...
+346 |     pub(crate) fn close_rpc_admission(&self) {
+    |                   ^^^^^^^^^^^^^^^^^^^
+...
+351 |     pub(crate) fn cancel_pending_rpcs(&self) {
+    |                   ^^^^^^^^^^^^^^^^^^^
+
+warning: `alopex-chirps` (lib) generated 2 warnings
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.15s
+     Running three_node_mesh.rs (target/debug/deps/three_node_mesh-c379bf7a25044251)

@@ -3,8 +3,57 @@ use crate::{ChunkChecksum, ChunkIndex};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::SeekFrom;
+use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+
+/// Writes an owned chunk at a fixed file offset and returns the same buffer.
+///
+/// Returning ownership lets the receiver feed verified bytes into its
+/// incremental file hash without copying the payload around blocking I/O.
+///
+/// # Errors
+/// Returns an I/O error when the positional write fails or makes no progress.
+pub async fn write_owned_chunk_at(
+    path: PathBuf,
+    offset: u64,
+    data: Vec<u8>,
+) -> std::io::Result<Vec<u8>> {
+    #[cfg(unix)]
+    {
+        tokio::task::spawn_blocking(move || {
+            use std::os::unix::fs::FileExt;
+
+            let file = std::fs::OpenOptions::new().write(true).open(path)?;
+            let mut written = 0usize;
+            while written < data.len() {
+                let write_offset = offset.checked_add(written as u64).ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "chunk offset overflow")
+                })?;
+                let bytes = file.write_at(&data[written..], write_offset)?;
+                if bytes == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        "chunk write made no progress",
+                    ));
+                }
+                written += bytes;
+            }
+            Ok(data)
+        })
+        .await
+        .map_err(|error| std::io::Error::other(format!("chunk write task failed: {error}")))?
+    }
+
+    #[cfg(not(unix))]
+    {
+        let mut file = tokio::fs::OpenOptions::new().write(true).open(path).await?;
+        file.seek(SeekFrom::Start(offset)).await?;
+        file.write_all(&data).await?;
+        file.flush().await?;
+        Ok(data)
+    }
+}
 
 /// A chunk payload with checksum metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,16 +116,17 @@ impl ChunkManager {
         let offset = index as u64 * self.chunk_size as u64;
         file.seek(SeekFrom::Start(offset)).await?;
 
-        let mut data = vec![0u8; self.chunk_size];
-        let bytes_read = file.read(&mut data).await?;
-        data.truncate(bytes_read);
+        let file_size = file.metadata().await?.len();
+        let bytes_to_read = file_size.saturating_sub(offset).min(self.chunk_size as u64) as usize;
+        let mut data = vec![0u8; bytes_to_read];
+        file.read_exact(&mut data).await?;
 
         let checksum = xxhash_rust::xxh64::xxh64(&data, 0);
 
         Ok(Chunk {
             index,
             offset,
-            size: bytes_read as u32,
+            size: bytes_to_read as u32,
             checksum,
             data,
         })

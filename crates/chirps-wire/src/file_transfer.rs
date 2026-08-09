@@ -115,6 +115,7 @@ pub struct TransferOptions {
     pub overwrite: bool,
     pub mode: TransferMode,
     pub preserve_metadata: bool,
+    pub follow_symlinks: bool,
 }
 
 impl Default for TransferOptions {
@@ -131,6 +132,7 @@ impl Default for TransferOptions {
             overwrite: false,
             mode: TransferMode::Copy,
             preserve_metadata: true,
+            follow_symlinks: false,
         }
     }
 }
@@ -186,6 +188,12 @@ pub enum FileTransferMessage {
     MetadataResponse(MetadataResponse),
     ListRequest(ListRequest),
     ListResponse(ListResponse),
+    /// Requests that the peer initiate the reverse direction of a sync using
+    /// this frame's session id.
+    SyncRequest(SyncRequest),
+    /// Supplies the final whole-file hash after all chunk acknowledgements.
+    /// Appended for manifest v2 so existing bincode variant indices stay stable.
+    FinalizeRequest(TransferComplete),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -198,6 +206,16 @@ pub struct TransferRequest {
     pub mode: TransferMode,
     pub options: TransferOptions,
     pub metadata: Option<FileMetadata>,
+}
+
+/// Requests a peer to send a file back to the caller for Pull/Bidirectional
+/// synchronization. The enclosing frame session id is reused for the reverse
+/// transfer so the requester can await one receiving session.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SyncRequest {
+    pub source_path: String,
+    pub dest_path: String,
+    pub options: TransferOptions,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -269,6 +287,7 @@ pub struct ExistsResponse {
 pub struct RemoveRequest {
     pub path: String,
     pub recursive: bool,
+    pub ignore_not_found: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

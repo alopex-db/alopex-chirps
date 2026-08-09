@@ -7,10 +7,10 @@ use alopex_chirps_raft_storage::types::{
 };
 use alopex_chirps_wire::node_id::NodeId;
 use anyhow::{Result, bail};
-use openraft::storage::{Adaptor, RaftSnapshotBuilder};
+use openraft::storage::{LogFlushed, RaftLogStorage, RaftSnapshotBuilder, RaftStateMachine};
 use openraft::{
-    CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader,
-    RaftStorage as OpenRaftStorage, StorageError, StorageIOError,
+    CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader, StorageError,
+    StorageIOError,
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Debug;
@@ -113,9 +113,8 @@ impl RaftLogReader<ChirpsTypeConfig> for MemoryStore {
     }
 }
 
-impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
+impl RaftLogStorage<ChirpsTypeConfig> for MemoryStore {
     type LogReader = MemoryStore;
-    type SnapshotBuilder = MemorySnapshotBuilder;
 
     async fn save_vote(
         &mut self,
@@ -163,22 +162,27 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         self.clone()
     }
 
-    async fn append_to_log<I>(&mut self, entries: I) -> Result<(), StorageError<ChirpsNodeId>>
+    async fn append<I>(
+        &mut self,
+        entries: I,
+        callback: LogFlushed<ChirpsTypeConfig>,
+    ) -> Result<(), StorageError<ChirpsNodeId>>
     where
         I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + OptionalSend,
+        I::IntoIter: OptionalSend,
     {
         let mut guard = self.inner.lock().await;
         let new_entries: Vec<_> = entries.into_iter().collect();
-        if new_entries.is_empty() {
-            return Ok(());
+        if let Some(first) = new_entries.first() {
+            guard.logs.retain(|e| e.log_id.index < first.log_id.index);
+            guard.logs.extend(new_entries);
         }
-        let first = new_entries.first().unwrap().log_id.index;
-        guard.logs.retain(|e| e.log_id.index < first);
-        guard.logs.extend(new_entries);
+        drop(guard);
+        callback.log_io_completed(Ok(()));
         Ok(())
     }
 
-    async fn delete_conflict_logs_since(
+    async fn truncate(
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
@@ -187,7 +191,7 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         Ok(())
     }
 
-    async fn purge_logs_upto(
+    async fn purge(
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
@@ -196,8 +200,12 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         guard.last_purged = Some(log_id);
         Ok(())
     }
+}
 
-    async fn last_applied_state(
+impl RaftStateMachine<ChirpsTypeConfig> for MemoryStore {
+    type SnapshotBuilder = MemorySnapshotBuilder;
+
+    async fn applied_state(
         &mut self,
     ) -> Result<
         (
@@ -210,10 +218,11 @@ impl OpenRaftStorage<ChirpsTypeConfig> for MemoryStore {
         Ok((guard.last_applied, guard.last_membership.clone()))
     }
 
-    async fn apply_to_state_machine(
-        &mut self,
-        entries: &[Entry<ChirpsTypeConfig>],
-    ) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>> {
+    async fn apply<I>(&mut self, entries: I) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>>
+    where
+        I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + OptionalSend,
+        I::IntoIter: OptionalSend,
+    {
         let mut guard = self.inner.lock().await;
         let mut responses = Vec::new();
         for entry in entries {
@@ -402,9 +411,8 @@ impl TestCluster {
             data: Arc::new(Mutex::new(Vec::new())),
         };
         let store = MemoryStore::new(state_handle.clone());
-        let (log_store, state_machine) = Adaptor::new(store.clone());
 
-        let cfg = RaftConfig {
+        let mut cfg = RaftConfig {
             group_id: self.group_id,
             node_id: id,
             election_timeout_ms: 120,
@@ -413,12 +421,19 @@ impl TestCluster {
             max_in_snapshot_log_to_keep: 2 * self.snapshot_threshold,
             ..Default::default()
         };
+        #[cfg(feature = "snapshot")]
+        {
+            cfg.snapshot_chunk_threshold = 1;
+            cfg.snapshot_chunk_size = 4;
+            cfg.snapshot_max_concurrent_chunks = 2;
+            cfg.snapshot_max_retries = 1;
+        }
 
         let mut node = RaftNode::new(
             cfg,
             ChirpsRaftTransport::factory(transport.clone()),
-            log_store,
-            state_machine,
+            store.clone(),
+            store,
             transport.clone(),
         )
         .await?;
@@ -474,6 +489,28 @@ impl TestCluster {
             }
             if start.elapsed() > timeout {
                 bail!("leader not elected within {:?}", timeout);
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    async fn wait_for_leader_except(
+        &self,
+        excluded: ChirpsNodeId,
+        timeout: Duration,
+    ) -> Result<ChirpsNodeId> {
+        let start = Instant::now();
+        loop {
+            for node in self.nodes.values() {
+                if node.id != excluded
+                    && node.node.leader_id() == Some(node.id)
+                    && !node.paused.load(Ordering::SeqCst)
+                {
+                    return Ok(node.id);
+                }
+            }
+            if start.elapsed() > timeout {
+                bail!("replacement leader not elected within {:?}", timeout);
             }
             sleep(Duration::from_millis(20)).await;
         }
@@ -631,6 +668,17 @@ impl TestCluster {
         }
         map
     }
+
+    async fn shutdown_all(&self) -> Result<()> {
+        for test_node in self.nodes.values() {
+            test_node.running.store(false, Ordering::SeqCst);
+            test_node.pump.abort();
+            test_node.ticker.abort();
+            test_node.node.shutdown().await?;
+            test_node.node.shutdown().await?;
+        }
+        Ok(())
+    }
 }
 
 fn spawn_pump(
@@ -660,7 +708,8 @@ fn spawn_pump(
                 let Some(payload) = ChirpsRaftTransport::decode_frame(frame) else {
                     continue;
                 };
-                let Some(request) = transport.consume_incoming(payload).await else {
+                let Ok(Some(request)) = transport.consume_incoming_from(sender, payload).await
+                else {
                     continue;
                 };
                 let correlation_id = request.correlation_id;
@@ -713,6 +762,13 @@ fn membership_voters(
         .flatten()
         .cloned()
         .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn raft_node_shutdown_is_explicit_and_idempotent() -> Result<()> {
+    let cluster = TestCluster::new(&[1], 10).await?;
+    cluster.shutdown_all().await?;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -860,5 +916,51 @@ async fn cluster_handles_node_failure_and_partition() -> Result<()> {
     cluster
         .wait_for_state_len(3, Duration::from_secs(2), true)
         .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stale_partitioned_leader_cannot_commit_and_heal_converges() -> Result<()> {
+    let cluster = TestCluster::new(&[51, 52, 53], 20).await?;
+    let old_leader = cluster.wait_for_leader(Duration::from_secs(1)).await?;
+    cluster
+        .propose(old_leader, b"committed-before-split")
+        .await?;
+    cluster
+        .wait_for_state_len(1, Duration::from_secs(1), true)
+        .await?;
+
+    cluster.isolate(old_leader).await;
+    let stale = tokio::time::timeout(
+        Duration::from_millis(500),
+        cluster.propose(old_leader, b"must-not-commit"),
+    )
+    .await;
+    assert!(
+        !matches!(stale, Ok(Ok(_))),
+        "the partitioned old leader must not commit a stale proposal"
+    );
+
+    let new_leader = cluster
+        .wait_for_leader_except(old_leader, Duration::from_secs(2))
+        .await?;
+    cluster
+        .propose(new_leader, b"committed-by-new-leader")
+        .await?;
+    cluster
+        .wait_for_state_len(2, Duration::from_secs(1), false)
+        .await?;
+
+    cluster.heal(old_leader).await;
+    cluster
+        .wait_for_state_len(2, Duration::from_secs(3), true)
+        .await?;
+    let states = cluster.states().await;
+    let expected = vec![
+        b"committed-before-split".to_vec(),
+        b"committed-by-new-leader".to_vec(),
+    ];
+    assert!(states.values().all(|state| state == &expected));
+    cluster.shutdown_all().await?;
     Ok(())
 }

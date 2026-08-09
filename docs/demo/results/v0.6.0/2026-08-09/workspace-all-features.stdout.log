@@ -1,0 +1,656 @@
+
+running 25 tests
+test config::tests::test_config_validation ... ok
+test config::tests::test_default_config ... ok
+test hlc::tests::future_timestamp_beyond_max_skew_is_rejected_without_mutation ... ok
+test hlc::tests::receive_applies_canonical_merge_rule ... ok
+test hlc::tests::tick_is_monotonic_across_wall_clock_rollback ... ok
+test multi_raft::group::tests::shutdown_drains_operations_rejects_new_work_and_is_idempotent ... ok
+test node_id::tests::incarnation_exhaustion_is_rejected_without_identity_change ... ok
+test node_id::tests::legacy_identity_is_upgraded_and_rejoined ... ok
+test node_id::tests::test_from_bytes ... ok
+test node_id::tests::test_load_or_create_node_id ... ok
+test raft::config::tests::proposal_concurrency_defaults_to_pipelined_value ... ok
+test raft::error::tests::membership_change_in_progress_is_preserved ... ok
+test raft::metrics::tests::bearer_debug_redacts_secret ... ok
+test raft::metrics::tests::concurrent_scrapes_observe_one_coherent_revision ... ok
+test raft::metrics::tests::empty_bearer_tokens_are_rejected ... ok
+test raft::metrics::tests::encode_and_fallback_work ... ok
+test raft::metrics::tests::endpoint_returns_last_complete_snapshot_on_encode_failure ... ok
+test raft::metrics::tests::update_from_openraft_metrics ... ok
+test raft::node::tests::config_defaults_match_design ... ok
+test raft::node::tests::decode_frame_roundtrip ... ok
+test raft::node::tests::observation_state_emits_structured_logs ... ok
+test raft::node::tests::raft_message_reports_group ... ok
+test raft::transport::tests::cancelled_future_and_shutdown_cleanup_remove_pending_rpcs ... ok
+test raft::transport::tests::response_requires_matching_source_group_and_correlation ... ok
+test raft::transport::tests::successful_transport_io_updates_message_metrics ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+
+running 3 tests
+test future_timestamp_beyond_max_skew_is_rejected_without_mutation ... ok
+test receive_applies_canonical_merge_rule ... ok
+test tick_is_monotonic_across_wall_clock_rollback ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test public_mesh_wiring_api_accepts_the_shared_registry ... ok
+test real_hlc_operations_are_exported_by_the_chirps_registry ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test mesh_handle_constructs_and_runs_file_transfer ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+
+running 4 tests
+test grafana_dashboard_is_valid_and_queries_every_required_family ... ok
+test protected_endpoint_rejects_missing_or_invalid_token ... ok
+test public_endpoint_remains_backward_compatible ... ok
+test registry_output_reflects_raft_tso_hlc_and_snapshot_state ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test collector_registration_races_creation_without_losing_current_state ... ok
+test concurrent_remove_and_tick_do_not_mutate_an_unrelated_group ... ok
+test configured_group_limit_rejects_before_allocating_another_group ... ok
+test default_configuration_supports_one_hundred_groups ... ok
+test node_initialization_failure_rolls_back_registry_and_group_paths ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+
+running 6 tests
+test group_namespaces_are_canonical_and_isolated ... ok
+test late_bound_metrics_observe_durable_snapshot_completion ... ok
+test lifecycle_errors_have_stable_serializable_shape ... ok
+test manager_create_list_get_and_remove_are_consistent_and_idempotent ... ok
+test namespace_parser_rejects_non_canonical_or_path_like_input ... ok
+test storage_factory_isolates_group_paths_and_abort_removes_partial_state ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+
+running 10 tests
+test concurrent_multi_group_proposals_do_not_starve_each_other ... ok
+test concurrent_single_group_proposals_converge_on_all_voters ... ok
+test learners_catch_up_before_common_voter_promotion ... ok
+test membership_failure_keeps_previous_configuration ... ok
+test remove_drains_pending_proposal_and_only_valid_response_completes_it ... ok
+test replica_publication_failure_is_atomic ... ok
+test sequential_groups_all_finish_common_voter_promotion ... ok
+test three_voters_elect_one_leader_and_commit_consistently ... ok
+test three_voters_survive_baseline_level_single_group_concurrency ... ok
+test uninitialized_replica_is_published_without_single_member_initialize ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.55s
+
+
+running 3 tests
+test only_exact_v0_6_peers_negotiate_multi_raft ... ok
+test outer_and_payload_group_must_match_before_routing ... ok
+test unknown_correlated_responses_do_not_mutate_group_state ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+
+running 1 test
+test persists_and_reloads_same_node_id ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+
+running 6 tests
+test control_pass_through_for_user_frame ... ok
+test default_backend_extension_never_falls_back_from_durable ... ok
+test durable_is_a_typed_capability_error_and_metadata_is_reserved ... ok
+test durable_is_not_implemented ... ok
+test ephemeral_pass_through_when_not_raft ... ok
+test raft_frames_should_force_control_and_warn ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test cluster_handles_node_failure_and_partition ... ok
+test membership_changes_promote_and_remove_voters ... ok
+test proposals_replicate_to_all_nodes ... ok
+test raft_node_shutdown_is_explicit_and_idempotent ... ok
+test snapshot_transfer_catches_up_new_node ... ok
+test stale_partitioned_leader_cannot_commit_and_heal_converges ... ok
+test three_node_cluster_elects_leader ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+
+running 6 tests
+test failed_chunk_is_retried_without_resending_verified_chunks ... ok
+test failed_transfer_never_exposes_partial_snapshot ... ok
+test locked_snapshot_transfer_defaults_match_issue_22 ... ok
+test raft_transport_and_wal_storage_install_verified_snapshot ... ok
+test receiver_installs_only_after_all_chunks_verify_and_checkpoint ... ok
+test sender_never_exceeds_configured_parallelism ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+
+running 4 tests
+test empty_cache_fetches_and_consumes_a_committed_batch ... ok
+test leader_rediscovery_transport_failure_uses_backoff ... ok
+test not_leader_refreshes_hint_and_retries ... ok
+test retryable_failure_preserves_cache_and_monotonicity ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test new_leader_waits_for_previous_lease_before_issuing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test follower_redirect_and_lease_rejection_have_bounded_metric_results ... ok
+test follower_returns_not_leader_without_allocating ... ok
+test leader_allocates_monotonic_non_overlapping_ranges ... ok
+test oracle_rejects_non_dedicated_group ... ok
+test physical_clock_rollback_uses_logical_floor ... ok
+test request_debug_redacts_node_credential ... ok
+test unauthenticated_request_is_rejected_before_raft_allocation ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+
+running 2 tests
+test time::tests::timestamp_order_and_range_cross_logical_overflow ... ok
+test time::tests::timestamp_rejects_physical_overflow ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test control_and_ephemeral_keep_the_additive_legacy_path ... ok
+test durable_requires_a_backend_override_and_never_uses_raw_send ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 12 tests
+test compression::tests::none_reuses_owned_payload_allocation ... ok
+test ops::receive::tests::cancellation_during_checkpoint_publishes_nothing ... ok
+test ops::receive::tests::completion_is_not_visible_before_checkpoint ... ok
+test ops::receive::tests::duplicate_retransmit_is_idempotent ... ok
+test ops::receive::tests::failed_checkpoint_does_not_publish_completion ... ok
+test ops::receive::tests::incremental_receive_hash_reorders_chunks_and_ignores_duplicates ... ok
+test ops::receive::tests::reversed_two_chunk_completion_finalizes_once ... ok
+test ops::receive::tests::trailing_hash_mismatch_never_installs_destination ... ok
+test ops::send::tests::config_defaults_are_applied_to_default_transfer_options ... ok
+test ops::send::tests::invalid_configured_transfer_defaults_are_rejected ... ok
+test ops::send::tests::retry_coordinator_is_bounded_per_chunk ... ok
+test ops::send::tests::zstd_compresses_chunk_payload_on_the_wire ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+
+running 2 tests
+test bandwidth_limit_enforces_wait ... ok
+test bandwidth_unlimited_returns_quickly ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+test chunk_manager_reads_a_full_large_chunk ... ok
+test chunk_manager_reads_chunks_and_metas ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 1 test
+test chunk_tracker_tracks_state_and_retries ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 24 tests
+test broadcast_file_all_success ... ok
+test broadcast_file_partial_failure_keeps_source_on_move ... ok
+test control_dispatcher_does_not_lose_concurrent_session_notifications ... ok
+test each_service_exposes_its_own_metrics_registry ... ok
+test file_ops_round_trip ... ok
+test file_transfer_loopback_reports_diagnostic ... ignored, diagnostic loopback fixture; the product SLO is measured by ft-1g-v1 two-container evidence
+test repeated_multi_channel_transfers_release_session_state ... ok
+test resume_transfer_restores_progress ... ok
+test send_file_move_removes_source ... ok
+test send_file_preserves_unix_permissions_and_modified_time ... ok
+test send_file_retries_after_corrupted_chunk ... ok
+test send_file_retries_on_stream_failure ... ok
+test send_file_transfers_large_file ... ok
+test send_file_transfers_medium_file ... ok
+test send_file_transfers_small_file ... ok
+test send_file_transfers_zstd_compressed_file ... ok
+test send_file_transfers_zstd_level_compressed_file ... ok
+test service_applies_max_concurrent_transfer_limit ... ok
+test successful_transfer_records_complete_phase_accounting ... ok
+test sync_bidirectional_conflict_manual ... ok
+test sync_bidirectional_pulls_remote_newer_without_manual_send ... ok
+test sync_pull_receives_from_remote ... ok
+test sync_push_transfers_to_remote ... ok
+test verified_chunks_are_persisted_before_interruption ... ok
+
+test result: ok. 23 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 10.11s
+
+
+running 6 tests
+test chunk_checksum_matches_expected ... ok
+test file_hash_and_chunk_metadata_preserve_boundaries_across_scan_batches ... ok
+test file_hash_and_chunk_metadata_share_one_scan ... ok
+test file_hash_and_chunk_metadata_support_chunks_larger_than_scan_batch ... ok
+test file_hashes_match_reference ... ok
+test manifest_v2_chunk_layout_requires_no_source_read ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 6 tests
+test path_validator_accepts_configured_base_path_alias_but_rejects_child_escape ... ok
+test path_validator_allows_within_base ... ok
+test path_validator_blocks_absolute_outside_base ... ok
+test path_validator_blocks_traversal ... ok
+test path_validator_follow_symlink_rejects_escape ... ok
+test path_validator_rejects_symlink_components ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test layered_performance_contract_is_complete_and_wired ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test chunk_checkpoint_journal_ignores_an_incomplete_trailing_record ... ok
+test chunk_checkpoint_journal_replays_after_the_base_snapshot ... ok
+test full_snapshot_compacts_the_chunk_checkpoint_journal ... ok
+test session_persistence_gc_enforces_max_sessions ... ok
+test session_persistence_gc_removes_expired ... ok
+test session_persistence_round_trip ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 3 tests
+test chunk_stream_codec_round_trip ... ok
+test chunk_stream_header_rejects_bad_magic_without_transport ... ok
+test chunk_stream_header_round_trip_without_transport ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.06s
+
+
+running 11 tests
+test engine::tests::equal_incarnation_alive_gossip_does_not_refresh_liveness ... ok
+test engine::tests::handle_ping_req_forwards_ping_from_requester ... ok
+test engine::tests::only_higher_incarnation_alive_gossip_refutes_suspicion ... ok
+test engine::tests::ping_timeout_requests_indirect_and_marks_suspect ... ok
+test engine::tests::tick_sends_ping ... ok
+test engine::tests::timeouts_mark_suspect_and_dead ... ok
+test types::tests::test_peer_state_creation ... ok
+test util::tests::alive_transitions_to_suspect ... ok
+test util::tests::fanout_defaults_and_caps ... ok
+test util::tests::suspect_recovers_to_alive_on_recent_activity ... ok
+test util::tests::suspect_transitions_to_dead_after_timeout ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 3 tests
+test reordered_and_duplicate_delivery_preserves_receiver_order ... ok
+test skewed_gossip_is_rejected_without_clock_or_membership_mutation ... ok
+test swim_and_gossip_messages_include_sender_hlc ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test simulated_clock_replays_direct_indirect_suspect_and_recovery ... ok
+test stale_incarnations_and_reordered_gossip_cannot_override_rejoin ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test fanout_respects_defaults_and_caps ... ok
+test timeouts_produce_status_changes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test tests::broadcast_reaches_all_peers_except_self ... ok
+test tests::close_removes_peer_and_blocks_send ... ok
+test tests::send_delivers_to_target ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test deliver_next_resolves_one_packet_copy ... ok
+test directed_link_faults_are_composable ... ok
+test failing_schedule_is_minimized_from_fresh_candidates ... ok
+test identical_seed_replays_identically ... ok
+test partition_heal_is_asymmetric ... ok
+test reconnect_discards_stale_generation ... ok
+test reconnecting_source_discards_its_queued_generation ... ok
+test seed_expansion_changes_and_round_trips ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 23 tests
+test traits::tests::raft_storage_trait_is_implementable ... ok
+test traits::tests::state_machine_trait_is_usable ... ok
+test wal_storage::tests::append_and_get_entries ... ok
+test wal_storage::tests::apply_returns_one_response_for_every_entry_kind ... ok
+test wal_storage::tests::automatic_snapshot_builder_emits_completion_after_durable_checkpoint ... ok
+test wal_storage::tests::durability_coordinator_flushes_concurrent_group_wals ... ok
+test wal_storage::tests::durability_diagnostics_count_barriers_and_dirty_participants ... ok
+test wal_storage::tests::evicted_entries_can_be_read_from_wal ... ok
+test wal_storage::tests::fsync_interval_controls_sync_frequency ... ok
+test wal_storage::tests::install_snapshot_updates_applied_state ... ok
+test wal_storage::tests::membership_replay_updates_state ... ok
+test wal_storage::tests::recover_replays_logs ... ok
+test wal_storage::tests::replacing_a_log_index_does_not_grow_cache_order ... ok
+test wal_storage::tests::restore_failure_does_not_publish_or_emit_completion ... ok
+test wal_storage::tests::snapshot_applied_persisted_via_wal ... ok
+test wal_storage::tests::snapshot_chunked_with_terminator ... ok
+test wal_storage::tests::snapshot_file_uses_udf_structure ... ok
+test wal_storage::tests::snapshot_files_follow_udf_header ... ok
+test wal_storage::tests::truncate_and_purge_updates_state ... ok
+test wal_storage::tests::vote_is_persisted ... ok
+test wal_storage::tests::wal_header_and_records_follow_spec ... ok
+test wal_storage::tests::wal_range_read_does_not_materialize_unrequested_entries ... ok
+test wal_storage::tests::zero_fsync_interval_group_commits_one_append_batch ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+
+
+running 4 tests
+test corrupted_and_truncated_wal_are_rejected_during_recovery ... ok
+test corrupted_truncated_and_version_mismatched_snapshots_are_never_returned ... ok
+test read_only_wal_directory_reports_an_error ... ok
+test wal_format_mismatch_and_vote_regression_across_restart_are_observable ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+
+running 34 tests
+test config::tests::diagnostics_are_enabled_by_default_and_detachable ... ok
+test config::tests::peer_stop_wait_can_be_disabled_for_fanout_lane ... ok
+test config::tests::peer_stop_wait_is_safe_by_default ... ok
+test config::tests::raft_stream_batching_defaults_to_thirty_two_and_is_disableable ... ok
+test handshake::tests::is_compatible_boundary ... ok
+test handshake::tests::negotiates_capabilities_by_intersection ... ok
+test handshake::tests::rejects_peer_without_multi_raft_capability ... ok
+test handshake::tests::rejects_v0_3_with_version_mismatch_log ... ok
+test metrics::tests::concurrent_updates_are_safe ... ok
+test metrics::tests::counters_increment_and_logs_emit ... ok
+test metrics::tests::disabled_diagnostics_do_not_update_hot_path_metrics ... ok
+test metrics::tests::histogram_handles_empty_and_single_sample ... ok
+test metrics::tests::latency_percentiles_compute_expected_values ... ok
+test metrics::tests::latency_ring_buffer_eviction ... ok
+test metrics::tests::snapshot_returns_consistent_state ... ok
+test priority::tests::dwrr_prefers_high_but_serves_low ... ok
+test priority::tests::dwrr_respects_configurable_weights ... ok
+test priority::tests::emits_tracing_for_enqueue_and_dequeue ... ok
+test priority::tests::queue_lengths_report_per_priority_and_empty_handling ... ok
+test priority::tests::stream_kind_priority_mapping_matches_design ... ok
+test qos::tests::hard_overflow_increments_overflow_metrics_and_logs ... ok
+test qos::tests::hysteresis_recovers_after_dequeue ... ok
+test qos::tests::soft_backpressure_triggers_metrics_and_logs ... ok
+test qos::tests::throttle_snapshot_timeout_emits_log_and_metrics ... ok
+test qos::tests::token_bucket_returns_wait_duration ... ok
+test receive::batch_tests::batch_decoder_preserves_envelope_order ... ok
+test receive::batch_tests::batch_decoder_rejects_truncated_lengths ... ok
+test retransmit::tests::assigns_monotonic_seq_and_logs_buffer ... ok
+test retransmit::tests::buffer_with_size_reuses_precomputed_frame_size ... ok
+test retransmit::tests::deduplication_accepts_out_of_order_once_and_acks_only_contiguous ... ok
+test retransmit::tests::deduplication_rejects_frames_beyond_the_receive_window ... ok
+test retransmit::tests::drain_returns_unacked_in_order_and_logs ... ok
+test retransmit::tests::overflow_drops_oldest_and_warns ... ok
+test retransmit::tests::process_ack_clears_messages_and_logs ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+
+running 2 tests
+test raft_messages_dequeue_before_user_under_load ... ok
+test user_messages_still_progress_under_raft_load ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test raft_p99_latency_under_user_load_stays_within_10pct ... ok
+test user_throughput_degrades_less_than_10pct_under_raft_load ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test broadcast_delivers_to_connected_peers ... ignored, QUIC integration test - requires network, run manually with --ignored
+test close_after_send_preserves_file_transfer_control_frames ... ignored, QUIC integration test - requires network, run manually with --ignored
+test gossip_not_blocked_by_large_user_stream ... ignored, QUIC integration test - requires network, run manually with --ignored
+test ping_ack_roundtrip ... ignored, QUIC integration test - requires network, run manually with --ignored
+test reconnects_when_seed_becomes_available ... ignored, QUIC integration test - requires network, run manually with --ignored
+test send_queue_overflow_returns_error ... ignored, QUIC integration test - requires network, run manually with --ignored
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test mixed_traffic_serves_control_without_starving_user ... ok
+test queue_capacity_is_fail_closed_and_observable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test retransmit_replays_unacked_in_order_without_duplicates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test raft_p99_latency_not_degraded_by_snapshot_throttle ... ok
+test snapshot_bandwidth_limit_enforced_and_metrics_recorded ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test v0_5_rejected_with_version_mismatch_log ... ok
+test v0_6_to_v0_6_connects_with_capabilities ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test envelope::tests::pre_serialized_payload_encoding_matches_normal_encoding ... ok
+test frame::tests::hlc_gossip_roundtrips_without_changing_legacy_gossip ... ok
+test frame::tests::test_create_ping_frame ... ok
+test frame::tests::test_create_ping_req_frame ... ok
+test node_id::tests::roundtrip_from_bytes ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test file_transfer_message_roundtrip ... ok
+test frame_roundtrip_with_file_transfer ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test tests::failure_artifact_round_trips_and_minimizes ... ok
+test tests::minimizer_revisits_earlier_steps_after_each_reduction ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test failure_artifact_round_trips_and_minimizes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test three_node_mesh_self_signed_flow ... ignored, E2E test requires QUIC networking - run manually with --ignored
+test three_node_mesh_with_explicit_cert ... ignored, E2E test requires QUIC networking - run manually with --ignored
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 30 tests
+test controller::tests::bootstrap_owner_round_robins_groups_across_three_nodes ... ok
+test controller::tests::bootstrap_ready_requires_caught_up_replicas ... ok
+test loadgen::tests::first_proposal_resolves_leader_before_sending ... ok
+test loadgen::tests::one_client_payload_working_set_is_fixed ... ok
+test loadgen::tests::proposal_payload_includes_the_sequence ... ok
+test loadgen::tests::proposal_re_resolves_the_current_leader ... ok
+test loadgen::tests::rss_phase_boundaries_are_explicit_and_non_overlapping ... ok
+test loadgen::tests::rss_probe_returns_a_byte_count ... ok
+test node::fifo_batch_tests::fifo_queue_batch_drain_preserves_order_and_depth ... ok
+test node::tests::audit_digest_is_detachable_from_normal_measurement ... ok
+test node::tests::bounded_global_dispatch_backlog_does_not_block_other_groups ... ok
+test node::tests::bounded_group_queue_has_a_finite_payload_budget ... ok
+test node::tests::dispatch_budget_is_payload_bounded_and_not_frame_count_only ... ok
+test node::tests::fifo_queue_preserves_group_order ... ok
+test node::tests::group_queue_is_bounded_instead_of_accumulating_unbounded_frames ... ok
+test node::tests::perf_election_timeout_has_heartbeat_slack ... ok
+test node::tests::queue_depth_audit_emits_zero_for_groups_without_frames ... ok
+test node::tests::raft_frame_exposes_its_outer_group_for_dispatch ... ok
+test node::tests::response_dispatch_reuses_the_pump_permit ... ok
+test node::tests::response_send_concurrency_matches_transport_send_bound ... ok
+test node::tests::separate_group_queues_do_not_head_of_line_block ... ok
+test schema::tests::raw_metrics_old_artifacts_default_leader_map ... ok
+test schema::tests::raw_metrics_round_trip_leader_map ... ok
+test schema::tests::resource_audit_contract_defaults_are_explicit ... ok
+test statistics::tests::statistics_are_deterministic ... ok
+test tikv::tests::invalid_mix_is_rejected ... ok
+test tikv::tests::local_control_baseline_is_write_metric ... ok
+test tikv::tests::reference_matches_tikv_workload_a_contract ... ok
+test verifier::tests::shaper_verifier_accepts_kernel_rounded_delay_only ... ok
+test verifier::tests::strict_fixture_verifies_and_rejects_tampering ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test crates/alopex-chirps/src/raft/config.rs - raft::config::RaftConfig (line 14) ... ignored
+test crates/alopex-chirps/src/raft/node.rs - raft::node::RaftMessage (line 45) ... ignored
+test crates/alopex-chirps/src/raft/node.rs - raft::node::RaftNode (line 156) ... ignored
+test crates/alopex-chirps/src/raft/transport.rs - raft::transport::ChirpsRaftTransport (line 89) ... ignored
+test crates/alopex-chirps/src/raft/transport.rs - raft::transport::RaftFramePayload (line 47) ... ignored
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.31s; merged doctests compilation took 0.30s
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::active_transfers (line 330) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::broadcast_file (line 84) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::cancel_transfer (line 268) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::exists (line 154) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::list_files (line 236) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::metadata (line 208) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::pause_transfer (line 290) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::remove (line 178) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::resume_transfer (line 311) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::send_file (line 47) - compile ... ok
+test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::sync_file (line 117) - compile ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 1.44s; merged doctests compilation took 1.44s
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test crates/chirps-raft-storage/src/traits.rs - traits::RaftStorage (line 83) ... ignored
+test crates/chirps-raft-storage/src/traits.rs - traits::StateMachine (line 24) ... ignored
+test crates/chirps-raft-storage/src/wal_storage.rs - wal_storage::RaftWalRecord (line 284) ... ignored
+test crates/chirps-raft-storage/src/wal_storage.rs - wal_storage::WalRaftStorage (line 380) ... ignored
+test crates/chirps-raft-storage/src/wal_storage.rs - wal_storage::WalStorageConfig (line 102) ... ignored
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.63s; merged doctests compilation took 0.63s
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

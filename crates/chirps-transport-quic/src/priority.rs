@@ -60,6 +60,7 @@ pub(crate) struct PriorityScheduler<T = ()> {
     queues: [VecDeque<ScheduledMessage<T>>; 3],
     deficit_counters: [i64; 3],
     should_add_quantum: [bool; 3],
+    served_in_turn: [u32; 3],
     current: usize,
     config: SchedulerConfig,
 }
@@ -70,6 +71,7 @@ impl<T> PriorityScheduler<T> {
             queues: [VecDeque::new(), VecDeque::new(), VecDeque::new()],
             deficit_counters: [0, 0, 0],
             should_add_quantum: [true, true, true],
+            served_in_turn: [0, 0, 0],
             current: 0,
             config,
         }
@@ -109,11 +111,16 @@ impl<T> PriorityScheduler<T> {
                 if self.deficit_counters[idx] >= needed {
                     let mut msg = self.queues[idx].pop_front().expect("front existed");
                     self.deficit_counters[idx] -= needed;
+                    self.served_in_turn[idx] = self.served_in_turn[idx].saturating_add(1);
                     msg.priority = Priority::from_index(idx);
 
-                    let has_more = !self.queues[idx].is_empty() && self.deficit_counters[idx] > 0;
+                    let burst_limit = self.config.weights[idx].max(1);
+                    let has_more = !self.queues[idx].is_empty()
+                        && self.deficit_counters[idx] > 0
+                        && self.served_in_turn[idx] < burst_limit;
                     self.should_add_quantum[idx] = !has_more;
                     if self.should_add_quantum[idx] {
+                        self.served_in_turn[idx] = 0;
                         self.current = (idx + 1) % self.queues.len();
                     }
                     debug!(
@@ -134,9 +141,11 @@ impl<T> PriorityScheduler<T> {
                 }
             } else {
                 self.deficit_counters[idx] = 0;
+                self.served_in_turn[idx] = 0;
             }
 
             self.should_add_quantum[idx] = true;
+            self.served_in_turn[idx] = 0;
             self.current = (idx + 1) % self.queues.len();
             visited += 1;
         }

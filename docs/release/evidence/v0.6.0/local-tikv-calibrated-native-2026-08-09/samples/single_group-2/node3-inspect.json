@@ -1,0 +1,262 @@
+[
+    {
+        "Id": "b59171b4a65290f79b8660296fca9716e4273327055cbc15b83f28c1dbb38d4b",
+        "Created": "2026-08-08T17:25:07.056943479Z",
+        "Path": "/bin/sh",
+        "Args": [
+            "-ceu",
+            "mkdir -p /work/tls\ncp /run/chirps/tls/cert.der /run/chirps/tls/key.der /work/tls/\ntouch /evidence/samples/single_group-2/node3-metrics.jsonl\nchmod 0711 /evidence /evidence/samples /evidence/samples/single_group-2\nchown -R chirps:chirps /work /evidence/samples/single_group-2/node3-metrics.jsonl\nexec setpriv --reuid=10001 --regid=10001 --clear-groups /usr/local/bin/chirps-multi-raft-perf node \\\n  --node-id 3 --raft-bind 192.168.128.13:7003 \\\n  --seeds 192.168.128.11:7001,192.168.128.12:7002 \\\n  --control-bind 192.168.129.13:7103 --storage-root /work \\\n  --cert /work/tls/cert.der --key /work/tls/key.der \\\n  --trust /work/tls/cert.der --metrics /evidence/samples/single_group-2/node3-metrics.jsonl \\\n  --send-queue-capacity 4096 --snapshot-threshold 10000  --resource-audit --metrics-interval-ms 250\n"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 3175297,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-08-08T17:25:07.529873965Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+        },
+        "Image": "sha256:fc532feb6f6c9b9839538b3573df07e3af8efb942626375f4c0c58c4910b1d39",
+        "ResolvConfPath": "/var/lib/docker/containers/b59171b4a65290f79b8660296fca9716e4273327055cbc15b83f28c1dbb38d4b/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/b59171b4a65290f79b8660296fca9716e4273327055cbc15b83f28c1dbb38d4b/hostname",
+        "HostsPath": "/var/lib/docker/containers/b59171b4a65290f79b8660296fca9716e4273327055cbc15b83f28c1dbb38d4b/hosts",
+        "LogPath": "/var/lib/docker/containers/b59171b4a65290f79b8660296fca9716e4273327055cbc15b83f28c1dbb38d4b/b59171b4a65290f79b8660296fca9716e4273327055cbc15b83f28c1dbb38d4b-json.log",
+        "Name": "/chirps-mr-51db3e098f-3144018-node3-1",
+        "RestartCount": 0,
+        "Driver": "overlay2",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "/tmp/chirps-mr-tls.RqRi7r:/run/chirps/tls:ro",
+                "/tmp/chirps-local-baseline-2026-08-09c:/evidence:rw"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "chirps-mr-51db3e098f-3144018_control",
+            "PortBindings": {},
+            "RestartPolicy": {
+                "Name": "no",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": [
+                "CAP_NET_ADMIN"
+            ],
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": null,
+            "DnsSearch": null,
+            "ExtraHosts": [],
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "Tmpfs": {
+                "/work": "size=8g,mode=0700"
+            },
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 8589934592,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": null,
+            "BlkioDeviceReadBps": null,
+            "BlkioDeviceWriteBps": null,
+            "BlkioDeviceReadIOps": null,
+            "BlkioDeviceWriteIOps": null,
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "6-7",
+            "CpusetMems": "",
+            "Devices": null,
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": -1,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "GraphDriver": {
+            "Data": {
+                "ID": "b59171b4a65290f79b8660296fca9716e4273327055cbc15b83f28c1dbb38d4b",
+                "LowerDir": "/var/lib/docker/overlay2/192677c63d5a34cea60cb49e13e952d232bdbeb540fbb01bba079181b8c1201b-init/diff:/var/lib/docker/overlay2/iqo2twy705pfhw689zq1tf2pl/diff:/var/lib/docker/overlay2/tjvhu5gltlse3e952mv8tx0np/diff:/var/lib/docker/overlay2/5c1aadda99faa1a298730d73860f4d7430b78838fe9ce8fc011928afdd3eb709/diff",
+                "MergedDir": "/var/lib/docker/overlay2/192677c63d5a34cea60cb49e13e952d232bdbeb540fbb01bba079181b8c1201b/merged",
+                "UpperDir": "/var/lib/docker/overlay2/192677c63d5a34cea60cb49e13e952d232bdbeb540fbb01bba079181b8c1201b/diff",
+                "WorkDir": "/var/lib/docker/overlay2/192677c63d5a34cea60cb49e13e952d232bdbeb540fbb01bba079181b8c1201b/work"
+            },
+            "Name": "overlay2"
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "/tmp/chirps-mr-tls.RqRi7r",
+                "Destination": "/run/chirps/tls",
+                "Mode": "ro",
+                "RW": false,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "bind",
+                "Source": "/tmp/chirps-local-baseline-2026-08-09c",
+                "Destination": "/evidence",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": "rprivate"
+            }
+        ],
+        "Config": {
+            "Hostname": "b59171b4a652",
+            "Domainname": "",
+            "User": "root",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "Cmd": [
+                "mkdir -p /work/tls\ncp /run/chirps/tls/cert.der /run/chirps/tls/key.der /work/tls/\ntouch /evidence/samples/single_group-2/node3-metrics.jsonl\nchmod 0711 /evidence /evidence/samples /evidence/samples/single_group-2\nchown -R chirps:chirps /work /evidence/samples/single_group-2/node3-metrics.jsonl\nexec setpriv --reuid=10001 --regid=10001 --clear-groups /usr/local/bin/chirps-multi-raft-perf node \\\n  --node-id 3 --raft-bind 192.168.128.13:7003 \\\n  --seeds 192.168.128.11:7001,192.168.128.12:7002 \\\n  --control-bind 192.168.129.13:7103 --storage-root /work \\\n  --cert /work/tls/cert.der --key /work/tls/key.der \\\n  --trust /work/tls/cert.der --metrics /evidence/samples/single_group-2/node3-metrics.jsonl \\\n  --send-queue-capacity 4096 --snapshot-threshold 10000  --resource-audit --metrics-interval-ms 250\n"
+            ],
+            "Image": "chirps-multi-raft-perf:51db3e098f869677f3e7460cf3a36545a76cac46",
+            "Volumes": null,
+            "WorkingDir": "",
+            "Entrypoint": [
+                "/bin/sh",
+                "-ceu"
+            ],
+            "Labels": {
+                "com.docker.compose.config-hash": "b7edcfbc44114333ca49e42a6788e82f8d1c8f2e67c01a4eab9c99df2e887659",
+                "com.docker.compose.container-number": "1",
+                "com.docker.compose.depends_on": "",
+                "com.docker.compose.image": "sha256:fc532feb6f6c9b9839538b3573df07e3af8efb942626375f4c0c58c4910b1d39",
+                "com.docker.compose.oneoff": "False",
+                "com.docker.compose.project": "chirps-mr-51db3e098f-3144018",
+                "com.docker.compose.project.config_files": "/home/roomtv/works/alopex-db/chirps/scripts/perf/compose.multi-raft.yml",
+                "com.docker.compose.project.working_dir": "/home/roomtv/works/alopex-db/chirps/scripts/perf",
+                "com.docker.compose.service": "node3",
+                "com.docker.compose.version": "5.1.3",
+                "org.opencontainers.image.revision": "51db3e098f869677f3e7460cf3a36545a76cac46"
+            }
+        },
+        "NetworkSettings": {
+            "SandboxID": "b51e819a1285d4ee9a67385a699ea865fa0b134c4e05ba32f8bb1266cebfd670",
+            "SandboxKey": "/var/run/docker/netns/b51e819a1285",
+            "Ports": {},
+            "Networks": {
+                "chirps-mr-51db3e098f-3144018_control": {
+                    "IPAMConfig": {
+                        "IPv4Address": "192.168.129.13"
+                    },
+                    "Links": null,
+                    "Aliases": [
+                        "chirps-mr-51db3e098f-3144018-node3-1",
+                        "node3"
+                    ],
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "a959feaba4630eec734819f68c1756c72be1151ecddfa6a438b6ace4230361f3",
+                    "EndpointID": "a2d6f550a3aa4afacd4fa1d872c3d24594ad10e700b768bb370af0408a45375c",
+                    "Gateway": "",
+                    "IPAddress": "192.168.129.13",
+                    "MacAddress": "a2:08:07:88:71:5d",
+                    "IPPrefixLen": 24,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "chirps-mr-51db3e098f-3144018-node3-1",
+                        "node3",
+                        "b59171b4a652"
+                    ]
+                },
+                "chirps-mr-51db3e098f-3144018_data": {
+                    "IPAMConfig": {
+                        "IPv4Address": "192.168.128.13"
+                    },
+                    "Links": null,
+                    "Aliases": [
+                        "chirps-mr-51db3e098f-3144018-node3-1",
+                        "node3"
+                    ],
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "a88373aa2075a2895d7f006eed37a47ec2eb2bde945f28796e6a01f6a1241d87",
+                    "EndpointID": "190603bf8c8d09c4fd91cb862205c32097ee46ac00e62c8594ef05e67eb310ca",
+                    "Gateway": "",
+                    "IPAddress": "192.168.128.13",
+                    "MacAddress": "26:4a:a2:f4:49:2d",
+                    "IPPrefixLen": 24,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "chirps-mr-51db3e098f-3144018-node3-1",
+                        "node3",
+                        "b59171b4a652"
+                    ]
+                }
+            }
+        }
+    }
+]

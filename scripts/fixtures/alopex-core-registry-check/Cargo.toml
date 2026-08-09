@@ -1,0 +1,10 @@
+[workspace]
+members = ["crates/chirps-raft-storage"]
+resolver = "2"
+
+[workspace.package]
+version = "0.6.0"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/alopex-db/alopex-chirps"
+homepage = "https://github.com/alopex-db/alopex-chirps"
+categories = ["network-programming", "asynchronous", "database"]

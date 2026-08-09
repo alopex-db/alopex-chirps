@@ -1,0 +1,134 @@
+[
+    {
+        "Name": "chirps-mr-85e2597b4b-877148_data",
+        "Id": "bd473412257e73597dae384452377d138acc0ca449b781b4042f837cb3b8764d",
+        "Created": "2026-08-08T04:48:37.754734508+09:00",
+        "Scope": "local",
+        "Driver": "bridge",
+        "EnableIPv4": true,
+        "EnableIPv6": false,
+        "IPAM": {
+            "Driver": "default",
+            "Options": null,
+            "Config": [
+                {
+                    "Subnet": "192.168.128.0/24",
+                    "Gateway": "192.168.128.1"
+                }
+            ]
+        },
+        "Internal": true,
+        "Attachable": false,
+        "Ingress": false,
+        "ConfigFrom": {
+            "Network": ""
+        },
+        "ConfigOnly": false,
+        "Options": {},
+        "Labels": {
+            "com.docker.compose.config-hash": "57acaaa0ac277e7ef56f5a3be757501fc9785aa63a6b72e5b2dd82315f91d54e",
+            "com.docker.compose.network": "data",
+            "com.docker.compose.project": "chirps-mr-85e2597b4b-877148",
+            "com.docker.compose.version": "5.1.3"
+        },
+        "Containers": {
+            "1cc48e40b788ee76bb2cc39227b3c6951486f2f2691ef245ee879ba9b1d6c52a": {
+                "Name": "chirps-mr-85e2597b4b-877148-node3-1",
+                "EndpointID": "8b476e2daf47920790ad8cce6cd1896e8652adec4730aaeebc60bb9462cc0721",
+                "MacAddress": "6e:3f:24:d3:95:e0",
+                "IPv4Address": "192.168.128.13/24",
+                "IPv6Address": ""
+            },
+            "ab9822b1be9b1f97bf6f510d961a0f2f82668bd131ec1a5dc6d522ecdd1f6227": {
+                "Name": "chirps-mr-85e2597b4b-877148-node1-1",
+                "EndpointID": "9f66f276c18c5531a538a7b1c162f777343f48b4995769606d498f05f3ce9adc",
+                "MacAddress": "9e:6a:b4:df:3f:99",
+                "IPv4Address": "192.168.128.11/24",
+                "IPv6Address": ""
+            },
+            "e6e8d13fd03c52969307368023843ee3dcd357e848c08865075a1b3e31690ff0": {
+                "Name": "chirps-mr-85e2597b4b-877148-node2-1",
+                "EndpointID": "ec73f9bfb3a075f4bd8d411b8224543a36d11152aa0addb0468195b8ab3a9a3f",
+                "MacAddress": "f2:d1:0f:b0:e8:e0",
+                "IPv4Address": "192.168.128.12/24",
+                "IPv6Address": ""
+            }
+        },
+        "Status": {
+            "IPAM": {
+                "Subnets": {
+                    "192.168.128.0/24": {
+                        "IPsInUse": 6,
+                        "DynamicIPsAvailable": 250
+                    }
+                }
+            }
+        }
+    },
+    {
+        "Name": "chirps-mr-85e2597b4b-877148_control",
+        "Id": "4ab4a0678815dfa76b1586ba0d03403e37d880b4b6daf2a518f39cbd529cc103",
+        "Created": "2026-08-08T04:48:37.58085125+09:00",
+        "Scope": "local",
+        "Driver": "bridge",
+        "EnableIPv4": true,
+        "EnableIPv6": false,
+        "IPAM": {
+            "Driver": "default",
+            "Options": null,
+            "Config": [
+                {
+                    "Subnet": "192.168.129.0/24",
+                    "Gateway": "192.168.129.1"
+                }
+            ]
+        },
+        "Internal": true,
+        "Attachable": false,
+        "Ingress": false,
+        "ConfigFrom": {
+            "Network": ""
+        },
+        "ConfigOnly": false,
+        "Options": {},
+        "Labels": {
+            "com.docker.compose.config-hash": "c12de45db4e5151a1c7651b2ac0985e5c855b8468433f58158cb40346ab4781a",
+            "com.docker.compose.network": "control",
+            "com.docker.compose.project": "chirps-mr-85e2597b4b-877148",
+            "com.docker.compose.version": "5.1.3"
+        },
+        "Containers": {
+            "1cc48e40b788ee76bb2cc39227b3c6951486f2f2691ef245ee879ba9b1d6c52a": {
+                "Name": "chirps-mr-85e2597b4b-877148-node3-1",
+                "EndpointID": "c73992f037d983f08da312d299d20bb4147018e1ff8aebcf8808bb42062da960",
+                "MacAddress": "be:2d:d0:35:d6:c5",
+                "IPv4Address": "192.168.129.13/24",
+                "IPv6Address": ""
+            },
+            "ab9822b1be9b1f97bf6f510d961a0f2f82668bd131ec1a5dc6d522ecdd1f6227": {
+                "Name": "chirps-mr-85e2597b4b-877148-node1-1",
+                "EndpointID": "00f1c2b02560eae7776bc71fcf743c9d9d884abcc51a332ed412ea659c6d0709",
+                "MacAddress": "ee:3b:66:b2:42:9e",
+                "IPv4Address": "192.168.129.11/24",
+                "IPv6Address": ""
+            },
+            "e6e8d13fd03c52969307368023843ee3dcd357e848c08865075a1b3e31690ff0": {
+                "Name": "chirps-mr-85e2597b4b-877148-node2-1",
+                "EndpointID": "11189da10b64be2e14e33b2b3c29167e99506de0e78a735cb2ece8af92143d37",
+                "MacAddress": "6e:0d:84:75:4d:98",
+                "IPv4Address": "192.168.129.12/24",
+                "IPv6Address": ""
+            }
+        },
+        "Status": {
+            "IPAM": {
+                "Subnets": {
+                    "192.168.129.0/24": {
+                        "IPsInUse": 6,
+                        "DynamicIPsAvailable": 250
+                    }
+                }
+            }
+        }
+    }
+]

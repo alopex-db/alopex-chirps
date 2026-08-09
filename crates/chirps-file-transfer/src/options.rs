@@ -117,6 +117,10 @@ pub struct TransferOptions {
     pub overwrite: bool,
     pub mode: TransferMode,
     pub preserve_metadata: bool,
+    /// Resolves symlinks only when the resolved destination remains within the
+    /// configured base path. `SyncOptions::follow_symlinks` sets this value for
+    /// a synchronization request.
+    pub follow_symlinks: bool,
 }
 
 impl Default for TransferOptions {
@@ -133,6 +137,7 @@ impl Default for TransferOptions {
             overwrite: false,
             mode: TransferMode::Copy,
             preserve_metadata: true,
+            follow_symlinks: false,
         }
     }
 }

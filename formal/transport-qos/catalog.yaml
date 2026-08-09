@@ -1,0 +1,25 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-transport-qos-v0-6
+  language: TLA+
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    type_features: no-rows
+    max_steps: 12
+  scope: "Finite bounded high/normal/low queues and weighted service turns under saturation."
+  exclusions: ["Kernel QUIC scheduling", "Unbounded fairness"]
+requirements:
+  - id: TRANSPORT-QOS-BOUNDS
+    classification: concurrent/distributed
+    failure_mode: "Mixed traffic causes unbounded queues or starves control traffic."
+    properties: [QueuesBounded, ControlWaitBounded, CountersConsistent]
+    refinement:
+      - crates/chirps-transport-quic/src/priority.rs
+      - crates/chirps-transport-quic/src/qos.rs
+      - crates/chirps-transport-quic/src/lib.rs
+    local_component_test:
+      - crates/chirps-transport-quic/tests/resilience_qos.rs
+    release_evidence:
+      - docs/release/evidence/v0.6.0/qos-resilience-v0.6.json

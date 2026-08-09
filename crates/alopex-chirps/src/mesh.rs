@@ -2,11 +2,16 @@ use crate::backend::MessageBackend;
 use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
 use crate::node_id::{NodeId, load_or_create_node_id};
-use crate::profile::{MessageProfile, enforce_profile};
+use crate::profile::{EnvelopeMetadata, MessageProfile, resolve_profile};
+use alopex_chirps_file_transfer::{
+    ChunkStreamOpener, FileTransferConfig, FileTransferError, FileTransferServiceImpl,
+};
 use alopex_chirps_gossip_swim::engine::{
     GossipConfig, GossipEngine, Transport as GossipTransport,
     TransportError as GossipTransportError,
 };
+#[cfg(feature = "hlc")]
+use alopex_chirps_gossip_swim::hlc::LocalHlc;
 use alopex_chirps_gossip_swim::types::{MembershipView, Status};
 use alopex_chirps_gossip_swim::util::StatusChange;
 use alopex_chirps_transport_quic::QuicBackend;
@@ -18,7 +23,7 @@ use std::sync::{
 };
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::info;
 
 /// メッシュへ外部から操作するためのハンドル。
 #[derive(Clone)]
@@ -40,11 +45,22 @@ impl MeshHandle {
         frame: Frame,
         profile: MessageProfile,
     ) -> Result<(), MeshError> {
-        let effective = enforce_profile(&frame, profile).map_err(MeshError::NotImplemented)?;
-        let frame = maybe_mark_control(frame, effective);
+        self.send_enveloped(target, frame, profile, EnvelopeMetadata::default())
+            .await
+    }
+
+    /// Profile-aware extension point carrying metadata reserved for Durable backends.
+    pub async fn send_enveloped(
+        &self,
+        target: NodeId,
+        frame: Frame,
+        profile: MessageProfile,
+        metadata: EnvelopeMetadata,
+    ) -> Result<(), MeshError> {
+        let effective = resolve_profile(&frame, profile, self.inner.backend.capabilities())?;
         self.inner
             .backend
-            .send(target, frame)
+            .send_with_profile(target, frame, effective, metadata)
             .await
             .map_err(MeshError::from)
     }
@@ -61,22 +77,74 @@ impl MeshHandle {
         frame: Frame,
         profile: MessageProfile,
     ) -> Result<usize, MeshError> {
-        let effective = enforce_profile(&frame, profile).map_err(MeshError::NotImplemented)?;
-        let frame = maybe_mark_control(frame, effective);
+        self.broadcast_enveloped(frame, profile, EnvelopeMetadata::default())
+            .await
+    }
+
+    /// Broadcast extension point carrying reserved acknowledgement/replay metadata.
+    pub async fn broadcast_enveloped(
+        &self,
+        frame: Frame,
+        profile: MessageProfile,
+        metadata: EnvelopeMetadata,
+    ) -> Result<usize, MeshError> {
+        let effective = resolve_profile(&frame, profile, self.inner.backend.capabilities())?;
         self.inner
             .backend
-            .broadcast(frame)
+            .broadcast_with_profile(frame, effective, metadata)
             .await
             .map_err(MeshError::from)
     }
 
     /// 受信フレーム購読を開始し、`(from, frame)` を受け取るチャネルを返す。
     pub async fn subscribe(&self) -> Result<mpsc::Receiver<(NodeId, Frame)>, MeshError> {
-        self.inner
-            .backend
+        let (sender, receiver) = mpsc::channel(1024);
+        self.inner.frame_subscribers.lock().unwrap().push(sender);
+        Ok(receiver)
+    }
+
+    /// Creates the file-transfer service attached to this mesh.
+    ///
+    /// The mesh keeps ownership of the transport subscription and supplies the
+    /// service with demultiplexed control frames and QUIC chunk streams.
+    pub async fn file_transfer(
+        &self,
+        config: FileTransferConfig,
+    ) -> Result<FileTransferServiceImpl, FileTransferError> {
+        if config.max_concurrent_transfers == 0 {
+            return Err(FileTransferError::Internal(
+                "max_concurrent_transfers must be greater than zero".into(),
+            ));
+        }
+
+        let chunk_receiver = self
+            .inner
+            .quic_backend
+            .subscribe_file_transfer_streams()
+            .await
+            .map_err(|error| FileTransferError::Transport(error.to_string()))?;
+        let frame_receiver = self
             .subscribe()
             .await
-            .map_err(MeshError::from)
+            .map_err(|error| FileTransferError::Transport(error.to_string()))?;
+        let opener: Arc<dyn ChunkStreamOpener> = Arc::new(MeshChunkStreamOpener {
+            backend: Arc::clone(&self.inner.quic_backend),
+        });
+        let service = FileTransferServiceImpl::new_with_receiver(
+            self.inner.node_id,
+            Arc::clone(&self.inner.backend),
+            opener,
+            config,
+            frame_receiver,
+        )
+        .await?;
+
+        spawn_file_transfer_stream_loop(
+            chunk_receiver,
+            service.receive_handler(),
+            service.control(),
+        );
+        Ok(service)
     }
 
     /// ノード参加イベントハンドラを登録する。
@@ -150,7 +218,9 @@ pub struct Mesh {
     pub(crate) incarnation: u64,
     pub(crate) config: Arc<NodeConfig>,
     pub(crate) backend: Arc<dyn MessageBackend>,
+    quic_backend: Arc<QuicBackend>,
     gossip: Arc<Mutex<GossipEngine>>,
+    frame_subscribers: std::sync::Mutex<Vec<mpsc::Sender<(NodeId, Frame)>>>,
     join_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     leave_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     status_handlers: std::sync::Mutex<Vec<NodeHandler>>,
@@ -177,14 +247,38 @@ pub struct MeshMetricsSnapshot {
 impl Mesh {
     /// 指定された設定でメッシュを起動する。NodeId永続化→トランスポート→ゴシップの順に初期化する。
     pub async fn start(config: NodeConfig) -> Result<MeshHandle, MeshError> {
+        #[cfg(feature = "hlc")]
+        {
+            Self::start_inner(config, None).await
+        }
+        #[cfg(not(feature = "hlc"))]
+        {
+            Self::start_inner(config).await
+        }
+    }
+
+    /// Starts a mesh with HLC events wired to the shared Prometheus registry.
+    #[cfg(feature = "hlc")]
+    pub async fn start_with_metrics(
+        config: NodeConfig,
+        metrics: Arc<crate::raft::ChirpsMetricsCollector>,
+    ) -> Result<MeshHandle, MeshError> {
+        Self::start_inner(config, Some(metrics)).await
+    }
+
+    async fn start_inner(
+        config: NodeConfig,
+        #[cfg(feature = "hlc")] metrics: Option<Arc<crate::raft::ChirpsMetricsCollector>>,
+    ) -> Result<MeshHandle, MeshError> {
         let config = Arc::new(config);
         let (node_id, incarnation) = load_or_create_node_id(&config.node_id_path)?;
 
-        let backend = Arc::new(
+        let quic_backend = Arc::new(
             QuicBackend::new(node_id, Arc::clone(&config))
                 .await
                 .map_err(|e| TransportError::Connection(e.to_string()))?,
-        ) as Arc<dyn MessageBackend>;
+        );
+        let backend: Arc<dyn MessageBackend> = quic_backend.clone();
 
         let gossip_backend: Arc<dyn GossipTransport> = Arc::new(BackendAdapter {
             inner: Arc::clone(&backend),
@@ -199,11 +293,25 @@ impl Mesh {
         };
 
         let membership = MembershipView::new();
+        #[cfg(not(feature = "hlc"))]
         let gossip = Arc::new(Mutex::new(GossipEngine::new(
             node_id,
             gossip_cfg,
             gossip_backend,
             membership,
+        )));
+        #[cfg(feature = "hlc")]
+        let local_hlc = match metrics {
+            Some(metrics) => LocalHlc::with_metrics(config.max_clock_skew, metrics),
+            None => LocalHlc::new(config.max_clock_skew),
+        };
+        #[cfg(feature = "hlc")]
+        let gossip = Arc::new(Mutex::new(GossipEngine::new_with_hlc(
+            node_id,
+            gossip_cfg,
+            gossip_backend,
+            membership,
+            local_hlc,
         )));
 
         let mesh = Arc::new(Mesh {
@@ -211,7 +319,9 @@ impl Mesh {
             incarnation,
             config,
             backend,
+            quic_backend,
             gossip,
+            frame_subscribers: std::sync::Mutex::new(Vec::new()),
             join_handlers: std::sync::Mutex::new(Vec::new()),
             leave_handlers: std::sync::Mutex::new(Vec::new()),
             status_handlers: std::sync::Mutex::new(Vec::new()),
@@ -262,17 +372,6 @@ impl Mesh {
             leaves: self.metrics.leaves.load(Ordering::Relaxed),
             status_events: self.metrics.status_events.load(Ordering::Relaxed),
             delivered_frames: self.metrics.delivered_frames.load(Ordering::Relaxed),
-        }
-    }
-}
-
-fn maybe_mark_control(frame: Frame, profile: MessageProfile) -> Frame {
-    // Control path implies reliable/retransmit; Ephemeral keeps as-is; Durable falls back.
-    match profile {
-        MessageProfile::Control | MessageProfile::Ephemeral => frame,
-        MessageProfile::Durable => {
-            warn!("Durable profile requested but not implemented; falling back to Control");
-            frame
         }
     }
 }
@@ -332,12 +431,67 @@ fn spawn_frame_loop(mesh: Arc<Mesh>) -> JoinHandle<()> {
                     let mut gossip = mesh.gossip.lock().await;
                     gossip.apply_membership_update(&msg.updates);
                 }
-                _ => {
-                    // User or PingReq not handled yet.
+                #[cfg(feature = "hlc")]
+                Frame::HlcGossip(msg) => {
+                    let mut gossip = mesh.gossip.lock().await;
+                    if let Err(error) = gossip.apply_hlc_gossip(&msg) {
+                        tracing::warn!(peer = ?from, %error, "rejected HLC gossip message");
+                    }
+                }
+                frame => {
+                    let subscribers = {
+                        let mut subscribers = mesh.frame_subscribers.lock().unwrap();
+                        subscribers.retain(|sender| !sender.is_closed());
+                        subscribers.clone()
+                    };
+                    for subscriber in subscribers {
+                        let _ = subscriber.send((from, frame.clone())).await;
+                    }
                 }
             }
         }
     })
+}
+
+struct MeshChunkStreamOpener {
+    backend: Arc<QuicBackend>,
+}
+
+#[async_trait::async_trait]
+impl ChunkStreamOpener for MeshChunkStreamOpener {
+    async fn open_chunk_stream(
+        &self,
+        target: NodeId,
+    ) -> Result<quinn::SendStream, FileTransferError> {
+        self.backend
+            .open_file_transfer_stream(target)
+            .await
+            .map_err(|error| FileTransferError::Transport(error.to_string()))
+    }
+}
+
+fn spawn_file_transfer_stream_loop(
+    mut receiver: mpsc::Receiver<(NodeId, quinn::RecvStream)>,
+    receive_handler: Arc<alopex_chirps_file_transfer::ops::ReceiveHandler>,
+    control: Arc<alopex_chirps_file_transfer::ControlDispatcher>,
+) {
+    let receive_handler = Arc::downgrade(&receive_handler);
+    let control = Arc::downgrade(&control);
+    tokio::spawn(async move {
+        while let Some((sender, mut stream)) = receiver.recv().await {
+            let (Some(receive_handler), Some(control)) =
+                (receive_handler.upgrade(), control.upgrade())
+            else {
+                break;
+            };
+            if let Err(error) = receive_handler
+                .handle_chunk_stream(sender, &control, &mut stream)
+                .await
+            {
+                tracing::warn!(peer = ?sender, %error, "file transfer chunk stream failed");
+            }
+        }
+    });
 }
 
 /// Adapter to reuse the existing MessageBackend inside the gossip engine.

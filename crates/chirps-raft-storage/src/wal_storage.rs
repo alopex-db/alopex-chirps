@@ -1,23 +1,30 @@
+use crate::snapshot::{
+    SnapshotCompletionEvent, SnapshotCompletionHook, SnapshotCompletionKind, noop_completion_hook,
+};
 use crate::traits::{RaftStorage, StateMachine};
 use crate::types::{
     BasicNode, ChirpsNodeId, ChirpsTypeConfig, Entry, EntryPayload, GroupId, LogFlushed, LogId,
     LogState, OptionalSend, RaftLogReader, RaftSnapshotBuilder, Snapshot, SnapshotMeta,
     StorageError, StoredMembership, Vote,
 };
-use alopex_core::log::wal::{WalReader, WalRecord as CoreWalRecord, WalWriter};
+use alopex_core::log::wal::{WalReader, WalRecord as CoreWalRecord};
 use alopex_core::types::TxnId;
 use anyhow::{Context, Result, anyhow};
 use openraft::{ErrorSubject, ErrorVerb};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 #[cfg(test)]
 use std::any::Any;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fmt::Debug;
-use std::io::{self, Cursor};
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufWriter, Cursor, Read, Write};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 
 /// WALファイルのマジックナンバー。
@@ -32,6 +39,61 @@ const WAL_KEY: &[u8] = b"raft";
 const SNAP_MAGIC: [u8; 4] = *b"SNAP";
 /// スナップショットファイルバージョン。
 const SNAP_VERSION: u32 = 1;
+
+/// Process-wide count of completed WAL durability barriers (`sync_all`).
+///
+/// The controlled-local runner uses one process per logical node, so this is
+/// an exact per-node count without coupling storage instances to the runner.
+/// A Raft append batch has one barrier when `fsync_interval == 0`; interval mode
+/// adds barriers at the configured boundaries. This is not a physical-media
+/// persistence claim.
+static PROCESS_FSYNC_CALLS: AtomicU64 = AtomicU64::new(0);
+static PROCESS_DURABILITY_BARRIERS: AtomicU64 = AtomicU64::new(0);
+static PROCESS_DURABILITY_PARTICIPANT_SYNCS: AtomicU64 = AtomicU64::new(0);
+
+/// WAL access is synchronous because `alopex-core` exposes a synchronous
+/// writer.  Keep that I/O off Tokio worker threads in the multi-threaded
+/// runtime used by the node; otherwise one busy Raft group can stall every
+/// group's mailbox and heartbeat task.  Unit tests may use a current-thread
+/// runtime, where `block_in_place` is unavailable, so retain a safe fallback.
+fn with_blocking_wal_io<T>(operation: impl FnOnce() -> T) -> T {
+    let use_blocking_pool = tokio::runtime::Handle::try_current()
+        .ok()
+        .is_some_and(|handle| {
+            matches!(
+                handle.runtime_flavor(),
+                tokio::runtime::RuntimeFlavor::MultiThread
+            )
+        });
+    if use_blocking_pool {
+        tokio::task::block_in_place(operation)
+    } else {
+        operation()
+    }
+}
+
+pub fn process_fsync_calls() -> u64 {
+    PROCESS_FSYNC_CALLS.load(Ordering::Relaxed)
+}
+
+/// Optional diagnostics for the node-wide durability coordinator.
+///
+/// These counters are incremented only when the coordinator was constructed
+/// with diagnostics enabled. The normal production path therefore retains the
+/// existing barrier cost while the resource-audit path can distinguish
+/// barrier coalescing from the number of individual WAL `sync_all` calls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DurabilityMetricsSnapshot {
+    pub barriers: u64,
+    pub participant_syncs: u64,
+}
+
+pub fn process_durability_metrics() -> DurabilityMetricsSnapshot {
+    DurabilityMetricsSnapshot {
+        barriers: PROCESS_DURABILITY_BARRIERS.load(Ordering::Relaxed),
+        participant_syncs: PROCESS_DURABILITY_PARTICIPANT_SYNCS.load(Ordering::Relaxed),
+    }
+}
 
 /// WALストレージの設定値。
 ///
@@ -48,7 +110,7 @@ const SNAP_VERSION: u32 = 1;
 ///     format_version: 1,
 ///     snapshot_chunk_size: 8 * 1024,
 /// };
-/// assert_eq!(config.fsync_interval, 0); // すべてのエントリでfsync
+/// assert_eq!(config.fsync_interval, 0); // appendバッチ完了時にfsync
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalStorageConfig {
@@ -59,6 +121,12 @@ pub struct WalStorageConfig {
     pub format_version: u32,
     /// スナップショットを書き出す際のチャンクサイズ（バイト）。
     pub snapshot_chunk_size: usize,
+    /// 複数グループのWAL durability barrierを束ねる待機時間（マイクロ秒）。
+    /// 0なら従来どおり各appendバッチごとに直ちにsyncする。
+    pub durability_batch_wait_us: u64,
+    /// Resource-audit-only durability barrier diagnostics. Disabled by default
+    /// so ordinary deployments do not pay for the extra atomic increments.
+    pub durability_diagnostics_enabled: bool,
 }
 
 impl Default for WalStorageConfig {
@@ -70,7 +138,129 @@ impl Default for WalStorageConfig {
             fsync_interval: 0,
             format_version: CURRENT_FORMAT_VERSION,
             snapshot_chunk_size: 4096,
+            durability_batch_wait_us: 0,
+            durability_diagnostics_enabled: false,
         }
+    }
+}
+
+struct CoordinatorGate {
+    syncing: bool,
+    generation: u64,
+    last_error: Option<String>,
+}
+
+struct DurabilityParticipant {
+    writer: Weak<Mutex<BufWriter<File>>>,
+    dirty: Weak<AtomicBool>,
+}
+
+/// Batches durability barriers from independently-owned group WAL files.
+///
+/// Each participant still owns and appends to its own file.  A sync request
+/// briefly coalesces concurrent requests, then flushes and syncs every
+/// registered participant before releasing all waiters.  This mirrors the
+/// cross-region ready/write batch boundary used by reference raftstores while
+/// preserving the per-group WAL layout and failure propagation.
+pub struct WalDurabilityCoordinator {
+    participants: Mutex<Vec<DurabilityParticipant>>,
+    gate: Mutex<CoordinatorGate>,
+    wake: Condvar,
+    batch_wait: Duration,
+    diagnostics_enabled: bool,
+}
+
+impl WalDurabilityCoordinator {
+    pub fn new(batch_wait: Duration) -> Self {
+        Self::new_with_diagnostics(batch_wait, false)
+    }
+
+    pub fn new_with_diagnostics(batch_wait: Duration, diagnostics_enabled: bool) -> Self {
+        Self {
+            participants: Mutex::new(Vec::new()),
+            gate: Mutex::new(CoordinatorGate {
+                syncing: false,
+                generation: 0,
+                last_error: None,
+            }),
+            wake: Condvar::new(),
+            batch_wait,
+            diagnostics_enabled,
+        }
+    }
+
+    fn register(&self, writer: &Arc<Mutex<BufWriter<File>>>, dirty: &Arc<AtomicBool>) {
+        let mut participants = self.participants.lock().unwrap();
+        participants
+            .retain(|entry| entry.writer.strong_count() > 0 && entry.dirty.strong_count() > 0);
+        participants.push(DurabilityParticipant {
+            writer: Arc::downgrade(writer),
+            dirty: Arc::downgrade(dirty),
+        });
+    }
+
+    fn sync(&self) -> Result<()> {
+        let mut gate = self.gate.lock().unwrap();
+        if gate.syncing {
+            let generation = gate.generation;
+            while gate.syncing || gate.generation == generation {
+                gate = self.wake.wait(gate).unwrap();
+            }
+            return gate
+                .last_error
+                .as_ref()
+                .map(|error| Err(anyhow!(error.clone())))
+                .unwrap_or(Ok(()));
+        }
+        gate.syncing = true;
+        let generation = gate.generation + 1;
+        drop(gate);
+
+        if !self.batch_wait.is_zero() {
+            thread::sleep(self.batch_wait);
+        }
+        if self.diagnostics_enabled {
+            PROCESS_DURABILITY_BARRIERS.fetch_add(1, Ordering::Relaxed);
+        }
+        let result = self.sync_participants();
+
+        let mut gate = self.gate.lock().unwrap();
+        gate.last_error = result.as_ref().err().map(ToString::to_string);
+        gate.generation = generation;
+        gate.syncing = false;
+        self.wake.notify_all();
+        result
+    }
+
+    fn sync_participants(&self) -> Result<()> {
+        let writers = {
+            let mut participants = self.participants.lock().unwrap();
+            let mut writers = Vec::with_capacity(participants.len());
+            participants.retain(|entry| {
+                if let (Some(writer), Some(dirty)) = (entry.writer.upgrade(), entry.dirty.upgrade())
+                {
+                    if !dirty.swap(false, Ordering::AcqRel) {
+                        return true;
+                    }
+                    writers.push((writer, dirty));
+                    true
+                } else {
+                    false
+                }
+            });
+            writers
+        };
+        for (writer, dirty) in writers {
+            if self.diagnostics_enabled {
+                PROCESS_DURABILITY_PARTICIPANT_SYNCS.fetch_add(1, Ordering::Relaxed);
+            }
+            let mut guard = writer.lock().unwrap();
+            if let Err(error) = RealWalSink::sync_writer(&mut guard) {
+                dirty.store(true, Ordering::Release);
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -125,26 +315,56 @@ pub(crate) trait WalSink: Send + Sync {
 }
 
 struct RealWalSink {
-    inner: Mutex<WalWriter>,
+    inner: Arc<Mutex<BufWriter<File>>>,
+    dirty: Arc<AtomicBool>,
+    coordinator: Arc<WalDurabilityCoordinator>,
 }
 
 impl RealWalSink {
-    fn new(inner: WalWriter) -> Self {
-        Self {
-            inner: Mutex::new(inner),
-        }
+    fn new(path: &Path, coordinator: Arc<WalDurabilityCoordinator>) -> Result<Self> {
+        let file = OpenOptions::new().append(true).create(true).open(path)?;
+        let inner = Arc::new(Mutex::new(BufWriter::new(file)));
+        let dirty = Arc::new(AtomicBool::new(false));
+        coordinator.register(&inner, &dirty);
+        Ok(Self {
+            inner,
+            dirty,
+            coordinator,
+        })
+    }
+
+    fn append_record(writer: &mut BufWriter<File>, record: &CoreWalRecord) -> Result<()> {
+        let data = bincode::serialize(record)?;
+        let checksum = crc32fast::hash(&data);
+        writer.write_all(&(data.len() as u32).to_le_bytes())?;
+        writer.write_all(&checksum.to_le_bytes())?;
+        writer.write_all(&data)?;
+        Ok(())
+    }
+
+    fn sync_writer(writer: &mut BufWriter<File>) -> Result<()> {
+        writer.flush()?;
+        writer.get_ref().sync_all()?;
+        PROCESS_FSYNC_CALLS.fetch_add(1, Ordering::Relaxed);
+        Ok(())
     }
 }
 
 impl WalSink for RealWalSink {
-    fn append(&mut self, record: &CoreWalRecord, _sync: bool) -> Result<()> {
-        let mut guard = self.inner.lock().unwrap();
-        guard.append(record)?;
+    fn append(&mut self, record: &CoreWalRecord, sync: bool) -> Result<()> {
+        {
+            let mut guard = self.inner.lock().unwrap();
+            Self::append_record(&mut guard, record)?;
+        }
+        self.dirty.store(true, Ordering::Release);
+        if sync {
+            self.coordinator.sync()?;
+        }
         Ok(())
     }
 
     fn sync(&mut self) -> Result<()> {
-        Ok(())
+        self.coordinator.sync()
     }
 
     #[cfg(test)]
@@ -219,6 +439,7 @@ where
     last_membership: StoredMembership<ChirpsNodeId, BasicNode>,
     snapshot_meta: Option<SnapshotMeta<ChirpsNodeId, BasicNode>>,
     snapshot_path: Option<PathBuf>,
+    snapshot_completion_hook: Arc<dyn SnapshotCompletionHook>,
     state_machine: SM,
 }
 
@@ -247,11 +468,27 @@ where
         node_id: ChirpsNodeId,
         state_machine: SM,
     ) -> Result<Self> {
+        let coordinator = Arc::new(WalDurabilityCoordinator::new_with_diagnostics(
+            Duration::from_micros(config.durability_batch_wait_us),
+            config.durability_diagnostics_enabled,
+        ));
+        Self::recover_with_coordinator(config, group_id, node_id, state_machine, coordinator)
+    }
+
+    /// Restores storage using a node-wide durability coordinator shared by
+    /// multiple Raft groups.
+    pub fn recover_with_coordinator(
+        config: WalStorageConfig,
+        group_id: GroupId,
+        node_id: ChirpsNodeId,
+        state_machine: SM,
+        coordinator: Arc<WalDurabilityCoordinator>,
+    ) -> Result<Self> {
         std::fs::create_dir_all(&config.wal_dir)?;
         std::fs::create_dir_all(&config.snapshot_dir)?;
 
         let wal_path = wal_path(&config.wal_dir, group_id, node_id);
-        let wal_writer = Box::new(RealWalSink::new(WalWriter::new(&wal_path)?));
+        let wal_writer = Box::new(RealWalSink::new(&wal_path, coordinator)?);
         Self::recover_with_sink(
             config,
             group_id,
@@ -286,6 +523,7 @@ where
             last_membership: StoredMembership::default(),
             snapshot_meta: None,
             snapshot_path: None,
+            snapshot_completion_hook: noop_completion_hook(),
             state_machine,
         };
 
@@ -299,6 +537,12 @@ where
 
         storage.replay_wal()?;
         Ok(storage)
+    }
+
+    /// Registers a completion observer used by metrics and evidence capture.
+    /// The hook is invoked only after the snapshot checkpoint is durable.
+    pub fn set_snapshot_completion_hook(&mut self, hook: Arc<dyn SnapshotCompletionHook>) {
+        self.snapshot_completion_hook = hook;
     }
 
     #[cfg(test)]
@@ -332,6 +576,7 @@ where
     }
 
     fn replay_wal(&mut self) -> Result<()> {
+        validate_wal_framing(&self.wal_path)?;
         let reader = WalReader::new(&self.wal_path)?;
         for record in reader {
             if let CoreWalRecord::Put(_, _, value) = record? {
@@ -369,9 +614,17 @@ where
                 self.vote = Some(vote);
             }
             RaftWalRecord::SnapshotApplied(meta) => {
+                let path = snapshot_path(&self.config.snapshot_dir, self.group_id, &meta);
+                if !path.exists() {
+                    return Err(anyhow!(
+                        "snapshot WAL checkpoint references missing file {}",
+                        path.display()
+                    ));
+                }
                 self.last_applied = meta.last_log_id;
                 self.last_membership = meta.last_membership.clone();
                 self.snapshot_meta = Some(meta);
+                self.snapshot_path = Some(path);
             }
             RaftWalRecord::Truncate(log_id) => {
                 self.truncate_cache(log_id.index);
@@ -386,8 +639,10 @@ where
 
     fn insert_entry(&mut self, entry: Entry<ChirpsTypeConfig>) {
         let index = entry.log_id.index;
-        self.log_cache.insert(index, entry);
-        self.log_order.push_back(index);
+        let replaced = self.log_cache.insert(index, entry).is_some();
+        if !replaced {
+            self.log_order.push_back(index);
+        }
         while self.log_cache.len() > self.config.log_cache_size {
             if let Some(oldest) = self.log_order.pop_front() {
                 self.log_cache.remove(&oldest);
@@ -477,7 +732,12 @@ where
             };
             match frame {
                 WalFrame::Record(RaftWalRecord::AppendLog(entry)) => {
-                    entries.insert(entry.log_id.index, entry);
+                    // Keep the WAL fallback range-bounded. TiKV's Raft
+                    // Engine indexes log locations and reads only requested
+                    // entries; never materialize the complete WAL here.
+                    if range_contains(&range, entry.log_id.index) {
+                        entries.insert(entry.log_id.index, entry);
+                    }
                 }
                 WalFrame::Record(RaftWalRecord::Truncate(log_id)) => {
                     let idx = log_id.index;
@@ -514,8 +774,11 @@ where
         Ok(filtered)
     }
 
-    fn append_entry(&mut self, entry: Entry<ChirpsTypeConfig>) -> Result<()> {
-        let sync_now = self.config.fsync_interval == 0;
+    fn append_entry_with_sync(
+        &mut self,
+        entry: Entry<ChirpsTypeConfig>,
+        sync_now: bool,
+    ) -> Result<()> {
         self.write_frame(
             &WalFrame::Record(RaftWalRecord::AppendLog(entry.clone())),
             sync_now,
@@ -545,13 +808,47 @@ where
         }
 
         for entry in entries {
-            self.append_entry(entry)?;
+            self.append_entry_with_sync(entry, false)?;
+        }
+        if self.config.fsync_interval == 0 {
+            self.sync_wal()?;
         }
         if self.config.fsync_interval > 0 && self.pending_unsynced > 0 {
             self.sync_wal()?;
         }
         Ok(())
     }
+}
+
+fn validate_wal_framing(path: &Path) -> Result<()> {
+    let mut file = std::fs::File::open(path)?;
+    let file_len = file.metadata()?.len();
+    let mut offset = 0u64;
+    while offset < file_len {
+        let remaining = file_len - offset;
+        if remaining < 8 {
+            return Err(anyhow!("truncated WAL record header at byte {offset}"));
+        }
+        let mut header = [0u8; 8];
+        file.read_exact(&mut header)?;
+        offset += header.len() as u64;
+
+        let record_len = u32::from_le_bytes(header[..4].try_into().unwrap()) as u64;
+        let expected_checksum = u32::from_le_bytes(header[4..].try_into().unwrap());
+        let remaining = file_len - offset;
+        if record_len > remaining {
+            return Err(anyhow!(
+                "truncated WAL record body at byte {offset}: expected {record_len}, remaining {remaining}"
+            ));
+        }
+        let mut record = vec![0u8; record_len as usize];
+        file.read_exact(&mut record)?;
+        offset += record_len;
+        if crc32fast::hash(&record) != expected_checksum {
+            return Err(anyhow!("WAL checksum mismatch at byte {offset}"));
+        }
+    }
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -588,8 +885,7 @@ where
             })
             .collect();
 
-        let wal_entries = self
-            .read_entries_from_wal(range.clone())
+        let wal_entries = with_blocking_wal_io(|| self.read_entries_from_wal(range.clone()))
             .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Read))?;
 
         for entry in wal_entries {
@@ -613,15 +909,20 @@ where
             return;
         }
 
-        let res = (|| -> Result<()> {
-            for entry in collected {
-                self.append_entry(entry)?;
-            }
-            if self.config.fsync_interval > 0 && self.pending_unsynced > 0 {
-                self.sync_wal()?;
-            }
-            Ok(())
-        })();
+        let res = with_blocking_wal_io(|| {
+            (|| -> Result<()> {
+                for entry in collected {
+                    self.append_entry_with_sync(entry, false)?;
+                }
+                if self.config.fsync_interval == 0 {
+                    self.sync_wal()?;
+                }
+                if self.config.fsync_interval > 0 && self.pending_unsynced > 0 {
+                    self.sync_wal()?;
+                }
+                Ok(())
+            })()
+        });
 
         match res {
             Ok(()) => callback.log_io_completed(Ok(())),
@@ -633,8 +934,10 @@ where
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(&WalFrame::Record(RaftWalRecord::Truncate(log_id)), true)
-            .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
+        with_blocking_wal_io(|| {
+            self.write_frame(&WalFrame::Record(RaftWalRecord::Truncate(log_id)), true)
+        })
+        .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
         self.truncate_cache(log_id.index);
         Ok(())
     }
@@ -643,8 +946,10 @@ where
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(&WalFrame::Record(RaftWalRecord::Purge(log_id)), true)
-            .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
+        with_blocking_wal_io(|| {
+            self.write_frame(&WalFrame::Record(RaftWalRecord::Purge(log_id)), true)
+        })
+        .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Write))?;
         self.purge_cache(log_id.index);
         self.last_purged_log_id = Some(log_id);
         Ok(())
@@ -680,8 +985,9 @@ where
                 }
                 EntryPayload::Membership(m) => {
                     self.last_membership = StoredMembership::new(Some(log_id), m);
+                    responses.push(Vec::new());
                 }
-                EntryPayload::Blank => {}
+                EntryPayload::Blank => responses.push(Vec::new()),
             }
         }
         Ok(responses)
@@ -691,8 +997,10 @@ where
         &mut self,
         vote: &Vote<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
-        self.write_frame(&WalFrame::Record(RaftWalRecord::Vote(*vote)), true)
-            .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Vote, ErrorVerb::Write))?;
+        with_blocking_wal_io(|| {
+            self.write_frame(&WalFrame::Record(RaftWalRecord::Vote(*vote)), true)
+        })
+        .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Vote, ErrorVerb::Write))?;
         self.vote = Some(*vote);
         Ok(())
     }
@@ -716,70 +1024,46 @@ where
     ) -> Result<(), StorageError<ChirpsNodeId>> {
         let path = snapshot_path(&self.config.snapshot_dir, self.group_id, meta);
         let data = snapshot.into_inner();
-        // ステートマシンへも同じスナップショットを適用する。
+        let snapshot_size = data.len() as u64;
+        let snapshot_digest: [u8; 32] = Sha256::digest(&data).into();
+        let encoded =
+            encode_snapshot_file(meta, &data, self.config.snapshot_chunk_size).map_err(|e| {
+                self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
+            })?;
+
+        // The durable file checkpoint must precede StateMachine visibility.
+        durably_replace(&path, &encoded).map_err(|e| {
+            self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
+        })?;
+        drop(encoded);
         self.state_machine
-            .restore(Box::new(Cursor::new(data.clone())))
+            .restore(Box::new(Cursor::new(data)))
             .await
             .map_err(|e| {
                 self.to_storage_io_error(e, ErrorSubject::StateMachine, ErrorVerb::Write)
             })?;
-        let meta_bytes = bincode::serialize(meta).map_err(|e| {
-            self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
-        })?;
-        let chunk_size = self.config.snapshot_chunk_size.max(1);
 
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&SNAP_MAGIC);
-        buf.extend_from_slice(&SNAP_VERSION.to_le_bytes());
-
-        let mut offset = 0usize;
-        let mut first = true;
-        loop {
-            let meta_part = if first {
-                meta_bytes.clone()
-            } else {
-                Vec::new()
-            };
-            let take = std::cmp::min(chunk_size, data.len().saturating_sub(offset));
-            let data_part = data[offset..offset + take].to_vec();
-            let checksum = crc32fast::hash(
-                [meta_part.as_slice(), data_part.as_slice()]
-                    .concat()
-                    .as_slice(),
-            );
-
-            buf.extend_from_slice(&(meta_part.len() as u32).to_le_bytes());
-            buf.extend_from_slice(&(data_part.len() as u32).to_le_bytes());
-            buf.extend_from_slice(&checksum.to_le_bytes());
-            buf.extend_from_slice(&meta_part);
-            buf.extend_from_slice(&data_part);
-
-            offset += take;
-            first = false;
-            if offset >= data.len() {
-                break;
-            }
-        }
-
-        // 終端チャンク
-        buf.extend_from_slice(&0u32.to_le_bytes()); // meta_len
-        buf.extend_from_slice(&0u32.to_le_bytes()); // data_len
-        buf.extend_from_slice(&0u32.to_le_bytes()); // checksum
-
-        std::fs::write(&path, buf).map_err(|e| {
-            self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write)
-        })?;
         let meta_cloned = meta.clone();
-        self.snapshot_meta = Some(meta_cloned.clone());
-        self.snapshot_path = Some(path);
-        self.last_applied = meta.last_log_id;
-        self.last_membership = meta.last_membership.clone();
-        // 記録をWALに残し、リカバリで反映できるようにする。
+        // The WAL marker is fsynced before in-memory installed state and the
+        // completion hook become visible.
         self.write_frame(
             &WalFrame::Record(RaftWalRecord::SnapshotApplied(meta_cloned)),
             true,
         )
         .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Snapshot(None), ErrorVerb::Write))?;
+        self.snapshot_meta = Some(meta.clone());
+        self.snapshot_path = Some(path);
+        self.last_applied = meta.last_log_id;
+        self.last_membership = meta.last_membership.clone();
+        self.snapshot_completion_hook
+            .completed(SnapshotCompletionEvent {
+                group_id: self.group_id,
+                node_id: self.node_id,
+                snapshot_id: meta.snapshot_id.clone(),
+                size_bytes: snapshot_size,
+                digest: snapshot_digest,
+                kind: SnapshotCompletionKind::Installed,
+            });
         Ok(())
     }
 
@@ -798,7 +1082,18 @@ where
                         ErrorVerb::Read,
                     ));
                 }
-                let _version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                if version != SNAP_VERSION {
+                    return Err(self.to_storage_io_error(
+                        anyhow!(
+                            "snapshot format version mismatch: expected {}, got {}",
+                            SNAP_VERSION,
+                            version
+                        ),
+                        ErrorSubject::Snapshot(None),
+                        ErrorVerb::Read,
+                    ));
+                }
                 let mut offset = 8;
                 let mut meta_bytes: Option<Vec<u8>> = None;
                 let mut data = Vec::new();
@@ -855,6 +1150,14 @@ where
                     data.extend_from_slice(&body[meta_len..]);
                 }
 
+                if offset != bytes.len() {
+                    return Err(self.to_storage_io_error(
+                        anyhow!("snapshot has trailing bytes"),
+                        ErrorSubject::Snapshot(None),
+                        ErrorVerb::Read,
+                    ));
+                }
+
                 let meta_bytes = meta_bytes.ok_or_else(|| {
                     self.to_storage_io_error(
                         anyhow!("snapshot meta missing"),
@@ -902,8 +1205,86 @@ where
             last_membership: self.last_membership.clone(),
             snapshot_id: format!("snapshot-{}", now_micros()),
         };
-        WalSnapshotBuilder { meta, data }
+        let path = snapshot_path(&self.config.snapshot_dir, self.group_id, &meta);
+        WalSnapshotBuilder {
+            meta,
+            data,
+            path,
+            chunk_size: self.config.snapshot_chunk_size,
+            group_id: self.group_id,
+            node_id: self.node_id,
+            completion_hook: Arc::clone(&self.snapshot_completion_hook),
+        }
     }
+}
+
+fn encode_snapshot_file(
+    meta: &SnapshotMeta<ChirpsNodeId, BasicNode>,
+    data: &[u8],
+    chunk_size: usize,
+) -> Result<Vec<u8>> {
+    let meta_bytes = bincode::serialize(meta)?;
+    let chunk_size = chunk_size.max(1);
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&SNAP_MAGIC);
+    buf.extend_from_slice(&SNAP_VERSION.to_le_bytes());
+
+    let mut offset = 0usize;
+    let mut first = true;
+    loop {
+        let meta_part = if first { meta_bytes.as_slice() } else { &[] };
+        let take = std::cmp::min(chunk_size, data.len().saturating_sub(offset));
+        let data_part = &data[offset..offset + take];
+        let mut body = Vec::with_capacity(meta_part.len() + data_part.len());
+        body.extend_from_slice(meta_part);
+        body.extend_from_slice(data_part);
+        let checksum = crc32fast::hash(&body);
+
+        buf.extend_from_slice(&(meta_part.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&(data_part.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&checksum.to_le_bytes());
+        buf.extend_from_slice(&body);
+
+        offset += take;
+        first = false;
+        if offset >= data.len() {
+            break;
+        }
+    }
+
+    buf.extend_from_slice(&0u32.to_le_bytes());
+    buf.extend_from_slice(&0u32.to_le_bytes());
+    buf.extend_from_slice(&0u32.to_le_bytes());
+    Ok(buf)
+}
+
+fn durably_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "snapshot path has no parent")
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid snapshot file name"))?;
+    let temp = parent.join(format!(".{file_name}.{}.tmp", now_micros()));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temp, path)?;
+        #[cfg(unix)]
+        OpenOptions::new().read(true).open(parent)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 
 fn wal_path(base: &Path, group_id: GroupId, node_id: ChirpsNodeId) -> PathBuf {
@@ -999,6 +1380,11 @@ where
 pub struct WalSnapshotBuilder {
     meta: SnapshotMeta<ChirpsNodeId, BasicNode>,
     data: Vec<u8>,
+    path: PathBuf,
+    chunk_size: usize,
+    group_id: GroupId,
+    node_id: ChirpsNodeId,
+    completion_hook: Arc<dyn SnapshotCompletionHook>,
 }
 
 impl RaftSnapshotBuilder<ChirpsTypeConfig> for WalSnapshotBuilder {
@@ -1007,11 +1393,41 @@ impl RaftSnapshotBuilder<ChirpsTypeConfig> for WalSnapshotBuilder {
     ) -> impl core::future::Future<
         Output = Result<Snapshot<ChirpsTypeConfig>, StorageError<ChirpsNodeId>>,
     > + Send {
-        let snapshot = Snapshot {
-            meta: self.meta.clone(),
-            snapshot: Box::new(Cursor::new(self.data.clone())),
-        };
-        async move { Ok(snapshot) }
+        let meta = self.meta.clone();
+        let data = self.data.clone();
+        let encoded = encode_snapshot_file(&meta, &data, self.chunk_size);
+        let path = self.path.clone();
+        let group_id = self.group_id;
+        let node_id = self.node_id;
+        let completion_hook = Arc::clone(&self.completion_hook);
+        async move {
+            let encoded = encoded.map_err(|error| {
+                StorageError::from_io_error(
+                    ErrorSubject::Snapshot(Some(meta.signature())),
+                    ErrorVerb::Write,
+                    io::Error::other(error.to_string()),
+                )
+            })?;
+            durably_replace(&path, &encoded).map_err(|error| {
+                StorageError::from_io_error(
+                    ErrorSubject::Snapshot(Some(meta.signature())),
+                    ErrorVerb::Write,
+                    error,
+                )
+            })?;
+            completion_hook.completed(SnapshotCompletionEvent {
+                group_id,
+                node_id,
+                snapshot_id: meta.snapshot_id.clone(),
+                size_bytes: data.len() as u64,
+                digest: Sha256::digest(&data).into(),
+                kind: SnapshotCompletionKind::Built,
+            });
+            Ok(Snapshot {
+                meta,
+                snapshot: Box::new(Cursor::new(data)),
+            })
+        }
     }
 }
 
@@ -1028,6 +1444,15 @@ mod tests {
 
     #[derive(Default)]
     struct MockStateMachine;
+
+    #[derive(Default)]
+    struct CompletionLog(Mutex<Vec<SnapshotCompletionEvent>>);
+
+    impl SnapshotCompletionHook for CompletionLog {
+        fn completed(&self, event: SnapshotCompletionEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+    }
 
     #[async_trait]
     impl StateMachine for MockStateMachine {
@@ -1051,6 +1476,34 @@ mod tests {
             _snapshot: Box<dyn AsyncSnapshotData>,
         ) -> StateMachineResult<()> {
             Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct FailingRestoreStateMachine;
+
+    #[async_trait]
+    impl StateMachine for FailingRestoreStateMachine {
+        type Command = Vec<u8>;
+        type Response = Vec<u8>;
+
+        async fn apply(
+            &mut self,
+            _log_id: LogId<ChirpsNodeId>,
+            command: Self::Command,
+        ) -> StateMachineResult<Self::Response> {
+            Ok(command)
+        }
+
+        async fn snapshot(&self) -> StateMachineResult<Box<dyn AsyncSnapshotData>> {
+            Ok(Box::new(Cursor::new(Vec::new())))
+        }
+
+        async fn restore(
+            &mut self,
+            _snapshot: Box<dyn AsyncSnapshotData>,
+        ) -> StateMachineResult<()> {
+            Err(anyhow!("injected restore failure"))
         }
     }
 
@@ -1079,7 +1532,11 @@ mod tests {
     impl CountingWalSink {
         fn new(path: &Path) -> Self {
             Self {
-                inner: RealWalSink::new(WalWriter::new(path).unwrap()),
+                inner: RealWalSink::new(
+                    path,
+                    Arc::new(WalDurabilityCoordinator::new(Duration::ZERO)),
+                )
+                .unwrap(),
                 appended: Arc::new(Mutex::new(0)),
                 synced: Arc::new(Mutex::new(0)),
             }
@@ -1113,6 +1570,50 @@ mod tests {
         fn as_any(&self) -> &dyn Any {
             self
         }
+    }
+
+    #[test]
+    fn durability_coordinator_flushes_concurrent_group_wals() {
+        let root = tempfile::tempdir().unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::from_millis(1)));
+        let mut left =
+            RealWalSink::new(&root.path().join("left.wal"), Arc::clone(&coordinator)).unwrap();
+        let mut right =
+            RealWalSink::new(&root.path().join("right.wal"), Arc::clone(&coordinator)).unwrap();
+        let record = CoreWalRecord::Put(TxnId(0), b"k".to_vec(), b"v".to_vec());
+        left.append(&record, false).unwrap();
+        right.append(&record, false).unwrap();
+
+        let left_coordinator = Arc::clone(&coordinator);
+        let left_thread = std::thread::spawn(move || left_coordinator.sync());
+        let right_coordinator = Arc::clone(&coordinator);
+        let right_thread = std::thread::spawn(move || right_coordinator.sync());
+        left_thread.join().unwrap().unwrap();
+        right_thread.join().unwrap().unwrap();
+        assert!(root.path().join("left.wal").metadata().unwrap().len() > 0);
+        assert!(root.path().join("right.wal").metadata().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn durability_diagnostics_count_barriers_and_dirty_participants() {
+        let root = tempfile::tempdir().unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new_with_diagnostics(
+            Duration::ZERO,
+            true,
+        ));
+        let mut left =
+            RealWalSink::new(&root.path().join("left.wal"), Arc::clone(&coordinator)).unwrap();
+        let mut right =
+            RealWalSink::new(&root.path().join("right.wal"), Arc::clone(&coordinator)).unwrap();
+        let record = CoreWalRecord::Put(TxnId(0), b"k".to_vec(), b"v".to_vec());
+        left.append(&record, false).unwrap();
+        right.append(&record, false).unwrap();
+
+        let before = process_durability_metrics();
+        coordinator.sync().unwrap();
+        let after = process_durability_metrics();
+        assert_eq!(after.barriers - before.barriers, 1);
+        assert_eq!(after.participant_syncs - before.participant_syncs, 2);
     }
 
     #[tokio::test]
@@ -1205,6 +1706,39 @@ mod tests {
         let entries = storage.try_get_log_entries(1..=1).await.unwrap();
         assert_eq!(entries.len(), 1, "evicted log should be fetched from WAL");
         assert_eq!(entries[0].log_id.index, 1);
+    }
+
+    #[tokio::test]
+    async fn wal_range_read_does_not_materialize_unrequested_entries() {
+        let dir = tempdir().unwrap();
+        let mut cfg = base_config(dir.path());
+        cfg.log_cache_size = 0;
+        let mut storage = WalRaftStorage::new(cfg, GroupId(50), 50, MockStateMachine).unwrap();
+        storage
+            .append_for_test((1..=256).map(sample_entry).collect())
+            .await
+            .unwrap();
+
+        let entries = storage.read_entries_from_wal(200..=200).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].log_id.index, 200);
+    }
+
+    #[tokio::test]
+    async fn replacing_a_log_index_does_not_grow_cache_order() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let mut storage = WalRaftStorage::new(cfg, GroupId(51), 51, MockStateMachine).unwrap();
+        storage
+            .append_for_test(vec![sample_entry(1)])
+            .await
+            .unwrap();
+        storage
+            .append_for_test(vec![sample_entry(1)])
+            .await
+            .unwrap();
+        assert_eq!(storage.log_cache.len(), 1);
+        assert_eq!(storage.log_order.len(), 1);
     }
 
     #[tokio::test]
@@ -1323,6 +1857,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn zero_fsync_interval_group_commits_one_append_batch() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        std::fs::create_dir_all(&cfg.wal_dir).unwrap();
+        let wal_path = wal_path(&cfg.wal_dir, GroupId(9), 9);
+        let sink = CountingWalSink::new(&wal_path);
+
+        let mut storage = WalRaftStorage::with_sink_for_test(
+            cfg,
+            GroupId(9),
+            9,
+            MockStateMachine,
+            Box::new(sink),
+        )
+        .unwrap();
+        storage
+            .wal_writer
+            .as_any()
+            .downcast_ref::<CountingWalSink>()
+            .unwrap()
+            .reset();
+
+        storage
+            .append_for_test(vec![sample_entry(1), sample_entry(2), sample_entry(3)])
+            .await
+            .unwrap();
+
+        let (appends, syncs) = storage
+            .wal_writer
+            .as_any()
+            .downcast_ref::<CountingWalSink>()
+            .unwrap()
+            .counts();
+        assert_eq!(appends, 3);
+        assert_eq!(
+            syncs, 1,
+            "one append batch should have one durability barrier"
+        );
+    }
+
+    #[tokio::test]
     async fn snapshot_files_follow_udf_header() {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
@@ -1367,6 +1942,26 @@ mod tests {
             log_id: LogId::new(openraft::CommittedLeaderId::new(2, 1), index),
             payload: EntryPayload::Membership(Membership::new(vec![voters], nodes)),
         }
+    }
+
+    #[tokio::test]
+    async fn apply_returns_one_response_for_every_entry_kind() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let mut storage = WalRaftStorage::new(cfg, GroupId(12), 1, MockStateMachine).unwrap();
+        let blank = Entry {
+            log_id: LogId::new(openraft::CommittedLeaderId::new(2, 1), 1),
+            payload: EntryPayload::Blank,
+        };
+        let normal = sample_entry(2);
+        let membership = membership_entry(3);
+
+        let responses = storage
+            .apply(vec![blank, normal, membership])
+            .await
+            .unwrap();
+
+        assert_eq!(responses, vec![Vec::new(), b"e2".to_vec(), Vec::new()]);
     }
 
     #[tokio::test]
@@ -1545,5 +2140,52 @@ mod tests {
             chunk_count >= 2,
             "data should be split into multiple chunks"
         );
+    }
+
+    #[tokio::test]
+    async fn automatic_snapshot_builder_emits_completion_after_durable_checkpoint() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let hook = Arc::new(CompletionLog::default());
+        let mut storage =
+            WalRaftStorage::new(cfg.clone(), GroupId(14), 14, MockStateMachine).unwrap();
+        storage.set_snapshot_completion_hook(hook.clone());
+
+        let mut builder = storage.get_snapshot_builder().await;
+        let snapshot = builder.build_snapshot().await.unwrap();
+
+        let events = hook.0.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, SnapshotCompletionKind::Built);
+        assert_eq!(events[0].size_bytes, 0);
+        assert_eq!(events[0].snapshot_id, snapshot.meta.snapshot_id);
+        let path = snapshot_path(&cfg.snapshot_dir, GroupId(14), &snapshot.meta);
+        assert!(path.exists(), "hook must follow the durable snapshot file");
+    }
+
+    #[tokio::test]
+    async fn restore_failure_does_not_publish_or_emit_completion() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let hook = Arc::new(CompletionLog::default());
+        let mut storage =
+            WalRaftStorage::new(cfg, GroupId(15), 15, FailingRestoreStateMachine).unwrap();
+        storage.set_snapshot_completion_hook(hook.clone());
+        let meta = SnapshotMeta {
+            last_log_id: Some(LogId::new(openraft::CommittedLeaderId::new(1, 15), 4)),
+            last_membership: StoredMembership::default(),
+            snapshot_id: "restore-fails".into(),
+        };
+
+        assert!(
+            storage
+                .install_snapshot(&meta, Box::new(Cursor::new(vec![1, 2, 3])))
+                .await
+                .is_err()
+        );
+        assert!(hook.0.lock().unwrap().is_empty());
+        assert!(storage.snapshot_meta.is_none());
+        assert!(storage.snapshot_path.is_none());
+        assert!(storage.last_applied.is_none());
     }
 }

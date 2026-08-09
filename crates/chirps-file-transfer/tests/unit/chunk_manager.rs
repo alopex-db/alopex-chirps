@@ -31,10 +31,7 @@ async fn chunk_manager_reads_chunks_and_metas() {
     assert_eq!(metas[0].size as usize, manager.chunk_size());
     assert_eq!(metas[1].index, 1);
     assert_eq!(metas[1].offset as usize, manager.chunk_size());
-    assert_eq!(
-        metas[1].size as usize,
-        data.len() - manager.chunk_size()
-    );
+    assert_eq!(metas[1].size as usize, data.len() - manager.chunk_size());
 
     let mut file = File::open(&path).await.expect("open file for chunk");
     let chunk0 = manager.read_chunk(&mut file, 0).await.expect("read chunk0");
@@ -55,4 +52,24 @@ async fn chunk_manager_reads_chunks_and_metas() {
         &chunk1.data,
         chunk1.checksum
     ));
+}
+
+#[tokio::test]
+async fn chunk_manager_reads_a_full_large_chunk() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("large-chunk.bin");
+    let data = vec![0x5a; 4 * 1024 * 1024];
+    tokio::fs::write(&path, &data)
+        .await
+        .expect("write test file");
+
+    let manager = ChunkManager::new(4 * 1024 * 1024);
+    let mut file = File::open(&path).await.expect("open test file");
+    let chunk = manager
+        .read_chunk(&mut file, 0)
+        .await
+        .expect("read full chunk");
+
+    assert_eq!(chunk.size, data.len() as u32);
+    assert_eq!(chunk.data, data);
 }

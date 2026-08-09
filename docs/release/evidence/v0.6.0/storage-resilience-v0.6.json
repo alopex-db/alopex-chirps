@@ -1,0 +1,10 @@
+{
+  "schema": "chirps.storage-resilience-evidence/v1",
+  "release_version": "0.6.0",
+  "source_commit": "ddbccf9ae6debe79e9d1d6ba79fb05d4042291a9",
+  "result": "pass",
+  "scope": "WAL/snapshot rollback, cleanup, and storage creation failure paths",
+  "command": "CARGO_TARGET_DIR=/tmp/chirps-release-tests cargo test --locked -p alopex-chirps --all-features --test multi_raft_storage -- --test-threads=1 && cargo test --locked -p alopex-chirps-raft-storage --lib",
+  "tests": ["node_initialization_failure_rolls_back_registry_and_group_paths", "restore_failure_does_not_publish_or_emit_completion", "automatic_snapshot_builder_emits_completion_after_durable_checkpoint"],
+  "limitations": ["Local filesystem fault paths; no crash-consistency proof for arbitrary hardware"]
+}

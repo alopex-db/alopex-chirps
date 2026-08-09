@@ -1,0 +1,137 @@
+{
+  "mode": "single_group",
+  "index": 4,
+  "process_or_container_ids": [
+    "5966e682a2b43ab864a87fdd72a5d912b76844cab37632a6c2b295c0e05ff10a",
+    "94c05108720cfd77a9c16aa5debe584752f17b5a97895a9d5ed52fb175dc0e6d",
+    "e54b7fbd6674727e50df9daeafa92bde1d3ff024430752d23eb6feada41db00d"
+  ],
+  "network_rtt_ms": [
+    {
+      "source": 1,
+      "destination": 2,
+      "unloaded": {
+        "p50": 0.078,
+        "p95": 0.117
+      },
+      "shaped": {
+        "p50": 0.728,
+        "p95": 1.04
+      }
+    },
+    {
+      "source": 1,
+      "destination": 3,
+      "unloaded": {
+        "p50": 0.085,
+        "p95": 0.125
+      },
+      "shaped": {
+        "p50": 0.732,
+        "p95": 1.06
+      }
+    },
+    {
+      "source": 2,
+      "destination": 1,
+      "unloaded": {
+        "p50": 0.07,
+        "p95": 0.107
+      },
+      "shaped": {
+        "p50": 0.696,
+        "p95": 1.08
+      }
+    },
+    {
+      "source": 2,
+      "destination": 3,
+      "unloaded": {
+        "p50": 0.078,
+        "p95": 0.115
+      },
+      "shaped": {
+        "p50": 0.806,
+        "p95": 1.15
+      }
+    },
+    {
+      "source": 3,
+      "destination": 1,
+      "unloaded": {
+        "p50": 0.081,
+        "p95": 0.121
+      },
+      "shaped": {
+        "p50": 0.782,
+        "p95": 1.16
+      }
+    },
+    {
+      "source": 3,
+      "destination": 2,
+      "unloaded": {
+        "p50": 0.086,
+        "p95": 0.123
+      },
+      "shaped": {
+        "p50": 0.758,
+        "p95": 1.09
+      }
+    }
+  ],
+  "group_membership_after_drain": [
+    {
+      "group_id": 1,
+      "replicas": [
+        {
+          "node_id": 1,
+          "voters": [
+            1,
+            2,
+            3
+          ],
+          "leader_id": 1,
+          "last_applied": 22331,
+          "committed_digest": "21a5b179faa9f2e55024aea75f541baa6054279a974b67f7dbba88888175861a"
+        },
+        {
+          "node_id": 2,
+          "voters": [
+            1,
+            2,
+            3
+          ],
+          "leader_id": 1,
+          "last_applied": 22331,
+          "committed_digest": "21a5b179faa9f2e55024aea75f541baa6054279a974b67f7dbba88888175861a"
+        },
+        {
+          "node_id": 3,
+          "voters": [
+            1,
+            2,
+            3
+          ],
+          "leader_id": 1,
+          "last_applied": 22331,
+          "committed_digest": "21a5b179faa9f2e55024aea75f541baa6054279a974b67f7dbba88888175861a"
+        }
+      ]
+    }
+  ],
+  "loadgen_report_paths": [
+    "loadgen1.json",
+    "loadgen2.json",
+    "loadgen3.json"
+  ],
+  "node_metrics_paths": [
+    "node1-metrics.jsonl",
+    "node2-metrics.jsonl",
+    "node3-metrics.jsonl"
+  ],
+  "resource_audit": true,
+  "oom_killed": false,
+  "process_restarted": false,
+  "shaper_mismatch": false
+}

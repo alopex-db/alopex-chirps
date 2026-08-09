@@ -1,0 +1,82 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-deterministic-network-v0-6
+  language: TLA+
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    type_features: no-rows
+    jvm_heap: 12g
+    max_steps: 8
+    constants:
+      Seed: 1539
+      UnsafeMode: none
+    scope: "A fixed 23-event schedule grouped into eight atomic checker transitions and applied to two state records through the same pure transition function, covering composite delay+duplicate+reorder, loss, asymmetric partition/heal, a modeled timer-order flag, source-generation reconnect, event accounting, and terminal drain. The executable refinement additionally covers the Multi-Raft Requirement 5.3 create/remove/route/tick/isolation scenario in three OS worker processes."
+    exclusions:
+      - "Unbounded liveness and fairness"
+      - "Kernel, real QUIC, disk, and operating-system scheduling"
+      - "Raft consensus and SWIM convergence correctness"
+      - "Issue #3's full simulated Tokio clock/timeout, SWIM engine, reconnecting multi-process transport, and real UDP/QUIC scope"
+requirements:
+  - id: DNH-SEED-REPLAY
+    classification: concurrent/distributed
+    failure_mode: "The same seed and action schedule produce different event traces or final states."
+    properties: [ReplayIdentical, OraclesAfterEveryEvent]
+    refinement:
+      - crates/chirps-mock/src/deterministic.rs::FaultSchedule::from_seed
+      - crates/chirps-mock/src/deterministic.rs::DeterministicNetwork::stable_trace
+      - tools/chirps-deterministic-harness/src/coordinator.rs::execute
+      - tools/chirps-deterministic-harness/src/main.rs::replay_command
+    local_component_test:
+      - crates/chirps-mock/tests/deterministic_network.rs::identical_seed_replays_identically
+      - tools/chirps-deterministic-harness/tests/replay.rs
+    release_evidence:
+      - docs/release/evidence/v0.6.0/multi-raft-fault-v2.json
+  - id: DNH-LINK-FAULTS
+    classification: concurrent/distributed
+    failure_mode: "Delay, loss, duplicate, reorder, or asymmetric partition injects an impossible delivery."
+    properties: [NoPartitionDelivery, NoEarlyDelivery, DuplicateBounded, ReorderAndCompositeObserved, AsymmetricLinkObserved, TerminalConvergence]
+    refinement:
+      - crates/chirps-mock/src/deterministic.rs::DeterministicNetwork::enqueue
+      - crates/chirps-mock/src/deterministic.rs::drain_due
+    local_component_test:
+      - crates/chirps-mock/tests/deterministic_network.rs::directed_link_faults_are_composable
+      - crates/chirps-mock/tests/deterministic_network.rs::partition_heal_is_asymmetric
+  - id: DNH-RECONNECT-RACE
+    classification: concurrent/distributed
+    failure_mode: "A frame queued for an old node registration is delivered after reconnect."
+    properties: [NoStaleGenerationDelivery, TerminalConvergence]
+    refinement:
+      - crates/chirps-mock/src/deterministic.rs::drain_due
+    local_component_test:
+      - crates/chirps-mock/tests/deterministic_network.rs::reconnect_discards_stale_generation
+  - id: DNH-FAILURE-ARTIFACT
+    classification: stateful
+    failure_mode: "A failing schedule cannot be minimized, serialized, or replayed."
+    property: not_applicable
+    reason: "JSON round-trip, failure-signature preservation, and 1-minimality are executable local contracts rather than network state safety properties."
+    refinement:
+      - tools/chirps-deterministic-harness/src/main.rs::minimize_fault_failure
+      - tools/chirps-deterministic-harness/src/main.rs::assert_fault_schedule_one_minimal
+      - tools/chirps-deterministic-harness/src/main.rs::build_artifact
+      - tools/chirps-deterministic-harness/src/lib.rs::write_artifact_atomic
+    local_component_test:
+      - tools/chirps-deterministic-harness/tests/replay.rs::failure_artifact_round_trips_and_minimizes
+    release_evidence:
+      - docs/release/evidence/v0.6.0/multi-raft-controlled-failure-v2.json
+  - id: DNH-MULTI-RAFT-REQ-5-3
+    classification: concurrent/distributed
+    failure_mode: "Multi-Raft create/remove/route/tick or storage isolation passes only in an in-memory surrogate rather than through real manager and Raft frame boundaries."
+    properties: [ReplayIdentical, OraclesAfterEveryEvent]
+    refinement:
+      - tools/chirps-deterministic-harness/src/coordinator.rs::execute
+      - tools/chirps-deterministic-harness/src/worker.rs::run_worker
+      - crates/alopex-chirps/src/multi_raft/manager.rs::MultiRaftManager::route_frame
+      - crates/chirps-mock/src/deterministic.rs::DeterministicNetwork::deliver_next
+    local_component_test:
+      - crates/alopex-chirps/tests/multi_raft_storage.rs::manager_create_list_get_and_remove_are_consistent_and_idempotent
+      - tools/chirps-deterministic-harness/tests/replay.rs
+    release_evidence:
+      - docs/release/evidence/v0.6.0/multi-raft-fault-v2.json
+      - docs/release/evidence/v0.6.0/multi-raft-controlled-failure-v2.json

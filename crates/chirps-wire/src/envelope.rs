@@ -33,6 +33,13 @@ impl FrameEnvelopeV2 {
 
     pub fn encode(&self) -> Vec<u8> {
         let body = bincode::serialize(&self.frame).expect("failed to serialize frame");
+        self.encode_with_payload(&body)
+    }
+
+    /// Encode the envelope header using an already serialized frame body.
+    /// This avoids a second bincode traversal in transports that already need
+    /// the body for queue sizing or retransmission bookkeeping.
+    pub fn encode_with_payload(&self, body: &[u8]) -> Vec<u8> {
         let payload_len = body.len() as u32;
         let mut buf = Vec::with_capacity(FRAME_ENVELOPE_V2_HEADER_SIZE + payload_len as usize);
         buf.push(self.kind);
@@ -40,7 +47,7 @@ impl FrameEnvelopeV2 {
         buf.extend_from_slice(&self.ack_seq.to_be_bytes());
         buf.extend_from_slice(&self.timestamp.to_be_bytes());
         buf.extend_from_slice(&payload_len.to_be_bytes());
-        buf.extend_from_slice(&body);
+        buf.extend_from_slice(body);
         buf
     }
 
@@ -83,5 +90,27 @@ impl FrameEnvelopeV2 {
             payload_len,
             frame,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FrameEnvelopeV2;
+    use crate::frame::{Frame, RaftFrame};
+
+    #[test]
+    fn pre_serialized_payload_encoding_matches_normal_encoding() {
+        let envelope = FrameEnvelopeV2::new(
+            3,
+            7,
+            6,
+            0,
+            Frame::Raft(RaftFrame {
+                group_id: 1,
+                payload: vec![1, 2, 3],
+            }),
+        );
+        let body = bincode::serialize(&envelope.frame).expect("frame body");
+        assert_eq!(envelope.encode(), envelope.encode_with_payload(&body));
     }
 }

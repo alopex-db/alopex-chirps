@@ -11,6 +11,7 @@ use alopex_chirps_wire::node_id::NodeId;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs;
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 /// Result of a broadcast transfer request.
@@ -51,6 +52,7 @@ pub async fn broadcast_file(
         None,
         None,
         None,
+        None,
     )
     .await
 }
@@ -68,6 +70,7 @@ pub(crate) async fn broadcast_file_with_context(
     session_store: Option<SessionRegistry>,
     persistence: Option<Arc<SessionPersistence>>,
     metrics: Option<Arc<PrometheusMetrics>>,
+    transfer_slots: Option<Arc<Semaphore>>,
 ) -> Result<BroadcastResult, FileTransferError> {
     let metadata = fs::metadata(source_path).await?;
     let file_size = metadata.len();
@@ -85,7 +88,17 @@ pub(crate) async fn broadcast_file_with_context(
         let session_store = session_store.clone();
         let persistence = persistence.clone();
         let metrics = metrics.clone();
+        let transfer_slots = transfer_slots.clone();
         join_set.spawn(async move {
+            let _transfer_slot = match transfer_slots {
+                Some(slots) => Some(slots.acquire_owned().await.map_err(|_| {
+                    (
+                        target,
+                        FileTransferError::Internal("transfer slots are closed".into()),
+                    )
+                })?),
+                None => None,
+            };
             let result = send_file_with_context(
                 control,
                 stream_opener,
@@ -99,6 +112,7 @@ pub(crate) async fn broadcast_file_with_context(
                 session_store,
                 persistence,
                 metrics,
+                None,
                 None,
                 false,
             )

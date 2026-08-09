@@ -11,6 +11,8 @@ use std::sync::{
 };
 use tokio::sync::{Mutex, RwLock, mpsc};
 
+pub mod deterministic;
+
 type SharedPeers = Arc<RwLock<HashMap<NodeId, (SocketAddr, mpsc::Sender<(NodeId, Frame)>)>>>;
 
 /// 単一プロセス内でのメモリ内トランスポートを提供するネットワーク。

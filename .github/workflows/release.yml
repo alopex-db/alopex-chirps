@@ -1,13 +1,37 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'chirps-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Annotated tag to create after all gates pass (chirps-vX.Y.Z)
+        required: true
+        type: string
+      commit:
+        description: Exact 40-character commit SHA to verify and tag
+        required: true
+        type: string
+      confirm_publish:
+        description: Confirm that the release contract and evidence have been reviewed
+        required: true
+        type: boolean
+      resume_partial_publish:
+        description: Resume a partially published release whose exact annotated tag already exists
+        required: false
+        default: false
+        type: boolean
 
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag }}
+  RELEASE_COMMIT: ${{ inputs.commit }}
+  RELEASE_CONFIRM: ${{ inputs.confirm_publish }}
+  RESUME_PARTIAL_PUBLISH: ${{ inputs.resume_partial_publish }}
+
+concurrency:
+  group: chirps-release-${{ inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   # Run CI checks before release
@@ -16,16 +40,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify tag matches Cargo.toml version
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Verify publish confirmation, tag candidate, commit, and version
+        id: release_metadata
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          [[ "${RELEASE_CONFIRM}" == "true" ]] || {
+            echo "confirm_publish must be true" >&2
+            exit 1
+          }
+          tag="${RELEASE_TAG}"
           prefix="chirps-v"
           if [[ "${tag}" != "${prefix}"* ]]; then
             echo "Expected tag prefix ${prefix}, got ${tag}"
             exit 1
           fi
           tag_version="${tag#${prefix}}"
+          [[ "${tag_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Expected semantic version in ${tag}" >&2
+            exit 1
+          }
+          [[ "${RELEASE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "commit must be an exact lowercase 40-character SHA" >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "${RELEASE_COMMIT}" ]] || {
+            echo "checkout does not match requested commit" >&2
+            exit 1
+          }
+          existing_tag_commit="$(git ls-remote origin "refs/tags/${tag}^{}" | awk '{print $1}')"
+          if [[ -n "${existing_tag_commit}" ]]; then
+            if [[ "${RESUME_PARTIAL_PUBLISH}" != "true" ]]; then
+              echo "Refusing to reuse existing remote tag ${tag}; set resume_partial_publish=true only for an exact partial publish recovery" >&2
+              exit 1
+            fi
+            [[ "${existing_tag_commit}" == "${RELEASE_COMMIT}" ]] || {
+              echo "Existing tag ${tag} does not point to requested commit" >&2
+              exit 1
+            }
+            echo "Resuming partial publish for existing tag ${tag} at ${existing_tag_commit}"
+          fi
           cargo_version="$(python -c $'import sys\nimport tomllib\n\nwith open("Cargo.toml", "rb") as handle:\n    data = tomllib.load(handle)\n\nversion = data.get("workspace", {}).get("package", {}).get("version")\nif not version:\n    sys.exit("Failed to read workspace.package version from Cargo.toml")\n\nprint(version)')"
           if [[ -z "${cargo_version}" ]]; then
             echo "Failed to read workspace.package version from Cargo.toml"
@@ -36,36 +92,107 @@ jobs:
             exit 1
           fi
           echo "Tag version ${tag_version} matches Cargo.toml"
+          echo "version=${tag_version}" >> "${GITHUB_OUTPUT}"
+          echo "commit=${RELEASE_COMMIT}" >> "${GITHUB_OUTPUT}"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Run v0.6 target-version release gate
+        if: steps.release_metadata.outputs.version == '0.6.0'
+        run: |
+          scripts/run-v0.6-release-gate.sh \
+            --output-dir "${RUNNER_TEMP}/chirps-v0.6-release-evidence" \
+            --source-commit "${{ steps.release_metadata.outputs.commit }}"
+      - name: Verify release contract and version-bound evidence
+        run: |
+          version="${{ steps.release_metadata.outputs.version }}"
+          commit="${{ steps.release_metadata.outputs.commit }}"
+          args=(--version "${version}" --source-commit "${commit}" --require-ready)
+          if [[ "${version}" == "0.6.0" ]]; then
+            args+=(--manifest "${RUNNER_TEMP}/chirps-v0.6-release-evidence/manifest.json")
+          fi
+          scripts/verify-release-contract.sh "${args[@]}"
+      - name: Archive v0.6 release evidence
+        if: steps.release_metadata.outputs.version == '0.6.0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chirps-v0.6-release-evidence-${{ steps.release_metadata.outputs.commit }}
+          path: ${{ runner.temp }}/chirps-v0.6-release-evidence
+          if-no-files-found: error
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo test --workspace --all-features -- --test-threads=1
+      - name: Run documentation tests
+        run: cargo test --doc --workspace
+      - name: Run File Transfer release acceptance tests
+        run: cargo test -p alopex-chirps-file-transfer --all-features
+      - name: Run QUIC network integration tests
+        run: cargo test -p alopex-chirps-transport-quic --test quic_integration -- --ignored
+      - name: Run three-node mesh integration tests
+        run: cargo test -p chirps-e2e --test three_node_mesh -- --ignored
+
+  publish-tag:
+    name: Publish verified annotated tag
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Create and push annotated tag
+        if: inputs.resume_partial_publish != true
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "${RELEASE_COMMIT}" ]] || {
+            echo "checkout does not match verified commit" >&2
+            exit 1
+          }
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}")" ]]; then
+            echo "Refusing to overwrite existing remote tag ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${RELEASE_TAG}" -m "Alopex Chirps ${RELEASE_TAG#chirps-v}"
+          git push origin "refs/tags/${RELEASE_TAG}"
+      - name: Verify existing annotated tag for partial publish recovery
+        if: inputs.resume_partial_publish == true
+        run: |
+          set -euo pipefail
+          existing_tag_commit="$(git ls-remote origin "refs/tags/${RELEASE_TAG}^{}" | awk '{print $1}')"
+          [[ "${existing_tag_commit}" == "${RELEASE_COMMIT}" ]] || {
+            echo "Existing tag ${RELEASE_TAG} does not point to requested commit" >&2
+            exit 1
+          }
 
   publish-crate:
     name: Publish to crates.io
-    needs: ci-gate
+    needs: [publish-tag]
     runs-on: ubuntu-latest
+    environment: release
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
       # Layer 1: No internal dependencies
       - name: Publish alopex-chirps-wire
         run: ./scripts/publish-crate.sh alopex-chirps-wire
-        continue-on-error: true
 
       - name: Publish alopex-chirps-raft-storage
         run: ./scripts/publish-crate.sh alopex-chirps-raft-storage
-        continue-on-error: true
 
       - name: Wait for crates.io index update
         run: sleep 30
@@ -73,11 +200,9 @@ jobs:
       # Layer 2: Depends on alopex-chirps-wire
       - name: Publish alopex-chirps-core
         run: ./scripts/publish-crate.sh alopex-chirps-core
-        continue-on-error: true
 
       - name: Publish alopex-chirps-gossip-swim
         run: ./scripts/publish-crate.sh alopex-chirps-gossip-swim
-        continue-on-error: true
 
       - name: Wait for crates.io index update
         run: sleep 30
@@ -85,15 +210,12 @@ jobs:
       # Layer 3: Depends on alopex-chirps-wire + alopex-chirps-core
       - name: Publish alopex-chirps-mock
         run: ./scripts/publish-crate.sh alopex-chirps-mock
-        continue-on-error: true
-
-      - name: Publish alopex-chirps-file-transfer
-        run: ./scripts/publish-crate.sh alopex-chirps-file-transfer
-        continue-on-error: true
 
       - name: Publish alopex-chirps-transport-quic
         run: ./scripts/publish-crate.sh alopex-chirps-transport-quic
-        continue-on-error: true
+
+      - name: Publish alopex-chirps-file-transfer
+        run: ./scripts/publish-crate.sh alopex-chirps-file-transfer
 
       - name: Wait for crates.io index update
         run: sleep 30
@@ -101,20 +223,23 @@ jobs:
       # Layer 4: Depends on all above
       - name: Publish alopex-chirps
         run: ./scripts/publish-crate.sh alopex-chirps
-        continue-on-error: true
 
   create-release:
     name: Create GitHub Release
     needs: publish-crate
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

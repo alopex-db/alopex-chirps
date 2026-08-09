@@ -8,7 +8,9 @@ use crate::options::{ConflictResolution, SyncDirection, SyncOptions};
 use crate::persistence::SessionPersistence;
 use crate::progress::SyncHandle;
 use crate::session::{TransferKind, TransferSession, TransferState};
-use alopex_chirps_wire::file_transfer::{FileTransferMessage, MetadataRequest, MetadataResponse};
+use alopex_chirps_wire::file_transfer::{
+    FileTransferMessage, MetadataRequest, MetadataResponse, SyncRequest,
+};
 use alopex_chirps_wire::node_id::NodeId;
 use std::cmp::Ordering;
 use std::path::Path;
@@ -97,6 +99,8 @@ pub(crate) async fn sync_file_with_context(
         options.conflict_resolution,
         local_path,
     )?;
+    let mut transfer_options = options.transfer.clone();
+    transfer_options.follow_symlinks = options.follow_symlinks;
 
     match action {
         SyncAction::None => {
@@ -105,6 +109,10 @@ pub(crate) async fn sync_file_with_context(
             Ok(handle)
         }
         SyncAction::Push => {
+            // A conflict-resolution decision to push replaces a known remote
+            // file; otherwise the receiver would reject the transfer before
+            // that decision can take effect.
+            transfer_options.overwrite = remote_metadata.metadata.is_some();
             let result = send_file_with_context(
                 control,
                 stream_opener,
@@ -113,11 +121,12 @@ pub(crate) async fn sync_file_with_context(
                 target,
                 local_path,
                 remote_path,
-                options.transfer.clone(),
+                transfer_options,
                 TransferKind::Sync,
                 session_store.clone(),
                 persistence.clone(),
                 metrics.clone(),
+                None,
                 None,
                 true,
             )
@@ -130,12 +139,16 @@ pub(crate) async fn sync_file_with_context(
             Ok(handle)
         }
         SyncAction::Pull => {
-            wait_for_pull_transfer(
+            // Symmetrically, a selected pull is authorized to replace the
+            // local file that lost conflict resolution.
+            transfer_options.overwrite = local_metadata.is_some();
+            request_pull_transfer(
                 &control,
                 &receive_handler,
                 target,
                 local_path,
                 remote_path,
+                transfer_options,
                 &config,
             )
             .await
@@ -307,111 +320,85 @@ async fn request_remote_metadata(
     }
 }
 
-async fn wait_for_pull_transfer(
+async fn request_pull_transfer(
     control: &ControlDispatcher,
     receive_handler: &ReceiveHandler,
     target: NodeId,
     local_path: &Path,
     remote_path: &Path,
+    transfer_options: crate::options::TransferOptions,
     config: &crate::config::FileTransferConfig,
 ) -> Result<SyncHandle, FileTransferError> {
-    let local_path_str = local_path.display().to_string();
-    let remote_path_str = remote_path.display().to_string();
-    let (session_id, sender, message) = control
-        .recv_any_filtered(config.manifest_timeout, move |sender, msg| {
-            if sender != target {
-                return false;
-            }
-            match msg {
-                FileTransferMessage::TransferRequest(request) => {
-                    request.source_path.as_str() == remote_path_str.as_str()
-                        && request.dest_path.as_str() == local_path_str.as_str()
-                }
-                _ => false,
-            }
-        })
-        .await?;
-    if sender != target {
-        return Err(FileTransferError::Internal(
-            "unexpected transfer request sender".into(),
-        ));
-    }
-    let FileTransferMessage::TransferRequest(request) = message else {
-        return Err(FileTransferError::Internal(
-            "unexpected transfer request message".into(),
-        ));
-    };
-    let response = receive_handler
-        .handle_transfer_request(session_id, request)
-        .await?;
-    control
-        .send_message(
-            target,
-            session_id,
-            FileTransferMessage::TransferResponse(response.clone()),
-        )
-        .await?;
-    if !response.accepted {
-        return Err(FileTransferError::Rejected(
-            response
-                .rejection_reason
-                .unwrap_or_else(|| "pull transfer rejected".into()),
-        ));
-    }
+    let session_id = crate::TransferSessionId::new();
     receive_handler.mark_sync_session(session_id).await;
-
-    let (sender, message) = control
-        .recv_filtered(session_id, config.manifest_timeout, |msg| {
-            matches!(msg, FileTransferMessage::Manifest(_))
-        })
-        .await?;
-    if sender != target {
-        return Err(FileTransferError::Internal(
-            "unexpected pull manifest sender".into(),
-        ));
-    }
-    let FileTransferMessage::Manifest(manifest) = message else {
-        return Err(FileTransferError::Internal(
-            "unexpected pull manifest message".into(),
-        ));
-    };
-    let file_size = manifest.file_size;
-    let manifest_ack = receive_handler.handle_manifest(sender, manifest).await?;
-    let ack_accepted = manifest_ack.accepted;
-    let ack_error = manifest_ack.error.clone();
     control
         .send_message(
             target,
             session_id,
-            FileTransferMessage::ManifestAck(manifest_ack),
+            FileTransferMessage::SyncRequest(SyncRequest {
+                source_path: remote_path.display().to_string(),
+                dest_path: local_path.display().to_string(),
+                options: crate::ops::conversions::to_wire_transfer_options(&transfer_options),
+            }),
         )
         .await?;
-    if !ack_accepted {
-        return Err(FileTransferError::Rejected(
-            ack_error.unwrap_or_else(|| "manifest rejected".into()),
-        ));
-    }
 
-    let handle = SyncHandle::new(file_size);
-    wait_for_completion(receive_handler, session_id, &handle, config.idle_timeout).await?;
+    let handle = SyncHandle::new(0);
+    wait_for_completion(
+        control,
+        target,
+        receive_handler,
+        session_id,
+        &handle,
+        config.manifest_timeout,
+        config.idle_timeout,
+    )
+    .await?;
     Ok(handle)
 }
 
 async fn wait_for_completion(
+    control: &ControlDispatcher,
+    target: NodeId,
     receive_handler: &ReceiveHandler,
     session_id: TransferSessionId,
     handle: &SyncHandle,
+    manifest_timeout: Duration,
     idle_timeout: Duration,
 ) -> Result<(), FileTransferError> {
     let mut last_bytes = 0u64;
     let mut last_chunks = 0u32;
     let mut last_activity = Instant::now();
 
+    let manifest_deadline = Instant::now() + manifest_timeout;
     loop {
-        let session = receive_handler
-            .session_snapshot(session_id)
-            .await
-            .ok_or(FileTransferError::SessionNotFound(session_id))?;
+        let Some(session) = receive_handler.session_snapshot(session_id).await else {
+            if Instant::now() >= manifest_deadline {
+                return Err(FileTransferError::Timeout);
+            }
+            let wait = manifest_deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(100));
+            match control
+                .recv_filtered(session_id, wait, |message| {
+                    matches!(
+                        message,
+                        FileTransferMessage::Error(_) | FileTransferMessage::Cancel(_)
+                    )
+                })
+                .await
+            {
+                Ok((sender, FileTransferMessage::Error(error))) if sender == target => {
+                    return Err(FileTransferError::Transport(error.message));
+                }
+                Ok((sender, FileTransferMessage::Cancel(_))) if sender == target => {
+                    return Err(FileTransferError::Cancelled);
+                }
+                Ok(_) | Err(FileTransferError::Timeout) => continue,
+                Err(error) => return Err(error),
+            }
+        };
+        handle.set_total_bytes(session.manifest.file_size).await;
         let (bytes, chunks) = progress_from_session(&session);
 
         if bytes != last_bytes || chunks != last_chunks {

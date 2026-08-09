@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alopex-db/alopex-chirps/docs/release/evidence/v0.6.0/manifest.schema.json",
+  "title": "Chirps v0.6 release evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "release_version", "source_commit", "contract", "target_gate", "evidence"],
+  "properties": {
+    "schema": {"const": "chirps.release-evidence/v1"},
+    "release_version": {"const": "0.6.0"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "contract": {"const": "docs/release/v0.6.0.md"},
+    "target_gate": {"$ref": "#/$defs/evidence"},
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/evidence"}
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "release_version", "source_commit", "result", "path", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "release_version": {"const": "0.6.0"},
+        "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "result": {"const": "pass"},
+        "path": {"type": "string", "pattern": "^[^/].*"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

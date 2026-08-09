@@ -1,0 +1,72 @@
+name: Two-host FileTransfer deployment diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_bytes:
+        description: 'Payload bytes (default: 128 MiB)'
+        required: false
+        default: '134217728'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: Collect two-host QUIC deployment diagnostic
+    runs-on: [self-hosted, linux, chirps-1gbps-controller]
+    timeout-minutes: 30
+    env:
+      CHIRPS_PERF_SENDER_HOST: ${{ vars.CHIRPS_PERF_SENDER_HOST }}
+      CHIRPS_PERF_RECEIVER_HOST: ${{ vars.CHIRPS_PERF_RECEIVER_HOST }}
+      CHIRPS_PERF_REMOTE_WORKDIR: ${{ vars.CHIRPS_PERF_REMOTE_WORKDIR }}
+      CHIRPS_PERF_REMOTE_OUTPUT_ROOT: ${{ vars.CHIRPS_PERF_REMOTE_OUTPUT_ROOT }}
+      CHIRPS_PERF_SENDER_CONTROL_BIND: ${{ vars.CHIRPS_PERF_SENDER_CONTROL_BIND }}
+      CHIRPS_PERF_SENDER_CONTROL_ADDRESS: ${{ vars.CHIRPS_PERF_SENDER_CONTROL_ADDRESS }}
+      CHIRPS_PERF_RECEIVER_CONTROL_BIND: ${{ vars.CHIRPS_PERF_RECEIVER_CONTROL_BIND }}
+      CHIRPS_PERF_RECEIVER_CONTROL_ADDRESS: ${{ vars.CHIRPS_PERF_RECEIVER_CONTROL_ADDRESS }}
+      CHIRPS_PERF_SENDER_DATA_BIND: ${{ vars.CHIRPS_PERF_SENDER_DATA_BIND }}
+      CHIRPS_PERF_SENDER_DATA_ADDRESS: ${{ vars.CHIRPS_PERF_SENDER_DATA_ADDRESS }}
+      CHIRPS_PERF_RECEIVER_DATA_BIND: ${{ vars.CHIRPS_PERF_RECEIVER_DATA_BIND }}
+      CHIRPS_PERF_RECEIVER_DATA_ADDRESS: ${{ vars.CHIRPS_PERF_RECEIVER_DATA_ADDRESS }}
+      CHIRPS_PERF_RECEIVER_IPERF_ADDRESS: ${{ vars.CHIRPS_PERF_RECEIVER_IPERF_ADDRESS }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect two-host evidence
+        run: |
+          set -euo pipefail
+          output_dir="${RUNNER_TEMP}/chirps-two-node-${GITHUB_RUN_ID}"
+          scripts/perf/run-two-node-file-transfer.sh \
+            --sender "${CHIRPS_PERF_SENDER_HOST}" \
+            --receiver "${CHIRPS_PERF_RECEIVER_HOST}" \
+            --remote-workdir "${CHIRPS_PERF_REMOTE_WORKDIR}" \
+            --remote-output-root "${CHIRPS_PERF_REMOTE_OUTPUT_ROOT}" \
+            --output "${output_dir}" \
+            --sender-control-bind "${CHIRPS_PERF_SENDER_CONTROL_BIND}" \
+            --sender-control-address "${CHIRPS_PERF_SENDER_CONTROL_ADDRESS}" \
+            --receiver-control-bind "${CHIRPS_PERF_RECEIVER_CONTROL_BIND}" \
+            --receiver-control-address "${CHIRPS_PERF_RECEIVER_CONTROL_ADDRESS}" \
+            --sender-data-bind "${CHIRPS_PERF_SENDER_DATA_BIND}" \
+            --sender-data-address "${CHIRPS_PERF_SENDER_DATA_ADDRESS}" \
+            --receiver-data-bind "${CHIRPS_PERF_RECEIVER_DATA_BIND}" \
+            --receiver-data-address "${CHIRPS_PERF_RECEIVER_DATA_ADDRESS}" \
+            --receiver-iperf-address "${CHIRPS_PERF_RECEIVER_IPERF_ADDRESS}" \
+            --file-bytes "${{ inputs.file_bytes }}"
+          cp -a "${output_dir}" two-host-deployment-diagnostic
+      - name: Publish result summary
+        if: always()
+        run: |
+          if [[ -f two-host-deployment-diagnostic/evidence/summary.md ]]; then
+            cat two-host-deployment-diagnostic/evidence/summary.md >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo 'No completed evidence summary was produced.' >> "${GITHUB_STEP_SUMMARY}"
+          fi
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: two-host-deployment-diagnostic
+          path: two-host-deployment-diagnostic
+          if-no-files-found: warn
+          retention-days: 90

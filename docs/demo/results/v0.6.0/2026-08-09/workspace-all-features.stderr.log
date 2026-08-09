@@ -1,0 +1,67 @@
+   Compiling chirps-v06-demo v0.6.0 (/home/roomtv/works/alopex-db/chirps/tools/chirps-v06-demo)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1.52s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps-513f5ba51318b646)
+     Running tests/hlc.rs (target/debug/deps/hlc-2b47d3073227a4cb)
+     Running tests/hlc_metrics.rs (target/debug/deps/hlc_metrics-b5578d7579a69e6b)
+     Running tests/mesh_file_transfer.rs (target/debug/deps/mesh_file_transfer-a325add9d4156bf6)
+     Running tests/metrics_api.rs (target/debug/deps/metrics_api-de1308704b40b482)
+     Running tests/multi_raft_lifecycle.rs (target/debug/deps/multi_raft_lifecycle-2f480d2aabbb3c4b)
+     Running tests/multi_raft_storage.rs (target/debug/deps/multi_raft_storage-7ca763ee95ae629c)
+     Running tests/multi_raft_three_voter.rs (target/debug/deps/multi_raft_three_voter-b39bcb04ef2441da)
+     Running tests/multi_raft_transport.rs (target/debug/deps/multi_raft_transport-c47fc408a4bc1b16)
+     Running tests/node_id_persistence.rs (target/debug/deps/node_id_persistence-4715503c9b65538d)
+     Running tests/profile_compatibility.rs (target/debug/deps/profile_compatibility-3c65a0da35517ea0)
+     Running tests/raft_cluster.rs (target/debug/deps/raft_cluster-7e2b242e278f1be9)
+     Running tests/snapshot_transfer.rs (target/debug/deps/snapshot_transfer-ce987f1212698707)
+     Running tests/tso_client.rs (target/debug/deps/tso_client-7b4729adeb55f22a)
+     Running tests/tso_handoff.rs (target/debug/deps/tso_handoff-a17846c91d24ab4b)
+     Running tests/tso_oracle.rs (target/debug/deps/tso_oracle-98f377ca3e8bcfba)
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_core-453eabf8634ee02b)
+     Running tests/backend_profile_contract.rs (target/debug/deps/backend_profile_contract-7a67a6e283548ed1)
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_file_transfer-718d45cd62fe36d2)
+     Running tests/unit/bandwidth.rs (target/debug/deps/bandwidth-1cc4fb47b52a416d)
+     Running tests/unit/chunk_manager.rs (target/debug/deps/chunk_manager-75fecb55d19053ba)
+     Running tests/unit/chunk_tracker.rs (target/debug/deps/chunk_tracker-7e0eb472880c696f)
+     Running tests/integration/file_transfer.rs (target/debug/deps/file_transfer-1174528263a02b96)
+     Running tests/unit/integrity.rs (target/debug/deps/integrity-cedb6a348d795a10)
+     Running tests/unit/path_validator.rs (target/debug/deps/path_validator-7aacbc376f745b1e)
+     Running tests/unit/performance_contract.rs (target/debug/deps/performance_contract-12fbee4635e96840)
+     Running tests/unit/persistence.rs (target/debug/deps/persistence-96d10923c63889ab)
+     Running tests/unit/stream_codec.rs (target/debug/deps/stream_codec-ea5dafae59aebd52)
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_gossip_swim-28a3bddec1c4d333)
+     Running tests/hlc_ordering.rs (target/debug/deps/hlc_ordering-6745783a145c9424)
+     Running tests/resilience.rs (target/debug/deps/resilience-43768c0a9d4eaa23)
+     Running tests/util_integration.rs (target/debug/deps/util_integration-22d96bd69778ab53)
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_mock-aa76f0ed2b39190d)
+     Running tests/deterministic_network.rs (target/debug/deps/deterministic_network-032ac49d91ad6cd4)
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_raft_storage-8a55b9f32e71ca3f)
+     Running tests/resilience.rs (target/debug/deps/resilience-64b068cad9c16826)
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_transport_quic-0c7d7da6d1ce299c)
+     Running tests/priority_integration.rs (target/debug/deps/priority_integration-68b93a537675110a)
+     Running tests/qos_integration.rs (target/debug/deps/qos_integration-e2c2639b2146476c)
+     Running tests/quic_integration.rs (target/debug/deps/quic_integration-cdfa4f38bb218ad6)
+     Running tests/resilience_qos.rs (target/debug/deps/resilience_qos-741a14eeb60b15db)
+     Running tests/retransmit_integration.rs (target/debug/deps/retransmit_integration-c100d80d8907a4e2)
+     Running tests/snapshot_integration.rs (target/debug/deps/snapshot_integration-821f2cb433f53d2d)
+     Running tests/version_integration.rs (target/debug/deps/version_integration-2371845e1045de18)
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_wire-42f6138503df0828)
+     Running tests/file_transfer.rs (target/debug/deps/file_transfer-e56616f55ad0eff7)
+     Running unittests src/lib.rs (target/debug/deps/chirps_deterministic_harness-2a855b96fd70fe43)
+     Running unittests src/main.rs (target/debug/deps/chirps_deterministic_harness-f39c286b6b3525a1)
+     Running tests/replay.rs (target/debug/deps/replay-acab227b47d304ed)
+     Running unittests src/lib.rs (target/debug/deps/chirps_e2e-201bb1f0c5a6cfe1)
+     Running three_node_mesh.rs (target/debug/deps/three_node_mesh-0f2d2171301d1b46)
+     Running unittests src/lib.rs (target/debug/deps/chirps_multi_raft_perf-dd856a4287655004)
+     Running unittests src/main.rs (target/debug/deps/chirps_multi_raft_perf-b9cdaa6489520199)
+     Running unittests src/main.rs (target/debug/deps/chirps_v06_demo-890aeb4975f8e5b1)
+   Doc-tests alopex_chirps
+   Doc-tests alopex_chirps_core
+   Doc-tests alopex_chirps_file_transfer
+   Doc-tests alopex_chirps_gossip_swim
+   Doc-tests alopex_chirps_mock
+   Doc-tests alopex_chirps_raft_storage
+   Doc-tests alopex_chirps_transport_quic
+   Doc-tests alopex_chirps_wire
+   Doc-tests chirps_deterministic_harness
+   Doc-tests chirps_e2e
+   Doc-tests chirps_multi_raft_perf

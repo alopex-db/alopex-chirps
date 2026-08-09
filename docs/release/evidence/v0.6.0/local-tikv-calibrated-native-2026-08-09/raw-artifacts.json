@@ -1,0 +1,807 @@
+[
+  {
+    "kind": "host_facts",
+    "path": "host-facts.txt",
+    "sha256": "02caad09b79158e99d9874c4ead9a5e648c33721a58b2bf4d49bde4be6adedd0"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-0/loadgen1.json",
+    "sha256": "137532ed8b3842dc74b6713680207275af2c7ad80853b4e2d7e0227013fc59c7"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-0/loadgen2.json",
+    "sha256": "3335fc8022ec88d0b10315c04fca88f01f4bd9d7d5545468d3ccca3959845e15"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-0/loadgen3.json",
+    "sha256": "84d6da82629be8c228fe8a3d3b2b538658b164f62643a7d7104823ad48cce16e"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-0/membership.json",
+    "sha256": "9bdd5f15540d8c46206e146560ab16778edc64ad9773bb15f42ba64c85b20178"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/multi_raft-0/network-inspect.json",
+    "sha256": "473429515c7526eb320e0ac33b60fb507db331bf3b1109958ae66ef0db231934"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-0/node1-inspect.json",
+    "sha256": "9ab3874918f21546cb03964546713c490c60fe307c40b0b09bba81c110a0e0be"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-0/node1-metrics.jsonl",
+    "sha256": "82093725bb5abff525cf8912a8edc32f30486f8ff87c3a86e897af68b3bd878a"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-0/node1-qdisc.txt",
+    "sha256": "f360919e13e2d3c7d63c58f286e58282ddfbdd04e97dd6a46ade41a4d1356281"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-0/node2-inspect.json",
+    "sha256": "a76c961e27a200ac7d3564a7c3f53f4708ddb5a8230a05e5ef8e52b9b0538666"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-0/node2-metrics.jsonl",
+    "sha256": "3904c6551aa0b5a8e91c5c81381ed8cd56c51ff7398869bbf0ad99601dd10040"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-0/node2-qdisc.txt",
+    "sha256": "a1da0bc84685b0b91febb334df3b8eee709acd6cda7b737901109f1b66511dc7"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-0/node3-inspect.json",
+    "sha256": "61ed27fbcb6d0be676b44bb79c11421868cc05ea0584ff7195bb9f257a472d34"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-0/node3-metrics.jsonl",
+    "sha256": "d8546b559af2cbc2154ce12d8a70658f3f0b8dcf780f021f5a1b37216531c16f"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-0/node3-qdisc.txt",
+    "sha256": "b0906f0d01c8b4a63df55943afb9bd732d50a05540513d6f0f1fcc2210160669"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-0/rtt-shaped.json",
+    "sha256": "f40836ba2168b0befcbb14f1dfc87fffbfe80a24c0127a93e1e3c25e36043490"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-0/rtt-unloaded.json",
+    "sha256": "e79ca109a4e53d3f029494dee2dfc10e80eb92bf9330e3a40a489ed398830123"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-1/loadgen1.json",
+    "sha256": "4f8e119f2c96b0b5c4fe2863448b210afa3488c8f05d579e0df050f4e634de4b"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-1/loadgen2.json",
+    "sha256": "dc54f44a580efe069f5412c08372c91e7a3e80c5e317a6a9cf79cb1e0e7e9c26"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-1/loadgen3.json",
+    "sha256": "523454e54c8699f3863dba6a9e5241f5352e4c7e93128c7ee01011f2b544c12f"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-1/membership.json",
+    "sha256": "687e0fefcf1c7a169dc439cf21b9b92595e0b4c1b9237d022d55a23ff9c7bef1"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/multi_raft-1/network-inspect.json",
+    "sha256": "390b45075b8d35e590f80e38cf225136269d210083d3ac5e64cf7ca5e166c156"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-1/node1-inspect.json",
+    "sha256": "20ce3449902d2e0130c8552a3aed9bce4f09b81377097005eb349b4b4d9529cd"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-1/node1-metrics.jsonl",
+    "sha256": "a15e5426c7f5700b778e5f4f6e779f1283619d64d2cef6137eb51f312b3cc639"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-1/node1-qdisc.txt",
+    "sha256": "7821f26ccac0866af85e4a0fa0829dc68d85104bc0bb1803f74ea28aac57b54c"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-1/node2-inspect.json",
+    "sha256": "27eeff2ce07e0da44f6053d369f615f0c640c6082fc61fe31a1c30ff6898a36c"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-1/node2-metrics.jsonl",
+    "sha256": "d32aa8f246fe2b13be4c7de280c83a022322196083d7ba2ec1cd4fb223e22dfd"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-1/node2-qdisc.txt",
+    "sha256": "d2a09f8df853856e85dae40a60f78f79b00f3888f1e6103a196dd85dc332c723"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-1/node3-inspect.json",
+    "sha256": "a434cf64f6eeacfabeec0a60cdbe243f07396bd28eaf760cf6425ca07e20eed6"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-1/node3-metrics.jsonl",
+    "sha256": "e4fe337eaf2ee61bf5918fe6ba289f502a2e1c3ceb5960cf153384a963f4a477"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-1/node3-qdisc.txt",
+    "sha256": "7482fd6641e675c0648bfa164399d9bbc406550c7500f5d4cf391becaef63c6a"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-1/rtt-shaped.json",
+    "sha256": "ce4d8589e09308085e0f2f3c2dd894e38cf0d86c3e1ec9bacf22d1578d3817c5"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-1/rtt-unloaded.json",
+    "sha256": "0d7fa6318ec8dfced2c2eb838a4920d338c695639ca23e8c0aa9bebb2d825287"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-2/loadgen1.json",
+    "sha256": "a2b1213f19613fafb138e9ffb31738f8f8cf3981310437b7703275bf232cc1ca"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-2/loadgen2.json",
+    "sha256": "00cb2c3a000bdfcd3dd141601e1b1c739f693fc89fd0c7d68c57f876e523f647"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-2/loadgen3.json",
+    "sha256": "a5f2777d0d9cfa21ccc47fe37bf2eb24c824d3b2b609b70c2c09fc5fac41e36c"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-2/membership.json",
+    "sha256": "5d3a311f764645f2e719b1f059b3d64e83883e5138d7c9a2d6ede5c873f419ed"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/multi_raft-2/network-inspect.json",
+    "sha256": "533c9505766c78aca908f0251e84dd954a8e95e92356c33802f6255c7235370e"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-2/node1-inspect.json",
+    "sha256": "b9b1abb3451cc5cdf01638f2524463ad0aa1bef61e3cf1fc79eb96d8cea63035"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-2/node1-metrics.jsonl",
+    "sha256": "4a31a53329cc29af09568c09898a27a18e9538aa79a60c65444261c1d82044f3"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-2/node1-qdisc.txt",
+    "sha256": "a0e4b09467d1c4da15a1b0852f1e80408abed0b34a03fa50caf8998970729a6b"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-2/node2-inspect.json",
+    "sha256": "df09096a8e778107e97efe69022ba405c006daa82f784c1114b61bcc8447ad92"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-2/node2-metrics.jsonl",
+    "sha256": "5b0f39dfb9b7744b9f855f5aa91284e6e92471dff663cc25b19f854813da5ab4"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-2/node2-qdisc.txt",
+    "sha256": "fc584a43bba7ee456fad20ba38613fc79cfeeaf5c1a84d2173cee76b74336604"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-2/node3-inspect.json",
+    "sha256": "92dae4677dc4dffbb81eca11359fc648aa895a9db319c242df1b84794d980b8a"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-2/node3-metrics.jsonl",
+    "sha256": "0a69ddab43511f9c7f265ab67153487f098ff0ef9d797b960994f3dcf06f1327"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-2/node3-qdisc.txt",
+    "sha256": "aa8cc3d96eee8179e84c68dea0acf5c8b391a7643035cfe4301e2e5fc1def256"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-2/rtt-shaped.json",
+    "sha256": "92b9bc365b6a3b8b854976a3d55e483b7925eb72304177f81b9ae73853d6b952"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-2/rtt-unloaded.json",
+    "sha256": "ff5064c8f75e22946c7782e3bb5e2f3134b0e526f5517322e62aa80f74b27645"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-3/loadgen1.json",
+    "sha256": "01a1942015cf199ecb9f3817707f58071f75b9472c64c7c3d9d271faece273e5"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-3/loadgen2.json",
+    "sha256": "091fca67aedf50d144753c93adb503846a61a924538c2548f495137fb5208263"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-3/loadgen3.json",
+    "sha256": "8e72f4a258ff051ce799e2b6b357094e689b3c8ba3dbc36da83fc314fc3f03cd"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-3/membership.json",
+    "sha256": "71cfa5de8612bd17081d3d638ea8651dc0fc1d1af882ad893cdc0dc91493df31"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/multi_raft-3/network-inspect.json",
+    "sha256": "3e21c272c27a63409ec5a56a7ff8296926d2078d74705540d5a258027d4227a3"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-3/node1-inspect.json",
+    "sha256": "a527859f2b3907aefb453e643e40d7237cb12d25f0985767c1c496aa412d3022"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-3/node1-metrics.jsonl",
+    "sha256": "3dbb38f272b398fbab6fc2e9c74c711b5bf8022157eb8dac8bdf99d900374930"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-3/node1-qdisc.txt",
+    "sha256": "c23fffb96d09d474a064306ebb1d7900c4960706e932f860ba30680cfb668a11"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-3/node2-inspect.json",
+    "sha256": "3f84e2e18ce1e4295152e0b5ad51d14446fd184cd402410b0715893ff93b1dba"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-3/node2-metrics.jsonl",
+    "sha256": "e2cb37539276036e38a96635eff32bd66b8d26998403d0d165a010b4c4f4851f"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-3/node2-qdisc.txt",
+    "sha256": "326cf386dc0e1ec10d072555468a5a7def99a9b9832ea258c35f0c0236d1108e"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-3/node3-inspect.json",
+    "sha256": "e29397d70051ad4c8963a935069eb95a17970916d6efb4a5e65a01b7a8c845e5"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-3/node3-metrics.jsonl",
+    "sha256": "306214626c1eec2715bbdaab8af5d8c7fe40694d7686026ddac4af660236057f"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-3/node3-qdisc.txt",
+    "sha256": "128500e711913e68983e56f2c3bda28cfd356e21cc1b6769f9bc8263b4cf8b56"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-3/rtt-shaped.json",
+    "sha256": "232c31fd85bab742b026c73f89116e35909578cef7deeb74f5d6e1ec1f6c28a0"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-3/rtt-unloaded.json",
+    "sha256": "7a2e64f1eae22ab9dad6ad111162defce43112ef92c99ada43e1729d794f8a34"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-4/loadgen1.json",
+    "sha256": "5ef45870a5cf5f3f8ab654c4bb788ff801867a454f94074d56ab8fa602ebb97a"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-4/loadgen2.json",
+    "sha256": "0fbb514427c84d5feb05d369593b1606e237e57f370ce8587ada4814e88adc04"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/multi_raft-4/loadgen3.json",
+    "sha256": "6aad96c885d1241a96fd69bfdca192529387873c58087b62cb5f4770fdb986fa"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-4/membership.json",
+    "sha256": "7cef4dbfa54aa525f3dbaa26ce57633c31f1149cc79143e89c6fae29c6b8175a"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/multi_raft-4/network-inspect.json",
+    "sha256": "6790a85cbbab8f458064a8e7717a9ab6668d9263e03f1f71a7df1b7aa892d9e8"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-4/node1-inspect.json",
+    "sha256": "3d6899e7fe7add10d67d196799305c0089077d515695a44be34f6b4feaa123d8"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-4/node1-metrics.jsonl",
+    "sha256": "715602e5a60536ce67a0a1d7ce475eae0af692795dd60866886333be021222e9"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-4/node1-qdisc.txt",
+    "sha256": "e451fb63d86799c9d8f336b097418eac4bc0bd1d264b02ee1b19eec0ea0ed5e2"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-4/node2-inspect.json",
+    "sha256": "7093578e843a0889b8d6b9a1542412c762aebcd2db2a4163ea0f96f70b5b86cb"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-4/node2-metrics.jsonl",
+    "sha256": "c79298641bc5cb401ea142e68847c3273bb87901d02a1ade34ea046e5a517a2c"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-4/node2-qdisc.txt",
+    "sha256": "76061c669586940cb95c22aaa2c0b13dcad419fc149fd3b7202893fc6ecacba4"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/multi_raft-4/node3-inspect.json",
+    "sha256": "d3f2b6f2caf5f420915f9dbc8939c1d7ed89e5e2cca3f400ec8913a83fd2f80e"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/multi_raft-4/node3-metrics.jsonl",
+    "sha256": "fcd1f5c221e486e3ab7b3eba25f7aea31d1ff40226b5ef1eadf6ecec052352f7"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/multi_raft-4/node3-qdisc.txt",
+    "sha256": "df10a7d938ffb596e38d598e9efcb13ee9a0250cd3285e2acacd1f6a69b1e4aa"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-4/rtt-shaped.json",
+    "sha256": "201d68f572526dbbff195c10528183be67795686c85788c5b9b7d126743cf5e5"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/multi_raft-4/rtt-unloaded.json",
+    "sha256": "f0b50c0ade2f217ec014ecbca7eec592986896c107591487c54daecfb04dff67"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-0/loadgen1.json",
+    "sha256": "f094782ff8e78ec1394cf2e70f0485d76a9e7da6e1f3aa27c68c4eb7f15f0aad"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-0/loadgen2.json",
+    "sha256": "38e36b501eb18177cd3eb73107798ce30fcc57741829623d4288fa2958719c16"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-0/loadgen3.json",
+    "sha256": "72662e74a54cfcc0f61fcaa0cda9a4d1a7b7c56cf9d428387caa79e02fd194ea"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-0/membership.json",
+    "sha256": "f62bb0d31dbb988883b6b314bf6e8efc080da2ab3f9a31a77b4c98b1c5d7902a"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/single_group-0/network-inspect.json",
+    "sha256": "745f360d4dce32dcb7dc3a445c1c68fb22994591cb967e7d97ca3214242a48ce"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-0/node1-inspect.json",
+    "sha256": "04660def993bc6f3b053d089c16de77344620e8fc0e66d10e8c0727f428d73a3"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-0/node1-metrics.jsonl",
+    "sha256": "187e958b5230c61cecbc1f3a54f9d12ede5286a678b8fd34a54e4f7ba35aa633"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-0/node1-qdisc.txt",
+    "sha256": "84c5e208b2ed79369da3287d752f545b3c71d0c01418c6f9a54b51c1b3b6729d"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-0/node2-inspect.json",
+    "sha256": "e2103c875839debb61007db0b7b70262796a414f2fe9337cbb1a48e3b519899b"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-0/node2-metrics.jsonl",
+    "sha256": "54ccd2bc42e6232187eedc0b017f3c46754e11e0d565e8c7fcc27559ea179485"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-0/node2-qdisc.txt",
+    "sha256": "8c1ed13d138b50a8f370c634fcf30a11c86bd6e03dda8806b62995d85f968610"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-0/node3-inspect.json",
+    "sha256": "687a2aefa84fa6d4fa6cf4249216ede96c6d90f5ec123b66a59532a63ebb4cdb"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-0/node3-metrics.jsonl",
+    "sha256": "b90a4c3a6190dde6a43c6cd736206d369484edb4ccf9b65021f8efea0f80f30c"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-0/node3-qdisc.txt",
+    "sha256": "8ebdba96944ae2b9a410a9e3d2f2189099c1189d6d1e69f64a362e5b7d6b4c7a"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-0/rtt-shaped.json",
+    "sha256": "1e9765ae0ef948a1970bef648b68cfbab8aacd1451bffaadaecbd878385a48f3"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-0/rtt-unloaded.json",
+    "sha256": "433526d0636f8946d4c1361de3fa59c4717c71d69e00a3ed865dae1a69dd1bde"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-1/loadgen1.json",
+    "sha256": "91f55d6f72001418bc4d90974dc147c5a29bfe792bd851a6f9b910a8ccef221b"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-1/loadgen2.json",
+    "sha256": "1b5b24804d461c1ddbf2120ecd6c5755565d58533a955b8385e5c26f49904414"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-1/loadgen3.json",
+    "sha256": "517bffb9eac368fe9be8a97ee827d48a9cc601acbcd51565d3066f3bb277abcd"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-1/membership.json",
+    "sha256": "582b82a5143f38761415cf8ed10ac094e07e3200f7bd90096c7ca25a3a7bcbad"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/single_group-1/network-inspect.json",
+    "sha256": "b5950ffe9c3662c76addcab01c577926bd00e662ef685eeefe568f82331971de"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-1/node1-inspect.json",
+    "sha256": "90f26a2b1dbaf8abde918620512378dc8bbfb46a197d9b65456131f3c7980d05"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-1/node1-metrics.jsonl",
+    "sha256": "7970fc9435c7b4170d248bf36f4f8b964569f5386c60d8a130974cedd4e1198b"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-1/node1-qdisc.txt",
+    "sha256": "910a20c8b11ac7014355b0dc061f257de25dfcce120c810e315e7b521ada7e5f"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-1/node2-inspect.json",
+    "sha256": "4729ca8a77364216398dc35efa142ac953ca20d391ec04c678ab90d6c0721886"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-1/node2-metrics.jsonl",
+    "sha256": "d07e79cf6241e3d4e998895a1ab06631a63483d436a01c2b092097098dd5b9f2"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-1/node2-qdisc.txt",
+    "sha256": "87f093aae0ec9191fb1bec09fd9d5a9da559315f1dde8b17df1d2098bf797f5e"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-1/node3-inspect.json",
+    "sha256": "7533fc0f9a1d1a5868d697d7f9e66f1b2e21ead9858a83f2d7f8c6999e58bd51"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-1/node3-metrics.jsonl",
+    "sha256": "784a9e0d0f7fbc80d7d5f53a018966542a5b54cbdb9ccb3140eb98b478fd9169"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-1/node3-qdisc.txt",
+    "sha256": "77c4f5f5397f81e6db8174aa4396d363f1e34bfabb7762411f372117589fb85f"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-1/rtt-shaped.json",
+    "sha256": "deae2c5ea9a963827234660ad98dc96a36b60ffe4d327ea18f1588631f09e3bf"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-1/rtt-unloaded.json",
+    "sha256": "1dba548fcda79bcbdaa87a8b460ef631c366c95de6ea82864815dc4a6d9a9b32"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-2/loadgen1.json",
+    "sha256": "292250ccf0f7ad2a182d765ac304a38fcc68f4b01f3ae8f66b3ad2ad7e5781e2"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-2/loadgen2.json",
+    "sha256": "0b045f0c5af85520ce0763568ba9876cc0797cf5ec926a790a7d0d4890835b2e"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-2/loadgen3.json",
+    "sha256": "fcc02b04f446a3598b1b411f0ce8d0ce4996b2d410662c72bb21986e3e77ae6a"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-2/membership.json",
+    "sha256": "ce87a045cf58bff26043507a56eaf6bdbcf525a4476ecab3daa7555dde211cd4"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/single_group-2/network-inspect.json",
+    "sha256": "2b9cdb2bfb1b9cc4c57dd60c0b1a32602074f4242e7bf3415a48a2aeee6c2533"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-2/node1-inspect.json",
+    "sha256": "94def347ce32a016329b64b43a85f1c614148f0c0d1fb54bedf353797061a2d1"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-2/node1-metrics.jsonl",
+    "sha256": "c5d0d34a6d2e11379d741f90d5d2a1cc0fa2ef0c3282d6a8220aa37b9669330d"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-2/node1-qdisc.txt",
+    "sha256": "93785a88276d0da48752f42356dc6232a522a670077b8b455bd6b4b697718978"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-2/node2-inspect.json",
+    "sha256": "5b36e11e24c06d8dbce1449b3f6694c069104d115cde9cdd30680d34c94b7e92"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-2/node2-metrics.jsonl",
+    "sha256": "e6a74ad170ccd1739ab54697b8db8bdc96498635318f1803ee83952a6c81d401"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-2/node2-qdisc.txt",
+    "sha256": "c73abbe68568a239ce6b92bcecac58b19ff046d4d0186598d738e0c7c6787902"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-2/node3-inspect.json",
+    "sha256": "aafbe5d9a77dde77a7f850a8bd42a2b7f0b9252cdfc9345806f9667907f1aac9"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-2/node3-metrics.jsonl",
+    "sha256": "543280f06438b324b8609ad23953776d80319b964f382385646f1c14032d2e70"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-2/node3-qdisc.txt",
+    "sha256": "0b9c938026aa2280307e1d5b4f80f17eda8c084f46b09e73ebf28f27ad4022fb"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-2/rtt-shaped.json",
+    "sha256": "feca29e75c75186113b32e66a348a97f02ec851c06f92bbc15bcec1756bfee51"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-2/rtt-unloaded.json",
+    "sha256": "061709f22bc546f98dc55bd8d93881bbed93e9d320bbb3288466685529f22974"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-3/loadgen1.json",
+    "sha256": "a4bf1df4ba02b1bd812212a80b51dedca06f5bceef5b3815b1a0a78abb0e748f"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-3/loadgen2.json",
+    "sha256": "b33c8ef45fb1ef02180820932b3f7a6ea6613a41484103b0854209988fcae984"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-3/loadgen3.json",
+    "sha256": "73fe933fc70c51423d30c3e66df8b84d4e97b514cf6ae9598a7ff6a011629c87"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-3/membership.json",
+    "sha256": "65b078c5bcbf3c085e05261dbc444e1a0d59608786c9f6184edc19dfe22ef54d"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/single_group-3/network-inspect.json",
+    "sha256": "5046aa32605c9972b2b59754b54d8b56696668b90dae9596a0b53be6bd46c8ac"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-3/node1-inspect.json",
+    "sha256": "b3c1947a92dcf22782ee193e9d9e22221b7d47873c54a235e47cedf26b6cc708"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-3/node1-metrics.jsonl",
+    "sha256": "a4df084615828195a7c03103ff214e70cc386ad81b86da9942348f0a01254fe6"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-3/node1-qdisc.txt",
+    "sha256": "e6d69f90579cefd4d56b977ab1a92c179b398a52cb2f5a1a3865489e3b9b4ca7"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-3/node2-inspect.json",
+    "sha256": "a8565bdbd2ff378a5ff508af3803861dbe5e4974adac41fcea2642fcdf9cb74f"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-3/node2-metrics.jsonl",
+    "sha256": "6d2dd53e35c487e1ad872529a7d806461549b94d00d0ba2233725819460a9d26"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-3/node2-qdisc.txt",
+    "sha256": "e65a176c0284046bb24b5574ff5c8e305c903a595c1179bfa0ab0abedff96540"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-3/node3-inspect.json",
+    "sha256": "e77dee0c53a46704046dc6a9bd8aa67a148c23674e3ce388de1dfef95bd179c0"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-3/node3-metrics.jsonl",
+    "sha256": "cc90d2e9c819027f336bfc8c71c31c9448466d2ac2124888fd7150f728995dec"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-3/node3-qdisc.txt",
+    "sha256": "95c852e1f4e8092eb5295b2e52259a100e9e64a4fe0b5342839f29d5284272eb"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-3/rtt-shaped.json",
+    "sha256": "99da746212827dd20c1b8156a1de540ba3218857e8eec969f63c63cb9699ce62"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-3/rtt-unloaded.json",
+    "sha256": "0e2cf3d2f8e2e020c0adc5adbfec9e562dc8cbe7a2b8a815e93fe2556b24ce79"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-4/loadgen1.json",
+    "sha256": "f2149f8ba01d941c4c2b1f1376e9ad0306c979dd64cb6e26650754b62f0ac150"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-4/loadgen2.json",
+    "sha256": "db7ce7ec2cbcb5a7e735d7fac5adce50757d8310eba8a46439f98bdc313fa13e"
+  },
+  {
+    "kind": "loadgen_report",
+    "path": "samples/single_group-4/loadgen3.json",
+    "sha256": "e91ef78038d367d3750cc5a6762c6b3de1b270186f1a566629ad3c2c322f55c5"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-4/membership.json",
+    "sha256": "fdff841a105f466d63c5fdac466c601f8dff9069d37a20e062fe941b4ac513f6"
+  },
+  {
+    "kind": "network_inspect",
+    "path": "samples/single_group-4/network-inspect.json",
+    "sha256": "7135256f013deb5e23b7d5be5fd6667717f40ae1370df7a7121b8f79098cfd69"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-4/node1-inspect.json",
+    "sha256": "c4be025c8293fee9e9d4b9ff96ca9019ee592e44899dfbcb561228b7d3483c74"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-4/node1-metrics.jsonl",
+    "sha256": "c7ba23960a12fe9311be2db679975d97b005cc38f70f30aff83035e51ead5239"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-4/node1-qdisc.txt",
+    "sha256": "64b4544cf0fe6baf0afa224a4e0f153cf10798b5fe7d1e2f517e2b25296664f5"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-4/node2-inspect.json",
+    "sha256": "cecb5cddbcb88ad5439848e915aefbf93ac4864bc8fb7a4cb8e7c03ebbf81cf2"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-4/node2-metrics.jsonl",
+    "sha256": "cf854e8c7ee341c6c53a4b792652987396be51e9b6d00907498cc854749628a9"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-4/node2-qdisc.txt",
+    "sha256": "8d6f478fe4e980fb887a972d72a220150854072734c35724ef6c26438d1e6316"
+  },
+  {
+    "kind": "container_inspect",
+    "path": "samples/single_group-4/node3-inspect.json",
+    "sha256": "e9f9592b7769e90a469e3d3944acada57de2c3ac0e955725e8aab7b4f821ba3e"
+  },
+  {
+    "kind": "node_metrics_jsonl",
+    "path": "samples/single_group-4/node3-metrics.jsonl",
+    "sha256": "a7f6ef3773dfb0595eb3fc892ce6efe651f2dabce30801f66ea9fb25f9dfc5cd"
+  },
+  {
+    "kind": "shaper_config",
+    "path": "samples/single_group-4/node3-qdisc.txt",
+    "sha256": "a8e1125ef9045b1508baf8cb15ef9d1b22ca9f3a054e7351181996a83c283bc8"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-4/rtt-shaped.json",
+    "sha256": "556f5f91be1e5b15d5b04f879c3773d63635864f5d07632f695ec96a80496c3a"
+  },
+  {
+    "kind": "control_observation",
+    "path": "samples/single_group-4/rtt-unloaded.json",
+    "sha256": "ea6b2bbc036d23739178d4c3e002dde7acda0fccc578344ed1b5ed0aef6a9964"
+  }
+]

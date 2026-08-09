@@ -1,0 +1,50 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-prometheus-metrics-v0-6
+  language: TLA+
+  implementation_status: production-refined
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 6
+    constants: {Groups: 2, MaxVersion: 3, AuthRequired: [true, false]}
+    scope: "Two labelled Raft groups, three source revisions, cached Prometheus output, and optional bearer authentication."
+    exclusions:
+      - "Unbounded group cardinality, exporter availability, HTTP transport, TLS, and timing"
+      - "TSO/HLC/Raft algorithm correctness and production performance"
+requirements:
+  - id: METRICS-STATE-REGISTRY-MAPPING
+    requirement: "CHIRPS v0.6 Requirement 7 / Issue #23"
+    classification: local-state
+    failure_mode: "Prometheus output labels or values do not correspond to the collector snapshot."
+    properties: [SuccessfulResponseUsesCachedSnapshot, ServedMetricsNeverComeFromTheFuture, EmptyCacheNeverSucceeds]
+    implementation_status: implemented
+    refinement:
+      - crates/alopex-chirps/src/raft/metrics.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/metrics_api.rs::registry_output_reflects_raft_tso_hlc_and_snapshot_state
+      - crates/alopex-chirps/tests/hlc_metrics.rs::real_hlc_operations_are_exported_by_the_chirps_registry
+  - id: METRICS-ENDPOINT-AUTH
+    requirement: "CHIRPS v0.6 Security NFR / Issue #23"
+    classification: local-state
+    failure_mode: "An unauthenticated request reads protected operational metrics."
+    properties: [UnauthorizedNeverExposesMetrics, AuthPolicyIsEnforced]
+    implementation_status: implemented
+    refinement:
+      - crates/alopex-chirps/src/raft/metrics.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/metrics_api.rs::protected_endpoint_rejects_missing_or_invalid_token
+  - id: METRICS-HLC-PRODUCTION-WIRING
+    requirement: "CHIRPS v0.6 Requirements 5 and 7 / Issues #21 and #23"
+    classification: local-state
+    implementation_status: implemented
+    failure_mode: "Real HLC tick, receive, skew rejection, or advance outcomes are absent from the shared registry or create unbounded result labels."
+    properties: [SuccessfulResponseUsesCachedSnapshot, ServedMetricsNeverComeFromTheFuture]
+    refinement:
+      - crates/chirps-gossip-swim/src/hlc.rs
+      - crates/alopex-chirps/src/raft/metrics.rs
+      - crates/alopex-chirps/src/mesh.rs
+      - crates/alopex-chirps/src/lib.rs
+    local_component_test:
+      - crates/alopex-chirps/tests/hlc_metrics.rs::real_hlc_operations_are_exported_by_the_chirps_registry

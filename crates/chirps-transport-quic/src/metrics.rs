@@ -115,6 +115,7 @@ pub struct MetricsSnapshot {
 
 /// Live metrics registry with atomic counters and per-stream latency histograms.
 pub struct ExtendedTransportMetrics {
+    enabled: bool,
     pub stream_sent: HashMap<StreamKind, AtomicU64>,
     pub stream_received: HashMap<StreamKind, AtomicU64>,
     pub retransmission_total: AtomicU64,
@@ -130,6 +131,10 @@ pub struct ExtendedTransportMetrics {
 
 impl ExtendedTransportMetrics {
     pub fn new() -> Self {
+        Self::new_with_enabled(true)
+    }
+
+    pub fn new_with_enabled(enabled: bool) -> Self {
         // Ensure a recorder exists even if caller forgot to init_metrics.
         ensure_metrics_recorder();
 
@@ -152,6 +157,7 @@ impl ExtendedTransportMetrics {
         }
 
         ExtendedTransportMetrics {
+            enabled,
             stream_sent,
             stream_received,
             retransmission_total: AtomicU64::new(0),
@@ -167,6 +173,9 @@ impl ExtendedTransportMetrics {
     }
 
     pub fn record_send(&self, kind: StreamKind, latency_us: Option<u64>) {
+        if !self.enabled {
+            return;
+        }
         if let Some(counter) = self.stream_sent.get(&kind) {
             counter.fetch_add(1, Ordering::Relaxed);
         }
@@ -202,6 +211,9 @@ impl ExtendedTransportMetrics {
     }
 
     pub fn record_receive(&self, kind: StreamKind, latency_us: Option<u64>) {
+        if !self.enabled {
+            return;
+        }
         if let Some(counter) = self.stream_received.get(&kind) {
             counter.fetch_add(1, Ordering::Relaxed);
         }
@@ -236,6 +248,9 @@ impl ExtendedTransportMetrics {
         debug!(event = "record_receive", kind = ?kind, latency_us = latency_us.unwrap_or(0), "record_receive");
     }
     pub fn record_retransmit(&self, count: u64, buffer_bytes: Option<u64>) {
+        if !self.enabled {
+            return;
+        }
         self.retransmission_total
             .fetch_add(count, Ordering::Relaxed);
         ensure_metrics_recorder();
@@ -253,6 +268,9 @@ impl ExtendedTransportMetrics {
     }
 
     pub fn record_drop(&self) {
+        if !self.enabled {
+            return;
+        }
         self.message_dropped_total.fetch_add(1, Ordering::Relaxed);
         ensure_metrics_recorder();
         metrics::counter!("chirps_message_dropped_total").increment(1);
@@ -260,6 +278,9 @@ impl ExtendedTransportMetrics {
     }
 
     pub fn record_backpressure(&self) {
+        if !self.enabled {
+            return;
+        }
         self.backpressure_triggered_total
             .fetch_add(1, Ordering::Relaxed);
         ensure_metrics_recorder();
@@ -268,6 +289,9 @@ impl ExtendedTransportMetrics {
     }
 
     pub fn record_queue_overflow(&self) {
+        if !self.enabled {
+            return;
+        }
         self.queue_overflow_total.fetch_add(1, Ordering::Relaxed);
         ensure_metrics_recorder();
         metrics::counter!("chirps_queue_overflow_total").increment(1);
@@ -275,6 +299,9 @@ impl ExtendedTransportMetrics {
     }
 
     pub fn record_duplicate(&self) {
+        if !self.enabled {
+            return;
+        }
         self.duplicate_received_total
             .fetch_add(1, Ordering::Relaxed);
         ensure_metrics_recorder();
@@ -283,12 +310,18 @@ impl ExtendedTransportMetrics {
     }
 
     pub fn update_queue_utilization(&self, kind: StreamKind, percent: u64) {
+        if !self.enabled {
+            return;
+        }
         if let Some(g) = self.queue_utilization.get(&kind) {
             g.store(percent.min(100), Ordering::Relaxed);
         }
     }
 
     pub fn add_throttle_wait(&self, millis: u64) {
+        if !self.enabled {
+            return;
+        }
         self.snapshot_throttle_wait_ms
             .fetch_add(millis, Ordering::Relaxed);
         ensure_metrics_recorder();
@@ -391,6 +424,28 @@ mod tests {
         assert!(logs_contain("record_send"));
         assert!(logs_contain("record_receive"));
         assert!(logs_contain("record_retransmit"));
+    }
+
+    #[test]
+    fn disabled_diagnostics_do_not_update_hot_path_metrics() {
+        let metrics = ExtendedTransportMetrics::new_with_enabled(false);
+        metrics.record_send(StreamKind::Raft, Some(100));
+        metrics.record_receive(StreamKind::Raft, Some(100));
+        metrics.record_retransmit(1, Some(1024));
+        metrics.record_drop();
+        metrics.record_backpressure();
+        metrics.record_queue_overflow();
+        metrics.record_duplicate();
+        metrics.update_queue_utilization(StreamKind::Raft, 90);
+        metrics.add_throttle_wait(1);
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.stream_sent.get(&StreamKind::Raft), Some(&0));
+        assert_eq!(snapshot.stream_received.get(&StreamKind::Raft), Some(&0));
+        assert_eq!(snapshot.retransmission_total, 0);
+        assert_eq!(snapshot.message_dropped_total, 0);
+        assert_eq!(snapshot.backpressure_triggered_total, 0);
+        assert_eq!(snapshot.queue_overflow_total, 0);
+        assert_eq!(snapshot.duplicate_received_total, 0);
     }
 
     #[test]

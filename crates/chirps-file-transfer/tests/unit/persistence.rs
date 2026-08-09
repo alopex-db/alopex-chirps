@@ -1,10 +1,11 @@
 use alopex_chirps_file_transfer::{
-    ChunkMeta, ChunkTracker, FileTransferConfig, HashAlgorithm, SessionPersistence,
-    TransferKind, TransferManifest, TransferMode, TransferOptions, TransferSession,
-    TransferSessionId, TransferState,
+    ChunkMeta, ChunkTracker, FileTransferConfig, HashAlgorithm, SessionPersistence, TransferKind,
+    TransferManifest, TransferMode, TransferOptions, TransferSession, TransferSessionId,
+    TransferState,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::tempdir;
+use tokio::io::AsyncWriteExt;
 
 fn build_manifest(session_id: TransferSessionId, data: &[u8]) -> TransferManifest {
     let checksum = xxhash_rust::xxh64::xxh64(data, 0);
@@ -54,9 +55,11 @@ fn build_session(session_id: TransferSessionId) -> TransferSession {
 #[tokio::test]
 async fn session_persistence_round_trip() {
     let dir = tempdir().expect("tempdir");
-    let mut config = FileTransferConfig::default();
-    config.base_path = dir.path().to_path_buf();
-    config.session_dir = Some(dir.path().join("sessions"));
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(dir.path().join("sessions")),
+        ..FileTransferConfig::default()
+    };
     let persistence = SessionPersistence::new(&config);
 
     let session_id = TransferSessionId::new();
@@ -69,17 +72,108 @@ async fn session_persistence_round_trip() {
     assert_eq!(loaded.id, session.id);
     assert_eq!(loaded.state, session.state);
     assert_eq!(loaded.manifest.file_size, session.manifest.file_size);
-    assert_eq!(loaded.chunk_tracker.completed, session.chunk_tracker.completed);
+    assert_eq!(
+        loaded.chunk_tracker.completed,
+        session.chunk_tracker.completed
+    );
+}
+
+#[tokio::test]
+async fn chunk_checkpoint_journal_replays_after_the_base_snapshot() {
+    let dir = tempdir().expect("tempdir");
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(dir.path().join("sessions")),
+        ..FileTransferConfig::default()
+    };
+    let persistence = SessionPersistence::new(&config);
+    let session_id = TransferSessionId::new();
+    let session = build_session(session_id);
+
+    persistence.save(&session).await.expect("save base session");
+    persistence
+        .checkpoint_chunk(session_id, 0)
+        .await
+        .expect("append checkpoint");
+    persistence
+        .checkpoint_chunk(session_id, 0)
+        .await
+        .expect("append duplicate checkpoint");
+
+    let loaded = persistence.load(session_id).await.expect("load journal");
+    assert_eq!(loaded.chunk_tracker.completed.len(), 1);
+    assert!(loaded.chunk_tracker.completed.contains(&0));
+}
+
+#[tokio::test]
+async fn full_snapshot_compacts_the_chunk_checkpoint_journal() {
+    let dir = tempdir().expect("tempdir");
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(dir.path().join("sessions")),
+        ..FileTransferConfig::default()
+    };
+    let persistence = SessionPersistence::new(&config);
+    let session_id = TransferSessionId::new();
+    let mut session = build_session(session_id);
+
+    persistence.save(&session).await.expect("save base session");
+    persistence
+        .checkpoint_chunk(session_id, 0)
+        .await
+        .expect("append checkpoint");
+    session.chunk_tracker.mark_completed(0);
+    persistence.save(&session).await.expect("compact snapshot");
+
+    let loaded = persistence.load(session_id).await.expect("load compacted");
+    assert_eq!(loaded.chunk_tracker.completed.len(), 1);
+    assert!(loaded.chunk_tracker.completed.contains(&0));
+}
+
+#[tokio::test]
+async fn chunk_checkpoint_journal_ignores_an_incomplete_trailing_record() {
+    let dir = tempdir().expect("tempdir");
+    let session_dir = dir.path().join("sessions");
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(session_dir.clone()),
+        ..FileTransferConfig::default()
+    };
+    let persistence = SessionPersistence::new(&config);
+    let session_id = TransferSessionId::new();
+    let session = build_session(session_id);
+
+    persistence.save(&session).await.expect("save base session");
+    persistence
+        .checkpoint_chunk(session_id, 0)
+        .await
+        .expect("append checkpoint");
+    let journal = session_dir.join(format!("session_{session_id}.progress"));
+    let mut file = tokio::fs::OpenOptions::new()
+        .append(true)
+        .open(journal)
+        .await
+        .expect("open journal");
+    file.write_all(&[0xaa, 0xbb, 0xcc])
+        .await
+        .expect("append incomplete record");
+    file.flush().await.expect("flush incomplete record");
+
+    let loaded = persistence.load(session_id).await.expect("load journal");
+    assert_eq!(loaded.chunk_tracker.completed.len(), 1);
+    assert!(loaded.chunk_tracker.completed.contains(&0));
 }
 
 #[tokio::test]
 async fn session_persistence_gc_removes_expired() {
     let dir = tempdir().expect("tempdir");
-    let mut config = FileTransferConfig::default();
-    config.base_path = dir.path().to_path_buf();
-    config.session_dir = Some(dir.path().join("sessions"));
-    config.session_retention = Duration::from_millis(1);
-    config.max_sessions = 10;
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(dir.path().join("sessions")),
+        session_retention: Duration::from_millis(1),
+        max_sessions: 10,
+        ..FileTransferConfig::default()
+    };
     let persistence = SessionPersistence::new(&config);
 
     let session_id = TransferSessionId::new();
@@ -100,11 +194,13 @@ async fn session_persistence_gc_removes_expired() {
 #[tokio::test]
 async fn session_persistence_gc_enforces_max_sessions() {
     let dir = tempdir().expect("tempdir");
-    let mut config = FileTransferConfig::default();
-    config.base_path = dir.path().to_path_buf();
-    config.session_dir = Some(dir.path().join("sessions"));
-    config.session_retention = Duration::from_secs(60 * 60);
-    config.max_sessions = 2;
+    let config = FileTransferConfig {
+        base_path: dir.path().to_path_buf(),
+        session_dir: Some(dir.path().join("sessions")),
+        session_retention: Duration::from_secs(60 * 60),
+        max_sessions: 2,
+        ..FileTransferConfig::default()
+    };
     let persistence = SessionPersistence::new(&config);
 
     let now = SystemTime::now();

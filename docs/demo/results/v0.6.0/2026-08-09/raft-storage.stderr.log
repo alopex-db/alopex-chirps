@@ -1,0 +1,4 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.66s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_raft_storage-cfb9b6f60b994127)
+     Running tests/resilience.rs (target/debug/deps/resilience-324a47992784225e)
+   Doc-tests alopex_chirps_raft_storage

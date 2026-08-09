@@ -1,0 +1,4 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_core-95e9909129abf88d)
+     Running tests/backend_profile_contract.rs (target/debug/deps/backend_profile_contract-3d3970d37e591618)
+   Doc-tests alopex_chirps_core

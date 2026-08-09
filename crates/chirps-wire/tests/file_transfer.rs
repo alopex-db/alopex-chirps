@@ -2,7 +2,7 @@ use alopex_chirps_wire::file_transfer::{
     CancelRequest, ChunkAck, ChunkMeta, ChunkRequest, CompressionAlgorithm, ExistsRequest,
     ExistsResponse, FileInfo, FileMetadata, FileTransferFrame, FileTransferMessage, FileType,
     HashAlgorithm, ListRequest, ListResponse, ManifestAck, MetadataRequest, MetadataResponse,
-    ProgressUpdate, RemoveRequest, RemoveResponse, RetryPolicy, TransferComplete,
+    ProgressUpdate, RemoveRequest, RemoveResponse, RetryPolicy, SyncRequest, TransferComplete,
     TransferErrorMessage, TransferManifest, TransferMode, TransferOptions, TransferRequest,
     TransferResponse, TransferSessionId, TransferState,
 };
@@ -52,6 +52,7 @@ fn sample_options() -> TransferOptions {
         overwrite: true,
         mode: TransferMode::Move,
         preserve_metadata: false,
+        follow_symlinks: false,
     }
 }
 
@@ -150,6 +151,7 @@ fn file_transfer_message_roundtrip() {
         FileTransferMessage::RemoveRequest(RemoveRequest {
             path: "remove.bin".to_string(),
             recursive: true,
+            ignore_not_found: false,
         }),
         FileTransferMessage::RemoveResponse(RemoveResponse {
             success: true,
@@ -177,6 +179,11 @@ fn file_transfer_message_roundtrip() {
                 file_type: FileType::File,
             }],
             error: None,
+        }),
+        FileTransferMessage::SyncRequest(SyncRequest {
+            source_path: "remote/source.bin".to_string(),
+            dest_path: "local/destination.bin".to_string(),
+            options: sample_options(),
         }),
     ];
 

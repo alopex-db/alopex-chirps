@@ -1,0 +1,3 @@
+   Compiling chirps-v06-demo v0.6.0 (/home/roomtv/works/alopex-db/chirps/tools/chirps-v06-demo)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.16s
+     Running `target/debug/chirps-v06-demo --writes 6`

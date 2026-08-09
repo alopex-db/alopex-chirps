@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct PathValidator {
     base_path: PathBuf,
+    configured_base_path: PathBuf,
     follow_symlinks: bool,
 }
 
@@ -15,9 +16,11 @@ impl PathValidator {
     /// # Panics
     /// This method does not panic.
     pub fn new(base_path: PathBuf, follow_symlinks: bool) -> Self {
+        let configured_base_path = base_path.clone();
         let base_path = std::fs::canonicalize(&base_path).unwrap_or(base_path);
         PathValidator {
             base_path,
+            configured_base_path,
             follow_symlinks,
         }
     }
@@ -48,8 +51,7 @@ impl PathValidator {
             self.resolve_symlink(&candidate)
                 .map_err(FileTransferError::Io)?
         } else {
-            self.reject_symlink_components(&candidate)?;
-            candidate
+            self.resolve_without_following_symlinks(&candidate)?
         };
 
         if !self.is_within_base(&resolved) {
@@ -58,6 +60,24 @@ impl PathValidator {
             ));
         }
 
+        Ok(resolved)
+    }
+
+    fn resolve_without_following_symlinks(
+        &self,
+        candidate: &Path,
+    ) -> Result<PathBuf, FileTransferError> {
+        // The configured base is a trusted local boundary.  On macOS it can
+        // legitimately be spelled through the `/var` alias while its
+        // canonical form begins with `/private/var`.  Accept only that exact
+        // configured spelling, then inspect child components under the
+        // canonical base so an untrusted symlink below it remains rejected.
+        let suffix = candidate
+            .strip_prefix(&self.configured_base_path)
+            .or_else(|_| candidate.strip_prefix(&self.base_path))
+            .map_err(|_| FileTransferError::PathTraversal(candidate.display().to_string()))?;
+        let resolved = self.base_path.join(suffix);
+        self.reject_symlink_components(&resolved)?;
         Ok(resolved)
     }
 
@@ -77,7 +97,32 @@ impl PathValidator {
     /// # Panics
     /// This method does not panic.
     pub fn resolve_symlink(&self, path: &Path) -> io::Result<PathBuf> {
-        std::fs::canonicalize(path)
+        // A destination often does not exist yet. Resolve the deepest existing
+        // ancestor, then append the missing suffix so that a symlink in an
+        // existing parent is still checked before the caller creates a file.
+        let mut existing = path.to_path_buf();
+        let mut missing = Vec::new();
+        while !existing.exists() {
+            let Some(component) = existing.file_name() else {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("no existing ancestor for {}", path.display()),
+                ));
+            };
+            missing.push(component.to_os_string());
+            if !existing.pop() {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("no existing ancestor for {}", path.display()),
+                ));
+            }
+        }
+
+        let mut resolved = std::fs::canonicalize(existing)?;
+        for component in missing.iter().rev() {
+            resolved.push(component);
+        }
+        Ok(resolved)
     }
 
     fn reject_symlink_components(&self, path: &Path) -> Result<(), FileTransferError> {

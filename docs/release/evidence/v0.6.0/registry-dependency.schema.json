@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alopex-db/alopex-chirps/docs/release/evidence/v0.6.0/registry-dependency.schema.json",
+  "title": "alopex-core registry-only dependency evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "release_version", "source_commit", "result", "dependency", "fixture", "command"],
+  "properties": {
+    "schema": {"const": "chirps.registry-dependency-evidence/v1"},
+    "release_version": {"const": "0.6.0"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "result": {"const": "pass"},
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["crate", "requirement", "resolved_version", "source", "checksum"],
+      "properties": {
+        "crate": {"const": "alopex-core"},
+        "requirement": {"const": "0.3"},
+        "resolved_version": {"const": "0.3.4"},
+        "source": {"const": "registry+https://github.com/rust-lang/crates.io-index"},
+        "checksum": {"const": "f91246870a303fd5bde67d9d9871295ce38a389da21a167044db847f47d1866d"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_sha256", "lock_sha256", "source_sha256"],
+      "properties": {
+        "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "lock_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "command": {"const": "cargo build --locked -p alopex-chirps-raft-storage"}
+  }
+}

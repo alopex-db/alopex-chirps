@@ -2,8 +2,8 @@ use alopex_chirps_wire::node_id::NodeId;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-pub const PROTOCOL_VERSION: u16 = 0x0004;
-pub const MIN_COMPATIBLE_VERSION: u16 = 0x0004;
+pub const PROTOCOL_VERSION: u16 = 0x0006;
+pub const MIN_COMPATIBLE_VERSION: u16 = 0x0006;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HandshakeMessage {
@@ -17,6 +17,7 @@ pub struct Capabilities {
     pub priority_streams: bool,
     pub retransmission: bool,
     pub qos: bool,
+    pub multi_raft: bool,
 }
 
 impl HandshakeMessage {
@@ -28,12 +29,13 @@ impl HandshakeMessage {
                 priority_streams: true,
                 retransmission: true,
                 qos: true,
+                multi_raft: true,
             },
         }
     }
 
     pub fn is_compatible(&self) -> bool {
-        self.version >= MIN_COMPATIBLE_VERSION
+        self.version == PROTOCOL_VERSION
     }
 }
 
@@ -48,14 +50,14 @@ pub struct NegotiatedCapabilities {
     pub priority_streams: bool,
     pub retransmission: bool,
     pub qos: bool,
+    pub multi_raft: bool,
 }
 
 pub fn negotiate(
     local: &HandshakeMessage,
     remote: &HandshakeMessage,
 ) -> Result<NegotiatedCapabilities, HandshakeError> {
-    if !local.is_compatible() || !remote.is_compatible() || remote.version < MIN_COMPATIBLE_VERSION
-    {
+    if !local.is_compatible() || !remote.is_compatible() || local.version != remote.version {
         warn!(
             event = "version_mismatch",
             remote_version = remote.version,
@@ -68,11 +70,16 @@ pub fn negotiate(
         });
     }
 
+    if !local.capabilities.multi_raft || !remote.capabilities.multi_raft {
+        return Err(HandshakeError::IncompatibleCapabilities);
+    }
+
     Ok(NegotiatedCapabilities {
         priority_streams: local.capabilities.priority_streams
             && remote.capabilities.priority_streams,
         retransmission: local.capabilities.retransmission && remote.capabilities.retransmission,
         qos: local.capabilities.qos && remote.capabilities.qos,
+        multi_raft: true,
     })
 }
 
@@ -103,9 +110,12 @@ mod tests {
     #[test]
     fn is_compatible_boundary() {
         let mut msg = HandshakeMessage::new(NodeId::new());
-        msg.version = MIN_COMPATIBLE_VERSION;
+        assert_eq!(PROTOCOL_VERSION, 0x0006);
+        msg.version = PROTOCOL_VERSION;
         assert!(msg.is_compatible());
-        msg.version = MIN_COMPATIBLE_VERSION - 1;
+        msg.version = 0x0005;
+        assert!(!msg.is_compatible());
+        msg.version = 0x0007;
         assert!(!msg.is_compatible());
     }
 
@@ -122,6 +132,19 @@ mod tests {
         assert!(!negotiated.priority_streams);
         assert!(negotiated.retransmission);
         assert!(negotiated.qos);
+        assert!(negotiated.multi_raft);
         assert!(!logs_contain("version_mismatch"));
+    }
+
+    #[test]
+    fn rejects_peer_without_multi_raft_capability() {
+        let local = HandshakeMessage::new(NodeId::new());
+        let mut remote = HandshakeMessage::new(NodeId::new());
+        remote.capabilities.multi_raft = false;
+
+        assert!(matches!(
+            negotiate(&local, &remote),
+            Err(HandshakeError::IncompatibleCapabilities)
+        ));
     }
 }

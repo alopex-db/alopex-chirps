@@ -5,26 +5,32 @@ use crate::manifest::FileMetadata;
 use crate::metrics::PrometheusMetrics;
 use crate::ops::ChunkStreamOpener;
 use crate::ops::broadcast::broadcast_file_with_context;
-use crate::ops::conversions::from_wire_file_metadata;
+use crate::ops::conversions::{from_wire_file_metadata, from_wire_transfer_options};
 use crate::ops::send::send_file_with_context;
 use crate::ops::sync::sync_file_with_context;
-use crate::ops::{ControlDispatcher, ReceiveHandler};
+use crate::ops::{
+    ControlDispatcher, ReceiveHandler, handle_exists_request, handle_list_request,
+    handle_metadata_request, handle_remove_request,
+};
 use crate::options::{ListOptions, RemoveOptions, SortBy, SyncOptions, TransferOptions};
 use crate::path::PathValidator;
 use crate::persistence::SessionPersistence;
 use crate::progress::{BroadcastHandle, SyncHandle, TransferHandle};
-use crate::session::{TransferControlState, TransferSession, TransferSessionInfo, TransferState};
+use crate::session::{
+    TransferControlState, TransferKind, TransferSession, TransferSessionInfo, TransferState,
+};
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_wire::file_transfer::{
     CancelRequest, ExistsRequest, FileInfo, FileTransferMessage, ListRequest, MetadataRequest,
-    RemoveRequest,
+    RemoveRequest, SyncRequest, TransferErrorMessage, TransferResponse,
 };
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
+use prometheus::Registry;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 
 /// High-level file transfer service API.
 #[async_trait]
@@ -347,6 +353,8 @@ pub struct FileTransferServiceImpl {
     sessions: Arc<RwLock<HashMap<TransferSessionId, TransferSession>>>,
     persistence: Arc<SessionPersistence>,
     metrics: Option<Arc<PrometheusMetrics>>,
+    metrics_registry: Registry,
+    transfer_slots: Arc<Semaphore>,
 }
 
 impl FileTransferServiceImpl {
@@ -363,15 +371,41 @@ impl FileTransferServiceImpl {
         stream_opener: Arc<dyn ChunkStreamOpener>,
         config: FileTransferConfig,
     ) -> Result<Self, FileTransferError> {
+        validate_config(&config)?;
         let receiver = backend
             .subscribe()
             .await
             .map_err(|err| FileTransferError::Transport(err.to_string()))?;
+        Self::new_with_receiver(source_node, backend, stream_opener, config, receiver).await
+    }
+
+    /// Creates a service from an already-demultiplexed control-frame receiver.
+    ///
+    /// This constructor lets a higher-level mesh own the transport's single
+    /// subscription while preserving the same file-transfer control protocol.
+    pub async fn new_with_receiver(
+        source_node: NodeId,
+        backend: Arc<dyn MessageBackend>,
+        stream_opener: Arc<dyn ChunkStreamOpener>,
+        config: FileTransferConfig,
+        receiver: tokio::sync::mpsc::Receiver<(NodeId, alopex_chirps_wire::frame::Frame)>,
+    ) -> Result<Self, FileTransferError> {
+        validate_config(&config)?;
         let control = ControlDispatcher::new(Arc::clone(&backend), receiver);
         let sessions = Arc::new(RwLock::new(HashMap::new()));
         let path_validator = PathValidator::new(config.base_path.clone(), false);
         let persistence = Arc::new(SessionPersistence::new(&config));
-        let metrics = PrometheusMetrics::register().ok().map(Arc::new);
+        let metrics_registry = Registry::new();
+        let metrics = if config.detailed_metrics {
+            Some(Arc::new(
+                PrometheusMetrics::register(&metrics_registry).map_err(|error| {
+                    FileTransferError::Internal(format!("metrics registration failed: {error}"))
+                })?,
+            ))
+        } else {
+            None
+        };
+        let transfer_slots = Arc::new(Semaphore::new(config.max_concurrent_transfers));
         let sync_sessions = Arc::new(RwLock::new(HashSet::new()));
         let receive_handler = Arc::new(ReceiveHandler::new(
             config.clone(),
@@ -386,6 +420,7 @@ impl FileTransferServiceImpl {
         let cancel_sessions = Arc::clone(&sessions);
         let cancel_persistence = Arc::clone(&persistence);
         let cancel_metrics = metrics.clone();
+        let cancel_receive_handler = Arc::clone(&receive_handler);
         let cancel_wait = config.idle_timeout;
         tokio::spawn(async move {
             loop {
@@ -426,8 +461,25 @@ impl FileTransferServiceImpl {
                         }
                     }
                 }
+                drop(sessions);
+                cancel_receive_handler
+                    .discard_incremental_hash(session_id)
+                    .await;
             }
         });
+
+        spawn_control_plane(
+            Arc::clone(&control),
+            Arc::clone(&receive_handler),
+            path_validator.clone(),
+            Arc::clone(&stream_opener),
+            config.clone(),
+            source_node,
+            Arc::clone(&sessions),
+            Arc::clone(&persistence),
+            metrics.clone(),
+            Arc::clone(&transfer_slots),
+        );
 
         Ok(FileTransferServiceImpl {
             source_node,
@@ -440,6 +492,8 @@ impl FileTransferServiceImpl {
             sessions,
             persistence,
             metrics,
+            metrics_registry,
+            transfer_slots,
         })
     }
 
@@ -457,6 +511,14 @@ impl FileTransferServiceImpl {
     /// This method does not panic.
     pub fn receive_handler(&self) -> Arc<ReceiveHandler> {
         Arc::clone(&self.receive_handler)
+    }
+
+    /// Returns the service-local Prometheus registry for metrics exposition.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn metrics_registry(&self) -> Registry {
+        self.metrics_registry.clone()
     }
 
     /// Returns the path validator used for file operations.
@@ -558,6 +620,229 @@ impl FileTransferServiceImpl {
     }
 }
 
+fn validate_config(config: &FileTransferConfig) -> Result<(), FileTransferError> {
+    if config.max_concurrent_transfers == 0 {
+        return Err(FileTransferError::Internal(
+            "max_concurrent_transfers must be greater than zero".into(),
+        ));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_control_plane(
+    control: Arc<ControlDispatcher>,
+    receive_handler: Arc<ReceiveHandler>,
+    path_validator: PathValidator,
+    stream_opener: Arc<dyn ChunkStreamOpener>,
+    config: FileTransferConfig,
+    source_node: NodeId,
+    sessions: Arc<RwLock<HashMap<TransferSessionId, TransferSession>>>,
+    persistence: Arc<SessionPersistence>,
+    metrics: Option<Arc<PrometheusMetrics>>,
+    transfer_slots: Arc<Semaphore>,
+) {
+    tokio::spawn(async move {
+        loop {
+            let message = control
+                .recv_any_filtered(config.idle_timeout, |_, message| {
+                    matches!(
+                        message,
+                        FileTransferMessage::TransferRequest(_)
+                            | FileTransferMessage::Manifest(_)
+                            | FileTransferMessage::FinalizeRequest(_)
+                            | FileTransferMessage::ExistsRequest(_)
+                            | FileTransferMessage::RemoveRequest(_)
+                            | FileTransferMessage::MetadataRequest(_)
+                            | FileTransferMessage::ListRequest(_)
+                            | FileTransferMessage::SyncRequest(_)
+                    )
+                })
+                .await;
+            let (session_id, sender, message) = match message {
+                Ok(message) => message,
+                Err(FileTransferError::Timeout) => continue,
+                Err(FileTransferError::Transport(_)) => break,
+                Err(_) => continue,
+            };
+
+            match message {
+                FileTransferMessage::TransferRequest(request) => {
+                    let response = match receive_handler
+                        .handle_transfer_request(session_id, request)
+                        .await
+                    {
+                        Ok(response) => response,
+                        Err(error) => TransferResponse {
+                            accepted: false,
+                            rejection_reason: Some(error.to_string()),
+                            existing_chunks: Vec::new(),
+                        },
+                    };
+                    let _ = control
+                        .send_message(
+                            sender,
+                            session_id,
+                            FileTransferMessage::TransferResponse(response),
+                        )
+                        .await;
+                }
+                FileTransferMessage::Manifest(manifest) => {
+                    let ack = match receive_handler.handle_manifest(sender, manifest).await {
+                        Ok(ack) => ack,
+                        Err(error) => alopex_chirps_wire::file_transfer::ManifestAck {
+                            accepted: false,
+                            skip_chunks: Vec::new(),
+                            error: Some(error.to_string()),
+                        },
+                    };
+                    let _ = control
+                        .send_message(sender, session_id, FileTransferMessage::ManifestAck(ack))
+                        .await;
+                }
+                FileTransferMessage::FinalizeRequest(completion) => {
+                    if let Err(error) = receive_handler
+                        .handle_finalize_request(sender, &control, session_id, completion)
+                        .await
+                    {
+                        send_control_error(&control, sender, session_id, error).await;
+                    }
+                }
+                FileTransferMessage::ExistsRequest(request) => {
+                    match handle_exists_request(&path_validator, request).await {
+                        Ok(response) => {
+                            let _ = control
+                                .send_message(
+                                    sender,
+                                    session_id,
+                                    FileTransferMessage::ExistsResponse(response),
+                                )
+                                .await;
+                        }
+                        Err(error) => send_control_error(&control, sender, session_id, error).await,
+                    }
+                }
+                FileTransferMessage::RemoveRequest(request) => {
+                    match handle_remove_request(&path_validator, request).await {
+                        Ok(response) => {
+                            let _ = control
+                                .send_message(
+                                    sender,
+                                    session_id,
+                                    FileTransferMessage::RemoveResponse(response),
+                                )
+                                .await;
+                        }
+                        Err(error) => send_control_error(&control, sender, session_id, error).await,
+                    }
+                }
+                FileTransferMessage::MetadataRequest(request) => {
+                    match handle_metadata_request(&path_validator, request).await {
+                        Ok(response) => {
+                            let _ = control
+                                .send_message(
+                                    sender,
+                                    session_id,
+                                    FileTransferMessage::MetadataResponse(response),
+                                )
+                                .await;
+                        }
+                        Err(error) => send_control_error(&control, sender, session_id, error).await,
+                    }
+                }
+                FileTransferMessage::ListRequest(request) => {
+                    match handle_list_request(&path_validator, request).await {
+                        Ok(response) => {
+                            let _ = control
+                                .send_message(
+                                    sender,
+                                    session_id,
+                                    FileTransferMessage::ListResponse(response),
+                                )
+                                .await;
+                        }
+                        Err(error) => send_control_error(&control, sender, session_id, error).await,
+                    }
+                }
+                FileTransferMessage::SyncRequest(SyncRequest {
+                    source_path,
+                    dest_path,
+                    options,
+                }) => {
+                    let options = from_wire_transfer_options(&options);
+                    let source_validator =
+                        PathValidator::new(config.base_path.clone(), options.follow_symlinks);
+                    let source_path = match source_validator.validate(Path::new(&source_path)) {
+                        Ok(path) => path,
+                        Err(error) => {
+                            send_control_error(&control, sender, session_id, error).await;
+                            continue;
+                        }
+                    };
+                    let control = Arc::clone(&control);
+                    let stream_opener = Arc::clone(&stream_opener);
+                    let config = config.clone();
+                    let sessions = Arc::clone(&sessions);
+                    let persistence = Arc::clone(&persistence);
+                    let metrics = metrics.clone();
+                    let transfer_slots = Arc::clone(&transfer_slots);
+                    tokio::spawn(async move {
+                        let result = async {
+                            let _transfer_slot =
+                                transfer_slots.acquire_owned().await.map_err(|_| {
+                                    FileTransferError::Internal("transfer slots are closed".into())
+                                })?;
+                            send_file_with_context(
+                                Arc::clone(&control),
+                                stream_opener,
+                                config,
+                                source_node,
+                                sender,
+                                &source_path,
+                                Path::new(&dest_path),
+                                options,
+                                TransferKind::Sync,
+                                Some(sessions),
+                                Some(persistence),
+                                metrics,
+                                None,
+                                Some(session_id),
+                                true,
+                            )
+                            .await
+                            .map(|_| ())
+                        }
+                        .await;
+                        if let Err(error) = result {
+                            send_control_error(&control, sender, session_id, error).await;
+                        }
+                    });
+                }
+                _ => {}
+            }
+        }
+    });
+}
+
+async fn send_control_error(
+    control: &ControlDispatcher,
+    target: NodeId,
+    session_id: TransferSessionId,
+    error: FileTransferError,
+) {
+    let _ = control
+        .send_message(
+            target,
+            session_id,
+            FileTransferMessage::Error(TransferErrorMessage {
+                code: error.code(),
+                message: error.to_string(),
+                recoverable: error.is_recoverable(),
+            }),
+        )
+        .await;
+}
+
 #[async_trait]
 impl FileTransferService for FileTransferServiceImpl {
     async fn send_file(
@@ -567,6 +852,10 @@ impl FileTransferService for FileTransferServiceImpl {
         dest_path: &Path,
         options: TransferOptions,
     ) -> Result<TransferHandle, FileTransferError> {
+        let _transfer_slot = Arc::clone(&self.transfer_slots)
+            .acquire_owned()
+            .await
+            .map_err(|_| FileTransferError::Internal("transfer slots are closed".into()))?;
         let result = send_file_with_context(
             Arc::clone(&self.control),
             Arc::clone(&self.stream_opener),
@@ -580,6 +869,7 @@ impl FileTransferService for FileTransferServiceImpl {
             Some(Arc::clone(&self.sessions)),
             Some(Arc::clone(&self.persistence)),
             self.metrics.clone(),
+            None,
             None,
             true,
         )
@@ -617,6 +907,7 @@ impl FileTransferService for FileTransferServiceImpl {
             Some(Arc::clone(&self.sessions)),
             Some(Arc::clone(&self.persistence)),
             self.metrics.clone(),
+            Some(Arc::clone(&self.transfer_slots)),
         )
         .await?;
         Ok(result.handle)
@@ -629,6 +920,10 @@ impl FileTransferService for FileTransferServiceImpl {
         targets: Option<Vec<NodeId>>,
         options: SyncOptions,
     ) -> Result<SyncHandle, FileTransferError> {
+        let _transfer_slot = Arc::clone(&self.transfer_slots)
+            .acquire_owned()
+            .await
+            .map_err(|_| FileTransferError::Internal("transfer slots are closed".into()))?;
         let target = self.select_target(targets)?;
         sync_file_with_context(
             Arc::clone(&self.control),
@@ -686,6 +981,7 @@ impl FileTransferService for FileTransferServiceImpl {
                 FileTransferMessage::RemoveRequest(RemoveRequest {
                     path: path.display().to_string(),
                     recursive: options.recursive,
+                    ignore_not_found: options.ignore_not_found,
                 }),
             )
             .await?;
@@ -908,6 +1204,10 @@ impl FileTransferService for FileTransferServiceImpl {
             })?;
         let source_path = session.source_path.clone();
         let dest_path = session.dest_path.clone();
+        let _transfer_slot = Arc::clone(&self.transfer_slots)
+            .acquire_owned()
+            .await
+            .map_err(|_| FileTransferError::Internal("transfer slots are closed".into()))?;
         let result = send_file_with_context(
             Arc::clone(&self.control),
             Arc::clone(&self.stream_opener),
@@ -922,6 +1222,7 @@ impl FileTransferService for FileTransferServiceImpl {
             Some(Arc::clone(&self.persistence)),
             self.metrics.clone(),
             Some(session),
+            None,
             true,
         )
         .await?;

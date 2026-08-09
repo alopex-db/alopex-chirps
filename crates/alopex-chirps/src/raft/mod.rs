@@ -9,7 +9,11 @@ pub mod transport;
 
 pub use config::RaftConfig;
 pub use error::{RaftError, RaftResult};
-pub use metrics::{MetricsError, RaftMetricsCollector, RaftMetricsUpdate, serve_metrics};
+pub use metrics::{
+    ChirpsMetricsCollector, HlcMetricsUpdate, MetricsAuthError, MetricsEndpointAuth, MetricsError,
+    RaftMessageMetric, RaftMetricsCollector, RaftMetricsUpdate, TsoMetricsUpdate, serve_metrics,
+    serve_metrics_authorized,
+};
 pub use node::{RaftMessage, RaftNode};
 pub use transport::{
     ChirpsRaftNetworkClient, ChirpsRaftNetworkFactory, ChirpsRaftTransport, RaftFramePayload,

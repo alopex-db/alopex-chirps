@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'release/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'release/**']
 
 env:
   RUST_BACKTRACE: 1
@@ -33,6 +33,50 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --all-features -- -D warnings
 
+  feature-matrix:
+    name: Feature Matrix (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            args: ''
+          - name: no-default
+            args: '--no-default-features'
+          - name: multi-raft
+            args: '--no-default-features --features multi-raft'
+          - name: tso
+            args: '--no-default-features --features tso'
+          - name: snapshot
+            args: '--no-default-features --features snapshot'
+          - name: all
+            args: '--all-features'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check alopex-chirps feature combination
+        run: cargo check -p alopex-chirps ${{ matrix.args }}
+
+      - name: Verify storage-v2 is absent when Multi-Raft is disabled
+        if: matrix.name == 'no-default'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cargo tree -p alopex-chirps --no-default-features -e features -i openraft | grep -F 'openraft feature "storage-v2"'; then
+            echo 'openraft/storage-v2 leaked into the feature-off dependency graph'
+            exit 1
+          fi
+
+      - name: Verify storage-v2 is present when Multi-Raft is enabled
+        if: matrix.name == 'multi-raft' || matrix.name == 'tso' || matrix.name == 'snapshot'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo tree -p alopex-chirps ${{ matrix.args }} -e features -i openraft \
+            | grep -F 'openraft feature "storage-v2"'
+
   test:
     name: Test Suite (${{ matrix.os }}, ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
@@ -58,7 +102,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        run: cargo test --all-features --workspace
+        run: cargo test --all-features --workspace -- --test-threads=1
 
       - name: Run doc tests
         run: cargo test --doc --workspace
@@ -88,13 +132,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+      - name: Reset advisory database
+        run: rm -rf "${HOME}/.cargo/advisory-db"
+      - name: Fail CI on dependency advisories
+        # rkyv is only an optional rust_decimal lockfile entry; Chirps does
+        # not enable the rkyv feature or deserialize rkyv archives. Keep the
+        # exception explicit until rust_decimal removes that optional entry.
+        run: cargo audit --ignore RUSTSEC-2026-0235
+
+  workflow-lint:
+    name: GitHub Actions Workflow Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --retry 3 --output "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          printf '%s  %s\n' "${ACTIONLINT_SHA256}" "${archive}" | sha256sum --check --status
+          tar -xzf "${archive}" actionlint
+      - name: Lint GitHub Actions workflow syntax and expressions
+        run: ./actionlint -no-color -shellcheck= -pyflakes=
 
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, test, coverage, security-audit]
+    needs: [fmt, clippy, feature-matrix, test, coverage, security-audit, workflow-lint]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -102,7 +171,11 @@ jobs:
         run: |
           if [[ "${{ needs.fmt.result }}" != "success" ]] || \
              [[ "${{ needs.clippy.result }}" != "success" ]] || \
-             [[ "${{ needs.test.result }}" != "success" ]]; then
+             [[ "${{ needs.feature-matrix.result }}" != "success" ]] || \
+             [[ "${{ needs.test.result }}" != "success" ]] || \
+             [[ "${{ needs.coverage.result }}" != "success" ]] || \
+             [[ "${{ needs.security-audit.result }}" != "success" ]] || \
+             [[ "${{ needs.workflow-lint.result }}" != "success" ]]; then
             echo "One or more jobs failed"
             exit 1
           fi

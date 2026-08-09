@@ -1,0 +1,96 @@
+
+running 34 tests
+test config::tests::diagnostics_are_enabled_by_default_and_detachable ... ok
+test config::tests::peer_stop_wait_can_be_disabled_for_fanout_lane ... ok
+test config::tests::peer_stop_wait_is_safe_by_default ... ok
+test config::tests::raft_stream_batching_defaults_to_thirty_two_and_is_disableable ... ok
+test handshake::tests::is_compatible_boundary ... ok
+test handshake::tests::negotiates_capabilities_by_intersection ... ok
+test handshake::tests::rejects_peer_without_multi_raft_capability ... ok
+test handshake::tests::rejects_v0_3_with_version_mismatch_log ... ok
+test metrics::tests::concurrent_updates_are_safe ... ok
+test metrics::tests::counters_increment_and_logs_emit ... ok
+test metrics::tests::disabled_diagnostics_do_not_update_hot_path_metrics ... ok
+test metrics::tests::histogram_handles_empty_and_single_sample ... ok
+test metrics::tests::latency_percentiles_compute_expected_values ... ok
+test metrics::tests::latency_ring_buffer_eviction ... ok
+test metrics::tests::snapshot_returns_consistent_state ... ok
+test priority::tests::dwrr_prefers_high_but_serves_low ... ok
+test priority::tests::dwrr_respects_configurable_weights ... ok
+test priority::tests::emits_tracing_for_enqueue_and_dequeue ... ok
+test priority::tests::queue_lengths_report_per_priority_and_empty_handling ... ok
+test priority::tests::stream_kind_priority_mapping_matches_design ... ok
+test qos::tests::hard_overflow_increments_overflow_metrics_and_logs ... ok
+test qos::tests::hysteresis_recovers_after_dequeue ... ok
+test qos::tests::soft_backpressure_triggers_metrics_and_logs ... ok
+test qos::tests::throttle_snapshot_timeout_emits_log_and_metrics ... ok
+test qos::tests::token_bucket_returns_wait_duration ... ok
+test receive::batch_tests::batch_decoder_preserves_envelope_order ... ok
+test receive::batch_tests::batch_decoder_rejects_truncated_lengths ... ok
+test retransmit::tests::assigns_monotonic_seq_and_logs_buffer ... ok
+test retransmit::tests::buffer_with_size_reuses_precomputed_frame_size ... ok
+test retransmit::tests::deduplication_accepts_out_of_order_once_and_acks_only_contiguous ... ok
+test retransmit::tests::deduplication_rejects_frames_beyond_the_receive_window ... ok
+test retransmit::tests::drain_returns_unacked_in_order_and_logs ... ok
+test retransmit::tests::overflow_drops_oldest_and_warns ... ok
+test retransmit::tests::process_ack_clears_messages_and_logs ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+
+running 2 tests
+test raft_messages_dequeue_before_user_under_load ... ok
+test user_messages_still_progress_under_raft_load ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test raft_p99_latency_under_user_load_stays_within_10pct ... ok
+test user_throughput_degrades_less_than_10pct_under_raft_load ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 6 tests
+test broadcast_delivers_to_connected_peers ... ignored, QUIC integration test - requires network, run manually with --ignored
+test close_after_send_preserves_file_transfer_control_frames ... ignored, QUIC integration test - requires network, run manually with --ignored
+test gossip_not_blocked_by_large_user_stream ... ignored, QUIC integration test - requires network, run manually with --ignored
+test ping_ack_roundtrip ... ignored, QUIC integration test - requires network, run manually with --ignored
+test reconnects_when_seed_becomes_available ... ignored, QUIC integration test - requires network, run manually with --ignored
+test send_queue_overflow_returns_error ... ignored, QUIC integration test - requires network, run manually with --ignored
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test mixed_traffic_serves_control_without_starving_user ... ok
+test queue_capacity_is_fail_closed_and_observable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test retransmit_replays_unacked_in_order_without_duplicates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test raft_p99_latency_not_degraded_by_snapshot_throttle ... ok
+test snapshot_bandwidth_limit_enforced_and_metrics_recorded ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test v0_5_rejected_with_version_mismatch_log ... ok
+test v0_6_to_v0_6_connects_with_capabilities ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

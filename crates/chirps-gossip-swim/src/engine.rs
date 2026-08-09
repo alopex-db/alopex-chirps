@@ -1,17 +1,25 @@
+#[cfg(feature = "hlc")]
+use crate::hlc::{HlcError, LocalHlc};
 use crate::types::{MembershipView, Peer, PeerState, Status};
 use crate::util::{StatusChange, calculate_fanout, check_timeouts};
 use alopex_chirps_wire::frame::{Frame, MemberStatus, MembershipUpdate};
+#[cfg(feature = "hlc")]
+use alopex_chirps_wire::frame::{HlcEventId, HlcGossipMessage, StampedMembershipUpdate};
+#[cfg(feature = "hlc")]
+use alopex_chirps_wire::hlc::HybridTimestamp;
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use rand::seq::IteratorRandom;
 use std::collections::HashMap;
+#[cfg(feature = "hlc")]
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-use std::time::{Duration, Instant};
-use tokio::time::{Interval, interval};
+use std::time::Duration;
+use tokio::time::{Instant, Interval, interval};
 use tracing::{debug, info, warn};
 
 /// Transport abstraction used by the gossip engine.
@@ -66,6 +74,12 @@ pub enum TransportError {
 pub enum GossipError {
     #[error("transport: {0}")]
     Transport(#[from] TransportError),
+    #[cfg(feature = "hlc")]
+    #[error("hlc: {0}")]
+    Hlc(#[from] HlcError),
+    #[cfg(feature = "hlc")]
+    #[error("invalid HLC gossip envelope: {0}")]
+    InvalidHlcEnvelope(&'static str),
 }
 
 /// Tracks outstanding ping requests.
@@ -91,6 +105,16 @@ pub struct GossipEngine {
     seq: u64,
     ticker: Interval,
     metrics: Arc<GossipMetrics>,
+    #[cfg(feature = "hlc")]
+    hlc: LocalHlc,
+    #[cfg(feature = "hlc")]
+    event_sequence: u64,
+    #[cfg(feature = "hlc")]
+    seen_messages: HashSet<HlcEventId>,
+    #[cfg(feature = "hlc")]
+    seen_membership_events: HashSet<HlcEventId>,
+    #[cfg(feature = "hlc")]
+    latest_membership_timestamps: HashMap<NodeId, HybridTimestamp>,
 }
 
 impl GossipEngine {
@@ -111,7 +135,30 @@ impl GossipEngine {
             seq: 0,
             ticker,
             metrics: Arc::new(GossipMetrics::default()),
+            #[cfg(feature = "hlc")]
+            hlc: LocalHlc::new(Duration::from_secs(1)),
+            #[cfg(feature = "hlc")]
+            event_sequence: 0,
+            #[cfg(feature = "hlc")]
+            seen_messages: HashSet::new(),
+            #[cfg(feature = "hlc")]
+            seen_membership_events: HashSet::new(),
+            #[cfg(feature = "hlc")]
+            latest_membership_timestamps: HashMap::new(),
         }
+    }
+
+    #[cfg(feature = "hlc")]
+    pub fn new_with_hlc(
+        node_id: NodeId,
+        config: GossipConfig,
+        backend: Arc<dyn Transport>,
+        membership: MembershipView,
+        hlc: LocalHlc,
+    ) -> Self {
+        let mut engine = Self::new(node_id, config, backend, membership);
+        engine.hlc = hlc;
+        engine
     }
 
     /// Periodic tick: apply timeouts then send pings/gossip.
@@ -150,15 +197,22 @@ impl GossipEngine {
     pub fn handle_ack(&mut self, from: NodeId, seq: u64, addr: SocketAddr) {
         self.metrics.received.fetch_add(1, Ordering::Relaxed);
         debug!(from = ?from, seq, "received ack");
-        if let Some(peer) = self.membership.peers.get_mut(&from) {
+        let _changed = if let Some(peer) = self.membership.peers.get_mut(&from) {
             if matches!(peer.state.status, Status::Dead) {
                 return; // ignore late ack from dead peers
             }
+            let changed = peer.state.status != Status::Alive;
             peer.state.status = Status::Alive;
             peer.state.last_seen = Instant::now();
             peer.state.suspect_since = None;
+            changed
         } else {
             self.touch_peer(from, addr, Status::Alive);
+            false // touch_peer stamps a newly observed peer
+        };
+        #[cfg(feature = "hlc")]
+        if _changed {
+            self.stamp_membership_event(from);
         }
         self.pending.remove(&seq);
     }
@@ -184,33 +238,103 @@ impl GossipEngine {
     /// Apply membership updates learned from gossip.
     pub fn apply_membership_update(&mut self, updates: &[MembershipUpdate]) {
         for upd in updates {
-            let status: Status = upd.status.clone().into();
-            let entry = self
-                .membership
-                .peers
-                .entry(upd.node_id)
-                .or_insert_with(|| Peer {
-                    node_id: upd.node_id,
-                    addr: upd.addr,
-                    state: PeerState::new(upd.incarnation, status.clone()),
-                });
-            if upd.incarnation >= entry.state.incarnation {
-                let previous = entry.state.status.clone();
-                entry.state.incarnation = upd.incarnation;
-                entry.state.status = status;
-                entry.addr = upd.addr;
-                entry.state.last_seen = Instant::now();
-                if previous != entry.state.status {
-                    self.metrics.status_events.fetch_add(1, Ordering::Relaxed);
-                    info!(
-                        peer = ?upd.node_id,
-                        from = ?previous,
-                        to = ?entry.state.status,
-                        "status updated via gossip"
-                    );
-                }
+            if self.apply_one_membership_update(upd) {
+                #[cfg(feature = "hlc")]
+                self.stamp_membership_event(upd.node_id);
             }
         }
+    }
+
+    #[cfg(feature = "hlc")]
+    pub fn apply_hlc_gossip(&mut self, message: &HlcGossipMessage) -> Result<usize, GossipError> {
+        if message
+            .updates
+            .iter()
+            .any(|event| event.timestamp > message.timestamp)
+        {
+            return Err(GossipError::InvalidHlcEnvelope(
+                "membership timestamp exceeds envelope timestamp",
+            ));
+        }
+
+        // A duplicate is still a receive event and advances the local HLC,
+        // but it must not reapply membership state.
+        self.hlc.receive(message.timestamp)?;
+        if !self.seen_messages.insert(message.event_id) {
+            return Ok(0);
+        }
+
+        let mut applied = 0;
+        for event in &message.updates {
+            if !self.seen_membership_events.insert(event.event_id) {
+                continue;
+            }
+            let is_stale = self
+                .latest_membership_timestamps
+                .get(&event.update.node_id)
+                .is_some_and(|current| event.timestamp <= *current);
+            if is_stale {
+                continue;
+            }
+            self.latest_membership_timestamps
+                .insert(event.update.node_id, event.timestamp);
+            if self.apply_one_membership_update(&event.update) {
+                if let Some(peer) = self.membership.peers.get_mut(&event.update.node_id) {
+                    peer.state.event_id = Some(event.event_id);
+                    peer.state.timestamp = Some(event.timestamp);
+                }
+                applied += 1;
+            }
+        }
+        Ok(applied)
+    }
+
+    fn apply_one_membership_update(&mut self, upd: &MembershipUpdate) -> bool {
+        let status: Status = upd.status.clone().into();
+        let received_at = Instant::now();
+        let Some(entry) = self.membership.peers.get_mut(&upd.node_id) else {
+            let mut state = PeerState::new(upd.incarnation, status.clone());
+            if matches!(status, Status::Suspect) {
+                state.suspect_since = Some(received_at);
+            }
+            self.membership.peers.insert(
+                upd.node_id,
+                Peer {
+                    node_id: upd.node_id,
+                    addr: upd.addr,
+                    state,
+                },
+            );
+            return true;
+        };
+
+        // SWIM orders gossiped membership by incarnation first. At an equal
+        // incarnation only a stronger status can replace the current state.
+        let is_newer_incarnation = upd.incarnation > entry.state.incarnation;
+        let has_stronger_status = upd.incarnation == entry.state.incarnation
+            && status_rank(&status) > status_rank(&entry.state.status);
+        if !is_newer_incarnation && !has_stronger_status {
+            return false;
+        }
+
+        let previous = entry.state.status.clone();
+        if is_newer_incarnation {
+            entry.state.incarnation = upd.incarnation;
+            entry.state.last_seen = received_at;
+        }
+        entry.state.status = status.clone();
+        entry.addr = upd.addr;
+        entry.state.suspect_since = matches!(status, Status::Suspect).then_some(received_at);
+        if previous != entry.state.status {
+            self.metrics.status_events.fetch_add(1, Ordering::Relaxed);
+            info!(
+                peer = ?upd.node_id,
+                from = ?previous,
+                to = ?entry.state.status,
+                "status updated via gossip"
+            );
+        }
+        true
     }
 
     fn apply_timeouts(&mut self, now: Instant) -> Vec<StatusChange> {
@@ -228,6 +352,10 @@ impl GossipEngine {
                 to = ?change.to,
                 "status transitioned by timeout"
             );
+        }
+        #[cfg(feature = "hlc")]
+        for change in &changes {
+            self.stamp_membership_event(change.node_id);
         }
         changes
     }
@@ -260,7 +388,8 @@ impl GossipEngine {
                     stage: PingStage::Direct { sent_at },
                 },
             );
-            // Gossip membership to the same target
+            // Gossip membership to the same target.
+            #[cfg(not(feature = "hlc"))]
             let updates: Vec<MembershipUpdate> = self
                 .membership
                 .peers
@@ -272,6 +401,7 @@ impl GossipEngine {
                     status: member_status(&peer.state.status),
                 })
                 .collect();
+            #[cfg(not(feature = "hlc"))]
             if !updates.is_empty() {
                 let _ = self
                     .backend
@@ -280,6 +410,40 @@ impl GossipEngine {
                         Frame::Gossip(alopex_chirps_wire::frame::GossipMessage { updates }),
                     )
                     .await;
+            }
+            #[cfg(feature = "hlc")]
+            {
+                self.ensure_membership_stamps();
+                let updates: Vec<StampedMembershipUpdate> = self
+                    .membership
+                    .peers
+                    .values()
+                    .map(|peer| StampedMembershipUpdate {
+                        event_id: peer.state.event_id.expect("membership event stamped"),
+                        timestamp: peer.state.timestamp.expect("membership event stamped"),
+                        update: MembershipUpdate {
+                            node_id: peer.node_id,
+                            incarnation: peer.state.incarnation,
+                            addr: peer.addr,
+                            status: member_status(&peer.state.status),
+                        },
+                    })
+                    .collect();
+                if !updates.is_empty() {
+                    let timestamp = self.hlc.tick();
+                    let event_id = self.next_event_id();
+                    let _ = self
+                        .backend
+                        .send(
+                            target,
+                            Frame::HlcGossip(HlcGossipMessage {
+                                event_id,
+                                timestamp,
+                                updates,
+                            }),
+                        )
+                        .await;
+                }
             }
         }
         Ok(())
@@ -313,6 +477,7 @@ impl GossipEngine {
 
         let mut changes = Vec::new();
         for (seq, target) in to_suspect {
+            let mut _changed = false;
             if let Some(peer) = self.membership.peers.get_mut(&target)
                 && peer.state.status == Status::Alive
             {
@@ -324,6 +489,11 @@ impl GossipEngine {
                     Status::Suspect,
                     peer.state.incarnation,
                 ));
+                _changed = true;
+            }
+            #[cfg(feature = "hlc")]
+            if _changed {
+                self.stamp_membership_event(target);
             }
             self.pending.remove(&seq);
         }
@@ -346,6 +516,11 @@ impl GossipEngine {
     }
 
     fn touch_peer(&mut self, node_id: NodeId, addr: SocketAddr, status: Status) {
+        let _changed = self
+            .membership
+            .peers
+            .get(&node_id)
+            .is_none_or(|peer| peer.state.status != status);
         let entry = self
             .membership
             .peers
@@ -358,11 +533,56 @@ impl GossipEngine {
         entry.addr = addr;
         entry.state.status = status;
         entry.state.last_seen = Instant::now();
+        #[cfg(feature = "hlc")]
+        if _changed {
+            self.stamp_membership_event(node_id);
+        }
     }
 
     /// Returns current membership view (read-only clone).
     pub fn membership(&self) -> MembershipView {
         self.membership.clone()
+    }
+
+    #[cfg(feature = "hlc")]
+    pub fn hlc_current(&self) -> HybridTimestamp {
+        self.hlc.current()
+    }
+
+    #[cfg(feature = "hlc")]
+    fn next_event_id(&mut self) -> HlcEventId {
+        self.event_sequence = self.event_sequence.wrapping_add(1);
+        if self.event_sequence == 0 {
+            self.event_sequence = 1;
+        }
+        HlcEventId {
+            source: self.node_id,
+            sequence: self.event_sequence,
+        }
+    }
+
+    #[cfg(feature = "hlc")]
+    fn stamp_membership_event(&mut self, node_id: NodeId) {
+        let timestamp = self.hlc.tick();
+        let event_id = self.next_event_id();
+        if let Some(peer) = self.membership.peers.get_mut(&node_id) {
+            peer.state.timestamp = Some(timestamp);
+            peer.state.event_id = Some(event_id);
+            self.latest_membership_timestamps.insert(node_id, timestamp);
+        }
+    }
+
+    #[cfg(feature = "hlc")]
+    fn ensure_membership_stamps(&mut self) {
+        let unstamped: Vec<NodeId> = self
+            .membership
+            .peers
+            .iter()
+            .filter_map(|(node_id, peer)| peer.state.timestamp.is_none().then_some(*node_id))
+            .collect();
+        for node_id in unstamped {
+            self.stamp_membership_event(node_id);
+        }
     }
 
     /// 現在のメトリクスを取得する。
@@ -414,6 +634,14 @@ fn member_status(status: &Status) -> MemberStatus {
         Status::Alive => MemberStatus::Alive,
         Status::Suspect => MemberStatus::Suspect,
         Status::Dead => MemberStatus::Dead,
+    }
+}
+
+fn status_rank(status: &Status) -> u8 {
+    match status {
+        Status::Alive => 0,
+        Status::Suspect => 1,
+        Status::Dead => 2,
     }
 }
 
@@ -528,7 +756,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(windows, ignore)] // Windows timer resolution (15.6ms) causes flaky timing tests
+    // Sub-20ms timer scheduling is nondeterministic on hosted Windows/macOS
+    // runners; Linux executes this timing-sensitive behavior test.
+    #[cfg_attr(any(windows, target_os = "macos"), ignore)]
     async fn ping_timeout_requests_indirect_and_marks_suspect() {
         let node = NodeId::new();
         let target = NodeId::new();
@@ -618,5 +848,107 @@ mod tests {
                 && matches!(frame, Frame::Ping { seq, from } if *seq == 10 && *from == requester)),
             "expected forwarded ping to target with requester as source"
         );
+    }
+
+    #[tokio::test]
+    async fn equal_incarnation_alive_gossip_does_not_refresh_liveness() {
+        let node = NodeId::new();
+        let peer_id = NodeId::new();
+        let last_seen = Instant::now() - Duration::from_secs(1);
+        let mut membership = MembershipView::new();
+        membership.peers.insert(
+            peer_id,
+            Peer {
+                node_id: peer_id,
+                addr: "127.0.0.1:9400".parse().unwrap(),
+                state: PeerState {
+                    incarnation: 7,
+                    status: Status::Alive,
+                    last_seen,
+                    suspect_since: None,
+                    #[cfg(feature = "hlc")]
+                    event_id: None,
+                    #[cfg(feature = "hlc")]
+                    timestamp: None,
+                },
+            },
+        );
+        let backend = Arc::new(MockBackend {
+            sent: Arc::new(AtomicUsize::new(0)),
+            frames: Arc::new(Mutex::new(Vec::new())),
+        });
+        let mut engine = GossipEngine::new(node, config(), backend, membership);
+
+        engine.apply_membership_update(&[MembershipUpdate {
+            node_id: peer_id,
+            incarnation: 7,
+            addr: "127.0.0.1:9400".parse().unwrap(),
+            status: MemberStatus::Alive,
+        }]);
+
+        let peer = engine.membership.peers.get(&peer_id).unwrap();
+        assert_eq!(peer.state.status, Status::Alive);
+        assert_eq!(peer.state.last_seen, last_seen);
+
+        let changes = engine.apply_timeouts(Instant::now());
+        assert!(
+            changes
+                .iter()
+                .any(|change| change.node_id == peer_id && change.to == Status::Suspect),
+            "stale Alive gossip must not keep an unreachable peer alive"
+        );
+    }
+
+    #[tokio::test]
+    async fn only_higher_incarnation_alive_gossip_refutes_suspicion() {
+        let node = NodeId::new();
+        let peer_id = NodeId::new();
+        let last_seen = Instant::now() - Duration::from_secs(1);
+        let mut membership = MembershipView::new();
+        membership.peers.insert(
+            peer_id,
+            Peer {
+                node_id: peer_id,
+                addr: "127.0.0.1:9500".parse().unwrap(),
+                state: PeerState {
+                    incarnation: 3,
+                    status: Status::Suspect,
+                    last_seen,
+                    suspect_since: Some(last_seen),
+                    #[cfg(feature = "hlc")]
+                    event_id: None,
+                    #[cfg(feature = "hlc")]
+                    timestamp: None,
+                },
+            },
+        );
+        let backend = Arc::new(MockBackend {
+            sent: Arc::new(AtomicUsize::new(0)),
+            frames: Arc::new(Mutex::new(Vec::new())),
+        });
+        let mut engine = GossipEngine::new(node, config(), backend, membership);
+
+        engine.apply_membership_update(&[MembershipUpdate {
+            node_id: peer_id,
+            incarnation: 3,
+            addr: "127.0.0.1:9500".parse().unwrap(),
+            status: MemberStatus::Alive,
+        }]);
+        assert_eq!(
+            engine.membership.peers.get(&peer_id).unwrap().state.status,
+            Status::Suspect
+        );
+
+        engine.apply_membership_update(&[MembershipUpdate {
+            node_id: peer_id,
+            incarnation: 4,
+            addr: "127.0.0.1:9500".parse().unwrap(),
+            status: MemberStatus::Alive,
+        }]);
+        let peer = engine.membership.peers.get(&peer_id).unwrap();
+        assert_eq!(peer.state.incarnation, 4);
+        assert_eq!(peer.state.status, Status::Alive);
+        assert!(peer.state.suspect_since.is_none());
+        assert!(peer.state.last_seen > last_seen);
     }
 }

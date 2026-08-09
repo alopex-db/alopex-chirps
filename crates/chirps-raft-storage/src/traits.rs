@@ -240,7 +240,8 @@ pub trait RaftStorage<C: RaftTypeConfig>: Send + Sync + 'static {
         StorageError<C::NodeId>,
     >;
 
-    /// ステートマシンにエントリを適用し、応答を収集する。
+    /// ステートマシンにエントリを適用し、入力エントリごとに1件の応答を返す。
+    /// Blank/Membership も空応答を返し、OpenRaft の storage-v2 契約を維持する。
     async fn apply<I>(&mut self, entries: I) -> Result<Vec<C::R>, StorageError<C::NodeId>>
     where
         I: IntoIterator<Item = C::Entry> + Send,

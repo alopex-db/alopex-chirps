@@ -5,10 +5,20 @@ use std::time::Duration;
 pub struct TransportConfigV04 {
     /// 送信処理のタイムアウト。
     pub send_timeout: Duration,
+    /// Whether data sends wait for peer-side stream stop notifications.
+    /// Disable only for high-fanout Raft workloads with envelope retransmit.
+    pub await_peer_stop: bool,
+    /// Enables per-stream histograms, metrics recorder updates, and detailed
+    /// transport diagnostics. Disable for the normal hot path; controlled
+    /// evidence runs enable it explicitly.
+    pub diagnostics_enabled: bool,
     /// 送信キューのバッファサイズ。
     pub send_queue_capacity: usize,
     /// 優先度スケジューラ設定。
     pub priority: PriorityConfig,
+    /// Maximum number of ordinary Raft envelopes per temporary QUIC stream.
+    /// A value of one restores the legacy one-envelope-per-stream behavior.
+    pub raft_stream_batch_size: usize,
     /// 再送バッファ設定。
     pub retransmit: RetransmitConfig,
     /// QoS/バックプレッシャー設定。
@@ -21,12 +31,54 @@ impl Default for TransportConfigV04 {
     fn default() -> Self {
         Self {
             send_timeout: Duration::from_millis(200),
+            await_peer_stop: true,
+            diagnostics_enabled: true,
             send_queue_capacity: 1024,
             priority: PriorityConfig::default(),
+            raft_stream_batch_size: 32,
             retransmit: RetransmitConfig::default(),
             qos: QosConfig::default(),
             handshake: HandshakeConfig::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TransportConfigV04;
+
+    #[test]
+    fn peer_stop_wait_is_safe_by_default() {
+        assert!(TransportConfigV04::default().await_peer_stop);
+    }
+
+    #[test]
+    fn peer_stop_wait_can_be_disabled_for_fanout_lane() {
+        let config = TransportConfigV04 {
+            await_peer_stop: false,
+            ..TransportConfigV04::default()
+        };
+        assert!(!config.await_peer_stop);
+    }
+
+    #[test]
+    fn diagnostics_are_enabled_by_default_and_detachable() {
+        assert!(TransportConfigV04::default().diagnostics_enabled);
+        let config = TransportConfigV04 {
+            diagnostics_enabled: false,
+            ..TransportConfigV04::default()
+        };
+        assert!(!config.diagnostics_enabled);
+    }
+
+    #[test]
+    fn raft_stream_batching_defaults_to_thirty_two_and_is_disableable() {
+        assert_eq!(TransportConfigV04::default().raft_stream_batch_size, 32);
+        let config = TransportConfigV04 {
+            raft_stream_batch_size: 1,
+            ..TransportConfigV04::default()
+        };
+        assert_eq!(config.raft_stream_batch_size, 1);
     }
 }
 

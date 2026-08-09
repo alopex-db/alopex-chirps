@@ -1,0 +1,10 @@
+{
+  "schema": "chirps.snapshot-evidence/v1",
+  "release_version": "0.6.0",
+  "source_commit": "ddbccf9ae6debe79e9d1d6ba79fb05d4042291a9",
+  "result": "pass",
+  "scope": "Snapshot chunk retry, bounded parallelism, verification, and atomic install",
+  "command": "CARGO_TARGET_DIR=/tmp/chirps-release-tests cargo test --locked -p alopex-chirps --all-features --test snapshot_transfer -- --test-threads=1",
+  "tests": ["failed_chunk_is_retried_without_resending_verified_chunks", "sender_never_exceeds_configured_parallelism", "receiver_installs_only_after_all_chunks_verify_and_checkpoint", "failed_transfer_never_exposes_partial_snapshot", "raft_transport_and_wal_storage_install_verified_snapshot"],
+  "limitations": ["Snapshot throughput profile remains separate from correctness evidence"]
+}

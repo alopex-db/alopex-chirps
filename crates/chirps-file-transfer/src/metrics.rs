@@ -1,9 +1,10 @@
 use crate::session::TransferKind;
 use prometheus::{
-    Counter, CounterVec, Error as PrometheusError, Gauge, HistogramVec, register_counter,
-    register_counter_vec, register_gauge, register_histogram_vec,
+    Counter, CounterVec, Error as PrometheusError, Gauge, HistogramOpts, HistogramVec, Opts,
+    Registry,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 /// In-memory counters for file transfer activity.
 #[derive(Debug)]
@@ -144,71 +145,138 @@ pub struct PrometheusMetrics {
     pub retries_total: Counter,
     pub active_transfers: Gauge,
     pub chunks_in_flight: Gauge,
+    pub chunk_concurrency: HistogramVec,
     pub transfer_duration: HistogramVec,
     pub chunk_latency: HistogramVec,
     pub throughput: HistogramVec,
+    pub phase_duration: HistogramVec,
+    pub phase_bytes: CounterVec,
 }
 
 impl PrometheusMetrics {
-    /// Registers and returns the default metrics set.
+    /// Registers and returns a metrics set owned by `registry`.
     ///
     /// # Errors
     /// Returns `PrometheusError` if metric registration fails.
     ///
     /// # Panics
     /// This method does not panic.
-    pub fn register() -> Result<Self, PrometheusError> {
-        Ok(PrometheusMetrics {
-            transfers_total: register_counter_vec!(
+    pub fn register(registry: &Registry) -> Result<Self, PrometheusError> {
+        let transfers_total = CounterVec::new(
+            Opts::new(
                 "chirps_ft_transfers_total",
                 "Total number of file transfers",
-                &["kind", "status"]
-            )?,
-            chunks_total: register_counter_vec!(
+            ),
+            &["kind", "status"],
+        )?;
+        let chunks_total = CounterVec::new(
+            Opts::new(
                 "chirps_ft_chunks_total",
                 "Total number of chunks transferred",
-                &["direction"]
-            )?,
-            bytes_total: register_counter_vec!(
-                "chirps_ft_bytes_total",
-                "Total bytes transferred",
-                &["direction"]
-            )?,
-            checksum_failures_total: register_counter_vec!(
+            ),
+            &["direction"],
+        )?;
+        let bytes_total = CounterVec::new(
+            Opts::new("chirps_ft_bytes_total", "Total bytes transferred"),
+            &["direction"],
+        )?;
+        let checksum_failures_total = CounterVec::new(
+            Opts::new(
                 "chirps_ft_checksum_failures_total",
                 "Total checksum verification failures",
-                &["level"]
-            )?,
-            retries_total: register_counter!(
-                "chirps_ft_retries_total",
-                "Total number of chunk retries"
-            )?,
-            active_transfers: register_gauge!(
-                "chirps_ft_active_transfers",
-                "Number of active transfers"
-            )?,
-            chunks_in_flight: register_gauge!(
-                "chirps_ft_chunks_in_flight",
-                "Number of chunks currently in flight"
-            )?,
-            transfer_duration: register_histogram_vec!(
+            ),
+            &["level"],
+        )?;
+        let retries_total = Counter::with_opts(Opts::new(
+            "chirps_ft_retries_total",
+            "Total number of chunk retries",
+        ))?;
+        let active_transfers = Gauge::with_opts(Opts::new(
+            "chirps_ft_active_transfers",
+            "Number of active transfers",
+        ))?;
+        let chunks_in_flight = Gauge::with_opts(Opts::new(
+            "chirps_ft_chunks_in_flight",
+            "Number of chunks currently in flight",
+        ))?;
+        let chunk_concurrency = HistogramVec::new(
+            HistogramOpts::new(
+                "chirps_ft_chunk_concurrency",
+                "Maximum number of chunks in flight during one transfer",
+            )
+            .buckets(vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0]),
+            &["kind"],
+        )?;
+        let transfer_duration = HistogramVec::new(
+            HistogramOpts::new(
                 "chirps_ft_transfer_duration_seconds",
                 "Transfer duration in seconds",
-                &["kind"],
-                vec![0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]
-            )?,
-            chunk_latency: register_histogram_vec!(
+            )
+            .buckets(vec![0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]),
+            &["kind"],
+        )?;
+        let chunk_latency = HistogramVec::new(
+            HistogramOpts::new(
                 "chirps_ft_chunk_latency_seconds",
                 "Chunk transfer latency in seconds",
-                &[],
-                vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
-            )?,
-            throughput: register_histogram_vec!(
+            )
+            .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]),
+            &[],
+        )?;
+        let throughput = HistogramVec::new(
+            HistogramOpts::new(
                 "chirps_ft_throughput_bytes_per_sec",
                 "Transfer throughput in bytes per second",
-                &["kind"],
-                vec![1e6, 1e7, 5e7, 1e8, 5e8, 1e9]
-            )?,
+            )
+            .buckets(vec![1e6, 1e7, 5e7, 1e8, 5e8, 1e9]),
+            &["kind"],
+        )?;
+        let phase_duration = HistogramVec::new(
+            HistogramOpts::new(
+                "chirps_ft_phase_duration_seconds",
+                "Duration of a FileTransfer implementation phase",
+            )
+            .buckets(vec![
+                0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 30.0,
+            ]),
+            &["phase"],
+        )?;
+        let phase_bytes = CounterVec::new(
+            Opts::new(
+                "chirps_ft_phase_bytes_total",
+                "Bytes processed by a FileTransfer implementation phase",
+            ),
+            &["phase"],
+        )?;
+
+        registry.register(Box::new(transfers_total.clone()))?;
+        registry.register(Box::new(chunks_total.clone()))?;
+        registry.register(Box::new(bytes_total.clone()))?;
+        registry.register(Box::new(checksum_failures_total.clone()))?;
+        registry.register(Box::new(retries_total.clone()))?;
+        registry.register(Box::new(active_transfers.clone()))?;
+        registry.register(Box::new(chunks_in_flight.clone()))?;
+        registry.register(Box::new(chunk_concurrency.clone()))?;
+        registry.register(Box::new(transfer_duration.clone()))?;
+        registry.register(Box::new(chunk_latency.clone()))?;
+        registry.register(Box::new(throughput.clone()))?;
+        registry.register(Box::new(phase_duration.clone()))?;
+        registry.register(Box::new(phase_bytes.clone()))?;
+
+        Ok(PrometheusMetrics {
+            transfers_total,
+            chunks_total,
+            bytes_total,
+            checksum_failures_total,
+            retries_total,
+            active_transfers,
+            chunks_in_flight,
+            chunk_concurrency,
+            transfer_duration,
+            chunk_latency,
+            throughput,
+            phase_duration,
+            phase_bytes,
         })
     }
 
@@ -267,6 +335,16 @@ impl PrometheusMetrics {
         self.chunks_in_flight.set(value as f64);
     }
 
+    /// Records the maximum chunk concurrency reached by one transfer.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn observe_chunk_concurrency(&self, kind: TransferKind, value: usize) {
+        self.chunk_concurrency
+            .with_label_values(&[kind_label(kind)])
+            .observe(value as f64);
+    }
+
     /// Observes a transfer duration for the given kind.
     ///
     /// # Panics
@@ -282,7 +360,9 @@ impl PrometheusMetrics {
     /// # Panics
     /// This method does not panic.
     pub fn observe_chunk_latency(&self, seconds: f64) {
-        self.chunk_latency.with_label_values(&[]).observe(seconds);
+        self.chunk_latency
+            .with_label_values::<&str>(&[])
+            .observe(seconds);
     }
 
     /// Observes throughput in bytes/sec for the given kind.
@@ -293,6 +373,23 @@ impl PrometheusMetrics {
         self.throughput
             .with_label_values(&[kind_label(kind)])
             .observe(bytes_per_sec);
+    }
+
+    /// Records the byte count and elapsed time of an implementation phase.
+    ///
+    /// Phase metrics are intentionally separate from end-to-end throughput:
+    /// they make a local component regression observable before a controlled
+    /// two-container release measurement is run.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn observe_phase(&self, phase: &str, duration: Duration, bytes: u64) {
+        self.phase_duration
+            .with_label_values(&[phase])
+            .observe(duration.as_secs_f64());
+        self.phase_bytes
+            .with_label_values(&[phase])
+            .inc_by(bytes as f64);
     }
 }
 

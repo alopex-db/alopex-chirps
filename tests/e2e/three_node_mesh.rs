@@ -1,19 +1,24 @@
 use alopex_chirps::backend::MessageBackend;
 use alopex_chirps::config::NodeConfig;
 use alopex_chirps_gossip_swim::engine::{GossipConfig, GossipEngine, Transport, TransportError};
+#[cfg(feature = "hlc")]
+use alopex_chirps_gossip_swim::hlc::LocalHlc;
 use alopex_chirps_gossip_swim::types::{MembershipView, Status};
-use alopex_chirps_transport_quic::QuicBackend;
-use alopex_chirps_wire::frame::{Frame, MemberStatus, MembershipUpdate, UserMessage};
+use alopex_chirps_transport_quic::{QuicBackend, init_test_tracing};
+use alopex_chirps_wire::frame::{
+    Frame, GossipMessage, MemberStatus, MembershipUpdate, UserMessage,
+};
 use alopex_chirps_wire::node_id::NodeId;
 use anyhow::Result;
 use async_trait::async_trait;
 use rcgen::generate_simple_self_signed;
-use std::fs::File;
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use tempfile::TempDir;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio::task::JoinHandle;
 
@@ -23,6 +28,7 @@ const WAIT_LONG: Duration = Duration::from_secs(15);
 
 struct TestNode {
     id: NodeId,
+    addr: SocketAddr,
     backend: Arc<QuicBackend>,
     engine: Arc<Mutex<GossipEngine>>,
     user_rx: mpsc::Receiver<(NodeId, Vec<u8>)>,
@@ -31,14 +37,79 @@ struct TestNode {
     tick_task: JoinHandle<()>,
 }
 
-impl TestNode {
-    async fn start(
-        id: NodeId,
-        addr: SocketAddr,
+struct MeshTls {
+    _dir: TempDir,
+    cert_paths: Vec<PathBuf>,
+    key_paths: Vec<PathBuf>,
+}
+
+impl MeshTls {
+    fn distinct_self_signed(nodes: usize) -> Result<Self> {
+        Self::new(nodes, false)
+    }
+
+    fn shared_self_signed(nodes: usize) -> Result<Self> {
+        Self::new(nodes, true)
+    }
+
+    fn new(nodes: usize, shared: bool) -> Result<Self> {
+        let dir = tempfile::tempdir()?;
+        let shared_material = if shared {
+            let cert = generate_simple_self_signed(["alopex.local".to_string()])?;
+            Some((cert.serialize_der()?, cert.serialize_private_key_der()))
+        } else {
+            None
+        };
+        let mut cert_paths = Vec::with_capacity(nodes);
+        let mut key_paths = Vec::with_capacity(nodes);
+        for index in 0..nodes {
+            let (cert_der, key_der) = match &shared_material {
+                Some((cert_der, key_der)) => (cert_der.clone(), key_der.clone()),
+                None => {
+                    let cert = generate_simple_self_signed(["alopex.local".to_string()])?;
+                    (cert.serialize_der()?, cert.serialize_private_key_der())
+                }
+            };
+            let cert_path = dir.path().join(format!("node-{index}.crt"));
+            let key_path = dir.path().join(format!("node-{index}.key"));
+            fs::write(&cert_path, cert_der)?;
+            fs::write(&key_path, key_der)?;
+            cert_paths.push(cert_path);
+            key_paths.push(key_path);
+        }
+        Ok(Self {
+            _dir: dir,
+            cert_paths,
+            key_paths,
+        })
+    }
+
+    fn node_config(
+        &self,
+        node: usize,
+        bind_addr: SocketAddr,
         seeds: Vec<SocketAddr>,
-        cert: Option<(PathBuf, PathBuf)>,
-    ) -> Result<Self> {
-        let config = Arc::new(make_config(addr, seeds, cert));
+    ) -> NodeConfig {
+        NodeConfig {
+            bind_addr,
+            seeds,
+            cert_path: Some(self.cert_paths[node].clone()),
+            key_path: Some(self.key_paths[node].clone()),
+            trusted_cert_paths: self.cert_paths.clone(),
+            ping_timeout: Duration::from_millis(200),
+            indirect_ping_timeout: Duration::from_millis(400),
+            suspect_to_dead_timeout: Duration::from_millis(800),
+            gossip_interval: Duration::from_millis(80),
+            ..Default::default()
+        }
+    }
+}
+
+impl TestNode {
+    async fn start(id: NodeId, config: NodeConfig) -> Result<Self> {
+        init_test_tracing();
+        let config = Arc::new(config);
+        let addr = config.bind_addr;
         let backend = QuicBackend::new(id, Arc::clone(&config)).await?;
         let backend = Arc::new(backend);
 
@@ -47,9 +118,17 @@ impl TestNode {
             inner: Arc::clone(&backend),
         });
         let membership = MembershipView::new();
-        let engine = Arc::new(Mutex::new(GossipEngine::new(
-            id, gossip_cfg, transport, membership,
-        )));
+        #[cfg(not(feature = "hlc"))]
+        let engine = GossipEngine::new(id, gossip_cfg, transport, membership);
+        #[cfg(feature = "hlc")]
+        let engine = GossipEngine::new_with_hlc(
+            id,
+            gossip_cfg,
+            transport,
+            membership,
+            LocalHlc::new(config.max_clock_skew),
+        );
+        let engine = Arc::new(Mutex::new(engine));
 
         let (user_tx, user_rx) = mpsc::channel(64);
         let (shutdown, _) = broadcast::channel(4);
@@ -86,6 +165,13 @@ impl TestNode {
                                 Frame::Gossip(msg) => {
                                     let mut g = frame_engine.lock().await;
                                     g.apply_membership_update(&msg.updates);
+                                }
+                                #[cfg(feature = "hlc")]
+                                Frame::HlcGossip(msg) => {
+                                    let mut g = frame_engine.lock().await;
+                                    if let Err(err) = g.apply_hlc_gossip(&msg) {
+                                        eprintln!("HLC gossip を拒否しました: {err}");
+                                    }
                                 }
                                 Frame::User(user) => {
                                     let _ = user_tx.send((from, user.payload)).await;
@@ -125,6 +211,7 @@ impl TestNode {
 
         Ok(Self {
             id,
+            addr,
             backend,
             engine,
             user_rx,
@@ -173,6 +260,23 @@ impl TestNode {
             }))
             .await
             .map_err(Into::into)
+    }
+
+    /// Announces this node's new incarnation after reconnecting. A peer that
+    /// marked this NodeId dead accepts an Alive update only when its
+    /// incarnation is strictly newer than the old one.
+    async fn announce_alive(&self, incarnation: u64) -> Result<()> {
+        self.backend
+            .broadcast(Frame::Gossip(GossipMessage {
+                updates: vec![MembershipUpdate {
+                    node_id: self.id,
+                    incarnation,
+                    addr: self.addr,
+                    status: MemberStatus::Alive,
+                }],
+            }))
+            .await?;
+        Ok(())
     }
 
     async fn expect_user_from(
@@ -278,20 +382,16 @@ struct BackendAdapter {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "E2E test requires QUIC networking - run manually with --ignored"]
 async fn three_node_mesh_self_signed_flow() -> Result<()> {
-    run_three_node_mesh(None).await
+    run_three_node_mesh(MeshTls::distinct_self_signed(3)?).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "E2E test requires QUIC networking - run manually with --ignored"]
 async fn three_node_mesh_with_explicit_cert() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    let cert_path = dir.path().join("test.crt");
-    let key_path = dir.path().join("test.key");
-    write_cert_files(&cert_path, &key_path)?;
-    run_three_node_mesh(Some((cert_path, key_path))).await
+    run_three_node_mesh(MeshTls::shared_self_signed(3)?).await
 }
 
-async fn run_three_node_mesh(certs: Option<(PathBuf, PathBuf)>) -> Result<()> {
+async fn run_three_node_mesh(tls: MeshTls) -> Result<()> {
     let addr_a = match free_addr() {
         Ok(a) => a,
         Err(e) if is_permission_error(&e) => {
@@ -325,7 +425,7 @@ async fn run_three_node_mesh(certs: Option<(PathBuf, PathBuf)>) -> Result<()> {
     let seeds_b = vec![addr_a];
     let seeds_c = vec![addr_a, addr_b];
 
-    let mut node_a = match TestNode::start(node_a_id, addr_a, seeds_a, certs.clone()).await {
+    let mut node_a = match TestNode::start(node_a_id, tls.node_config(0, addr_a, seeds_a)).await {
         Ok(n) => n,
         Err(e) if is_permission_error(&e) => {
             eprintln!("ノードA起動をスキップ: 権限不足 ({e})");
@@ -333,7 +433,7 @@ async fn run_three_node_mesh(certs: Option<(PathBuf, PathBuf)>) -> Result<()> {
         }
         Err(e) => return Err(e),
     };
-    let mut node_b = match TestNode::start(node_b_id, addr_b, seeds_b, certs.clone()).await {
+    let mut node_b = match TestNode::start(node_b_id, tls.node_config(1, addr_b, seeds_b)).await {
         Ok(n) => n,
         Err(e) if is_permission_error(&e) => {
             eprintln!("ノードB起動をスキップ: 権限不足 ({e})");
@@ -345,7 +445,7 @@ async fn run_three_node_mesh(certs: Option<(PathBuf, PathBuf)>) -> Result<()> {
             return Err(e);
         }
     };
-    let mut node_c = match TestNode::start(node_c_id, addr_c, seeds_c, certs.clone()).await {
+    let mut node_c = match TestNode::start(node_c_id, tls.node_config(2, addr_c, seeds_c)).await {
         Ok(n) => n,
         Err(e) if is_permission_error(&e) => {
             eprintln!("ノードC起動をスキップ: 権限不足 ({e})");
@@ -420,20 +520,21 @@ async fn run_three_node_mesh(certs: Option<(PathBuf, PathBuf)>) -> Result<()> {
             return Err(e.into());
         }
     };
-    let node_b2 = match TestNode::start(old_b_id, addr_b2, vec![addr_a, addr_c], certs).await {
-        Ok(n) => n,
-        Err(e) if is_permission_error(&e) => {
-            eprintln!("ノードB再起動をスキップ: 権限不足 ({e})");
-            node_a.shutdown().await?;
-            node_c.shutdown().await?;
-            return Ok(());
-        }
-        Err(e) => {
-            node_a.shutdown().await?;
-            node_c.shutdown().await?;
-            return Err(e);
-        }
-    };
+    let node_b2 =
+        match TestNode::start(old_b_id, tls.node_config(1, addr_b2, vec![addr_a, addr_c])).await {
+            Ok(n) => n,
+            Err(e) if is_permission_error(&e) => {
+                eprintln!("ノードB再起動をスキップ: 権限不足 ({e})");
+                node_a.shutdown().await?;
+                node_c.shutdown().await?;
+                return Ok(());
+            }
+            Err(e) => {
+                node_a.shutdown().await?;
+                node_c.shutdown().await?;
+                return Err(e);
+            }
+        };
 
     node_b2
         .apply_members(
@@ -443,13 +544,22 @@ async fn run_three_node_mesh(certs: Option<(PathBuf, PathBuf)>) -> Result<()> {
         )
         .await;
     node_b2.wait_connected(2, WAIT_SHORT).await?;
-
-    node_a
-        .wait_membership_status(old_b_id, Status::Alive, WAIT_LONG)
-        .await?;
-    node_c
-        .wait_membership_status(old_b_id, Status::Alive, WAIT_LONG)
-        .await?;
+    let rejoin_deadline = tokio::time::Instant::now() + WAIT_LONG;
+    loop {
+        // SWIM disseminates an Alive update repeatedly; a single control frame
+        // is not a delivery acknowledgement for both peers in this real QUIC
+        // harness. Keep announcing until both membership views converge.
+        node_b2.announce_alive(1).await?;
+        if node_a.membership_status(old_b_id).await == Some(Status::Alive)
+            && node_c.membership_status(old_b_id).await == Some(Status::Alive)
+        {
+            break;
+        }
+        if tokio::time::Instant::now() > rejoin_deadline {
+            anyhow::bail!("再参加ノードの Alive gossip が全 peer へ収束しませんでした");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 
     node_b2.broadcast_user(b"mesh-back-again").await?;
     node_a
@@ -460,27 +570,6 @@ async fn run_three_node_mesh(certs: Option<(PathBuf, PathBuf)>) -> Result<()> {
     node_b2.shutdown().await?;
     node_c.shutdown().await?;
     Ok(())
-}
-
-fn make_config(
-    addr: SocketAddr,
-    seeds: Vec<SocketAddr>,
-    cert: Option<(PathBuf, PathBuf)>,
-) -> NodeConfig {
-    let mut cfg = NodeConfig {
-        bind_addr: addr,
-        seeds,
-        ping_timeout: Duration::from_millis(200),
-        indirect_ping_timeout: Duration::from_millis(400),
-        suspect_to_dead_timeout: Duration::from_millis(800),
-        gossip_interval: Duration::from_millis(80),
-        ..Default::default()
-    };
-    if let Some((cert_path, key_path)) = cert {
-        cfg.cert_path = Some(cert_path);
-        cfg.key_path = Some(key_path);
-    }
-    cfg
 }
 
 fn gossip_config(cfg: &NodeConfig) -> GossipConfig {
@@ -508,16 +597,4 @@ fn status_to_member(status: Status) -> MemberStatus {
 fn is_permission_error<E: std::fmt::Display>(err: &E) -> bool {
     let msg = err.to_string();
     msg.contains("Permission denied") || msg.contains("Operation not permitted")
-}
-
-fn write_cert_files(cert_path: &PathBuf, key_path: &PathBuf) -> Result<()> {
-    let cert = generate_simple_self_signed(["alopex.local".to_string()])?;
-    let cert_der = cert.serialize_der()?;
-    let key_der = cert.serialize_private_key_der();
-
-    let mut cert_file = File::create(cert_path)?;
-    cert_file.write_all(&cert_der)?;
-    let mut key_file = File::create(key_path)?;
-    key_file.write_all(&key_der)?;
-    Ok(())
 }

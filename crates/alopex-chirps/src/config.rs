@@ -10,6 +10,7 @@ mod tests {
         let config = NodeConfig::default();
         assert_eq!(config.bind_addr, "127.0.0.1:0".parse().unwrap());
         assert_eq!(config.ping_timeout, std::time::Duration::from_secs(1));
+        assert_eq!(config.max_clock_skew, std::time::Duration::from_secs(1));
         assert!(config.validate().is_ok());
     }
 
@@ -37,6 +38,13 @@ mod tests {
         let config = NodeConfig {
             cert_path: Some(cert_file.path().to_path_buf()),
             key_path: Some(std::path::PathBuf::from("missing.key")),
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+
+        // Trust anchor missing
+        let config = NodeConfig {
+            trusted_cert_paths: vec![std::path::PathBuf::from("missing-trust-anchor.der")],
             ..Default::default()
         };
         assert!(config.validate().is_err());

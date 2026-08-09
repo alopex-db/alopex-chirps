@@ -1,0 +1,72 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-gossip-hlc-v0-6
+  language: TLA+
+  implementation_status: production-refined
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 6
+    constants:
+      MaxClockSkew: 1
+    profiles:
+      - {config: Tick.cfg, next: TickNext, max_steps: 5}
+      - {config: Reorder.cfg, next: ReorderNext, max_steps: 6}
+      - {config: Skew.cfg, next: SkewNext, max_steps: 2}
+      - {config: Hlc.cfg, next: Next, max_steps: 4, purpose: combined-exploration}
+    scope: "Two nodes, one SWIM and one Gossip message, physical clocks 0..3, logical counters 0..6, and maximum future skew 1."
+    exclusions:
+      - "Unbounded liveness, fairness, logical counters, and arbitrary message histories"
+      - "Gossip convergence, SWIM failure detection, membership semantics, persistence, and crash recovery"
+      - "Past-clock-skew policy, Byzantine timestamps, transport framing, real networks, and performance"
+requirements:
+  - id: HLC-LOCAL-RULES
+    requirement: "CHIRPS v0.6 Requirement 5"
+    classification: local-state
+    implementation_status: implemented
+    failure_mode: "A local tick, receive, or physical clock rollback causes the HLC to regress or violates the canonical logical-counter rule."
+    properties: [LocalEventsAdvanceClock, TickRuleCorrect, ReceiveRuleCorrect, WallRollbackDoesNotRegressHlc]
+    refinement:
+      - crates/alopex-chirps/src/hlc.rs
+      - crates/chirps-gossip-swim/src/hlc.rs
+      - crates/chirps-wire/src/hlc.rs
+    local_component_test:
+      - crates/alopex-chirps/src/hlc.rs::tests::tick_is_monotonic_across_wall_clock_rollback
+      - crates/alopex-chirps/src/hlc.rs::tests::receive_applies_canonical_merge_rule
+  - id: HLC-SKEW-BOUND
+    requirement: "CHIRPS v0.6 Requirement 5"
+    classification: local-state
+    implementation_status: implemented
+    failure_mode: "A message beyond maximum future skew mutates the local clock or application state."
+    properties: [SkewRejectedWithoutMutation]
+    refinement:
+      - crates/alopex-chirps/src/hlc.rs
+      - crates/chirps-gossip-swim/src/hlc.rs
+    local_component_test:
+      - crates/alopex-chirps/src/hlc.rs::tests::future_timestamp_beyond_max_skew_is_rejected_without_mutation
+  - id: HLC-SWIM-GOSSIP-ORDER
+    requirement: "CHIRPS v0.6 Requirement 5"
+    classification: concurrent/distributed-state
+    implementation_status: implemented
+    failure_mode: "SWIM/Gossip events omit HLC timestamps, reordered delivery regresses local order, or duplicate delivery reapplies an event."
+    properties: [SendTimestampIncluded, DuplicateApplicationIsIdempotent, SwimAndGossipEventsAreStamped, ReorderedDeliveryPreservesLocalOrder]
+    refinement:
+      - crates/chirps-wire/src/frame.rs
+      - crates/chirps-gossip-swim/src/types.rs
+      - crates/chirps-gossip-swim/src/engine.rs
+      - crates/alopex-chirps/src/mesh.rs
+    local_component_test:
+      - crates/chirps-gossip-swim/tests/hlc_ordering.rs::swim_and_gossip_messages_include_sender_hlc
+      - crates/chirps-gossip-swim/tests/hlc_ordering.rs::reordered_and_duplicate_delivery_preserves_receiver_order
+      - crates/chirps-gossip-swim/tests/hlc_ordering.rs::skewed_gossip_is_rejected_without_clock_or_membership_mutation
+  - id: HLC-TICK-PERFORMANCE
+    requirement: "CHIRPS v0.6 Requirement 5 tick <100ns"
+    classification: physical/performance-evidence
+    implementation_status: measured-local
+    property: not_modeled
+    reason: "Nanosecond latency depends on the host and compiler; Criterion measures production tick code."
+    benchmark:
+      - crates/alopex-chirps/benches/hlc_bench.rs::local_hlc_tick
+    evidence:
+      - docs/release/evidence/v0.6.0/hlc-v0.6.json

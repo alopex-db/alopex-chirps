@@ -1,0 +1,7 @@
+
+running 2 tests
+test public_mesh_wiring_api_accepts_the_shared_registry ... ok
+test real_hlc_operations_are_exported_by_the_chirps_registry ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
