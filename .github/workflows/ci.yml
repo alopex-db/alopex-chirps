@@ -137,7 +137,10 @@ jobs:
       - name: Reset advisory database
         run: rm -rf "${HOME}/.cargo/advisory-db"
       - name: Fail CI on dependency advisories
-        run: cargo audit
+        # rkyv is only an optional rust_decimal lockfile entry; Chirps does
+        # not enable the rkyv feature or deserialize rkyv archives. Keep the
+        # exception explicit until rust_decimal removes that optional entry.
+        run: cargo audit --ignore RUSTSEC-2026-0235
 
   workflow-lint:
     name: GitHub Actions Workflow Lint
