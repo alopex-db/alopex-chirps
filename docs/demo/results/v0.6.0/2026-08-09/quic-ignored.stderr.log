@@ -1,22 +1,2 @@
-   Compiling cc v1.4.0
-   Compiling tokio v1.53.1
-   Compiling futures-channel v0.3.33
-   Compiling tracing-subscriber v0.3.23
-   Compiling metrics-util v0.20.4
-   Compiling futures-util v0.3.33
-   Compiling ring v0.17.14
-   Compiling tracing-test v0.2.6
-   Compiling futures-executor v0.3.33
-   Compiling futures v0.3.33
-   Compiling rustls v0.23.43
-   Compiling alopex-chirps-core v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-core)
-   Compiling tokio-stream v0.1.19
-   Compiling tokio-test v0.4.5
-   Compiling rustls-webpki v0.103.13
-   Compiling rcgen v0.12.1
-   Compiling rustls-platform-verifier v0.7.0
-   Compiling quinn-proto v0.11.16
-   Compiling quinn v0.11.11
-   Compiling alopex-chirps-transport-quic v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-transport-quic)
-    Finished `test` profile [optimized + debuginfo] target(s) in 34.15s
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.51s
      Running tests/quic_integration.rs (target/debug/deps/quic_integration-a274f0f9b9bde795)

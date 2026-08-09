@@ -24,7 +24,7 @@ test wal_storage::tests::wal_header_and_records_follow_spec ... ok
 test wal_storage::tests::wal_range_read_does_not_materialize_unrequested_entries ... ok
 test wal_storage::tests::zero_fsync_interval_group_commits_one_append_batch ... ok
 
-test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.50s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
 
 
 running 4 tests
@@ -33,7 +33,7 @@ test corrupted_truncated_and_version_mismatched_snapshots_are_never_returned ...
 test read_only_wal_directory_reports_an_error ... ok
 test wal_format_mismatch_and_vote_regression_across_restart_are_observable ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
 
 
 running 5 tests
@@ -45,4 +45,4 @@ test crates/chirps-raft-storage/src/wal_storage.rs - wal_storage::WalStorageConf
 
 test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-all doctests ran in 0.27s; merged doctests compilation took 0.26s
+all doctests ran in 0.44s; merged doctests compilation took 0.44s

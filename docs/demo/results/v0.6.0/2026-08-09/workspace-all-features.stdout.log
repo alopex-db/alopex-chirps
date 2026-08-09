@@ -26,7 +26,7 @@ test raft::transport::tests::cancelled_future_and_shutdown_cleanup_remove_pendin
 test raft::transport::tests::response_requires_matching_source_group_and_correlation ... ok
 test raft::transport::tests::successful_transport_io_updates_message_metrics ... ok
 
-test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
 
 
 running 3 tests
@@ -47,7 +47,7 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 running 1 test
 test mesh_handle_constructs_and_runs_file_transfer ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
 
 
 running 4 tests
@@ -66,7 +66,7 @@ test configured_group_limit_rejects_before_allocating_another_group ... ok
 test default_configuration_supports_one_hundred_groups ... ok
 test node_initialization_failure_rolls_back_registry_and_group_paths ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
 
 
 running 6 tests
@@ -77,7 +77,7 @@ test manager_create_list_get_and_remove_are_consistent_and_idempotent ... ok
 test namespace_parser_rejects_non_canonical_or_path_like_input ... ok
 test storage_factory_isolates_group_paths_and_abort_removes_partial_state ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
 
 
 running 10 tests
@@ -92,7 +92,7 @@ test three_voters_elect_one_leader_and_commit_consistently ... ok
 test three_voters_survive_baseline_level_single_group_concurrency ... ok
 test uninitialized_replica_is_published_without_single_member_initialize ... ok
 
-test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.72s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.55s
 
 
 running 3 tests
@@ -100,13 +100,13 @@ test only_exact_v0_6_peers_negotiate_multi_raft ... ok
 test outer_and_payload_group_must_match_before_routing ... ok
 test unknown_correlated_responses_do_not_mutate_group_state ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
 
 
 running 1 test
 test persists_and_reloads_same_node_id ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
 
 
 running 6 tests
@@ -129,7 +129,7 @@ test snapshot_transfer_catches_up_new_node ... ok
 test stale_partitioned_leader_cannot_commit_and_heal_converges ... ok
 test three_node_cluster_elects_leader ... ok
 
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
 
 
 running 6 tests
@@ -140,7 +140,7 @@ test raft_transport_and_wal_storage_install_verified_snapshot ... ok
 test receiver_installs_only_after_all_chunks_verify_and_checkpoint ... ok
 test sender_never_exceeds_configured_parallelism ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
 
 
 running 4 tests
@@ -167,7 +167,7 @@ test physical_clock_rollback_uses_logical_floor ... ok
 test request_debug_redacts_node_credential ... ok
 test unauthenticated_request_is_rejected_before_raft_allocation ... ok
 
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
 
 
 running 2 tests
@@ -198,7 +198,7 @@ test ops::send::tests::invalid_configured_transfer_defaults_are_rejected ... ok
 test ops::send::tests::retry_coordinator_is_bounded_per_chunk ... ok
 test ops::send::tests::zstd_compresses_chunk_payload_on_the_wire ... ok
 
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
 
 
 running 2 tests
@@ -212,7 +212,7 @@ running 2 tests
 test chunk_manager_reads_a_full_large_chunk ... ok
 test chunk_manager_reads_chunks_and_metas ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
 
 
 running 1 test
@@ -247,7 +247,7 @@ test sync_pull_receives_from_remote ... ok
 test sync_push_transfers_to_remote ... ok
 test verified_chunks_are_persisted_before_interruption ... ok
 
-test result: ok. 23 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 9.30s
+test result: ok. 23 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 10.11s
 
 
 running 6 tests
@@ -294,7 +294,7 @@ test chunk_stream_codec_round_trip ... ok
 test chunk_stream_header_rejects_bad_magic_without_transport ... ok
 test chunk_stream_header_round_trip_without_transport ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.05s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.06s
 
 
 running 11 tests
@@ -390,7 +390,7 @@ test corrupted_truncated_and_version_mismatched_snapshots_are_never_returned ...
 test read_only_wal_directory_reports_an_error ... ok
 test wal_format_mismatch_and_vote_regression_across_restart_are_observable ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
 
 
 running 34 tests
@@ -429,7 +429,7 @@ test retransmit::tests::drain_returns_unacked_in_order_and_logs ... ok
 test retransmit::tests::overflow_drops_oldest_and_warns ... ok
 test retransmit::tests::process_ack_clears_messages_and_logs ... ok
 
-test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
 
 
 running 2 tests
@@ -563,7 +563,7 @@ test tikv::tests::reference_matches_tikv_workload_a_contract ... ok
 test verifier::tests::shaper_verifier_accepts_kernel_rounded_delay_only ... ok
 test verifier::tests::strict_fixture_verifies_and_rejects_tampering ... ok
 
-test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
 
 
 running 0 tests
@@ -585,7 +585,7 @@ test crates/alopex-chirps/src/raft/transport.rs - raft::transport::RaftFramePayl
 
 test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-all doctests ran in 0.35s; merged doctests compilation took 0.34s
+all doctests ran in 0.31s; merged doctests compilation took 0.30s
 
 running 0 tests
 
@@ -607,7 +607,7 @@ test crates/chirps-file-transfer/src/service.rs - service::FileTransferService::
 
 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-all doctests ran in 0.46s; merged doctests compilation took 0.46s
+all doctests ran in 1.44s; merged doctests compilation took 1.44s
 
 running 0 tests
 
@@ -628,7 +628,7 @@ test crates/chirps-raft-storage/src/wal_storage.rs - wal_storage::WalStorageConf
 
 test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-all doctests ran in 0.28s; merged doctests compilation took 0.27s
+all doctests ran in 0.63s; merged doctests compilation took 0.63s
 
 running 0 tests
 

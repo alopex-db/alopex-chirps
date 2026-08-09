@@ -31,7 +31,7 @@ test tikv::tests::reference_matches_tikv_workload_a_contract ... ok
 test verifier::tests::shaper_verifier_accepts_kernel_rounded_delay_only ... ok
 test verifier::tests::strict_fixture_verifies_and_rejects_tampering ... ok
 
-test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
 
 
 running 0 tests

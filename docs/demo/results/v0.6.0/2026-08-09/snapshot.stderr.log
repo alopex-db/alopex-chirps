@@ -1,2 +1,2 @@
-    Finished `test` profile [optimized + debuginfo] target(s) in 0.18s
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.21s
      Running tests/snapshot_transfer.rs (target/debug/deps/snapshot_transfer-d49eb4aeb6a54273)

@@ -1,2 +1,2 @@
-    Finished `test` profile [optimized + debuginfo] target(s) in 0.19s
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.20s
      Running tests/hlc_metrics.rs (target/debug/deps/hlc_metrics-8e20f1c076af0ead)

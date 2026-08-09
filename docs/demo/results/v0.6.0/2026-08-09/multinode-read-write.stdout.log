@@ -38,5 +38,5 @@
     ]
   },
   "scope": "three logical nodes in one process using MockNetwork and WAL-backed storage; not physical-node evidence",
-  "elapsed_ms": 578
+  "elapsed_ms": 756
 }

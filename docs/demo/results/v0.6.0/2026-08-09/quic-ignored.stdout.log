@@ -7,5 +7,5 @@ test ping_ack_roundtrip ... ok
 test reconnects_when_seed_becomes_available ... ok
 test send_queue_overflow_returns_error ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
 

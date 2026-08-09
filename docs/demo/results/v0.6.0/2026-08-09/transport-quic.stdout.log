@@ -35,7 +35,7 @@ test retransmit::tests::drain_returns_unacked_in_order_and_logs ... ok
 test retransmit::tests::overflow_drops_oldest_and_warns ... ok
 test retransmit::tests::process_ack_clears_messages_and_logs ... ok
 
-test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
 
 
 running 2 tests
@@ -49,7 +49,7 @@ running 2 tests
 test raft_p99_latency_under_user_load_stays_within_10pct ... ok
 test user_throughput_degrades_less_than_10pct_under_raft_load ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
 
 running 6 tests

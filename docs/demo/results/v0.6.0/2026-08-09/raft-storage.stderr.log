@@ -1,29 +1,4 @@
-   Compiling serde_core v1.0.229
-   Compiling serde v1.0.229
-   Compiling zerocopy v0.8.55
-   Compiling tracing-core v0.1.36
-   Compiling num-traits v0.2.19
-   Compiling slab v0.4.12
-   Compiling tokio v1.53.1
-   Compiling tempfile v3.27.0
-   Compiling futures-util v0.3.33
-   Compiling tracing v0.1.44
-   Compiling tracing-futures v0.2.5
-   Compiling rust_decimal v1.42.1
-   Compiling chrono v0.4.45
-   Compiling byte-unit v5.2.5
-   Compiling anyerror v0.1.13
-   Compiling bincode v1.3.3
-   Compiling futures-executor v0.3.33
-   Compiling validit v0.2.6
-   Compiling futures v0.3.33
-   Compiling ppv-lite86 v0.2.21
-   Compiling rand_chacha v0.3.1
-   Compiling rand v0.8.7
-   Compiling openraft v0.9.17
-   Compiling alopex-core v0.3.4
-   Compiling alopex-chirps-raft-storage v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-raft-storage)
-    Finished `test` profile [optimized + debuginfo] target(s) in 24.05s
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.66s
      Running unittests src/lib.rs (target/debug/deps/alopex_chirps_raft_storage-cfb9b6f60b994127)
      Running tests/resilience.rs (target/debug/deps/resilience-324a47992784225e)
    Doc-tests alopex_chirps_raft_storage

@@ -1,6 +1,3 @@
-   Compiling openraft v0.9.17
-   Compiling alopex-chirps-raft-storage v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/chirps-raft-storage)
-   Compiling alopex-chirps v0.6.0 (/home/roomtv/works/alopex-db/chirps/crates/alopex-chirps)
 warning: methods `close_transport_admission` and `cancel_pending_transport_rpcs` are never used
    --> crates/alopex-chirps/src/raft/node.rs:583:19
     |
@@ -27,7 +24,6 @@ warning: methods `close_rpc_admission` and `cancel_pending_rpcs` are never used
 351 |     pub(crate) fn cancel_pending_rpcs(&self) {
     |                   ^^^^^^^^^^^^^^^^^^^
 
-   Compiling chirps-e2e v0.6.0 (/home/roomtv/works/alopex-db/chirps/tests/e2e)
 warning: `alopex-chirps` (lib) generated 2 warnings
-    Finished `test` profile [optimized + debuginfo] target(s) in 20.89s
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.15s
      Running three_node_mesh.rs (target/debug/deps/three_node_mesh-c379bf7a25044251)

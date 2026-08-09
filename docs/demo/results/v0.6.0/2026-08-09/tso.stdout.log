@@ -5,5 +5,5 @@ test leader_rediscovery_transport_failure_uses_backoff ... ok
 test not_leader_refreshes_hint_and_retries ... ok
 test retryable_failure_preserves_cache_and_monotonicity ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 

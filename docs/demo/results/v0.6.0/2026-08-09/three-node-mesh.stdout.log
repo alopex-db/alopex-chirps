@@ -3,5 +3,5 @@ running 2 tests
 test three_node_mesh_self_signed_flow ... ok
 test three_node_mesh_with_explicit_cert ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.86s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.00s
 
