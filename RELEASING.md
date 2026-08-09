@@ -37,10 +37,21 @@ Layer 1: alopex-chirps-wire, alopex-chirps-raft-storage
     ↓
 Layer 2: alopex-chirps-core, alopex-chirps-gossip-swim
     ↓
-Layer 3: alopex-chirps-mock, alopex-chirps-file-transfer, alopex-chirps-transport-quic
+Layer 3: alopex-chirps-mock, alopex-chirps-transport-quic, alopex-chirps-file-transfer
     ↓
 Layer 4: alopex-chirps
 ```
+
+## v0.7.0以降の必須ポリシー
+
+v0.7.0以降は、`docs/development-workflow.md`の「性能測定・リリース判定ポリシー」をこの手順書の必須ゲートとして扱います。
+
+- TiKV等の公開ベンチマーク値を絶対閾値にしない。同一環境・同一条件の対照値を先に実測し、workload、payload、ノード数、CPU/memory、storage、network、client配置、warmup/measure/drain、error条件と不確実性をartifactへ固定する。
+- 性能測定前に、性能ハーネスを含むUT/property/component testで既知のバグ（leader churn、backpressure、queue、retry、timeout、memory/RSS増大など）を再現して修正する。性能テストをUTの代替にしない。
+- GitHub Actions前に、対象版の全feature workspace test、ignored/acceptance test、docs、fmt、clippy、deterministic replay、package/dry-run、registry-only dependency検証を同一commitでローカル実行する。
+- 物理3ノードがない環境の結果は、loopback/container/論理voterの範囲でのみ主張する。物理3ノード、実ネットワーク障害、外部Prometheus deploymentの証明とは扱わない。
+- 公開順は依存DAGに従う。`alopex-chirps-transport-quic`を`alopex-chirps-file-transfer`より先に公開する。部分公開時は既存tagのSHA一致を確認して再開し、既公開crateは検証付きでskipする。
+- 公開後はtag SHA、GitHub Release、全registry version/source、target-version evidenceを直接照合し、結果をvX.Y.Z受入契約とmilestone Issueへコメントする。受入条件を満たしたIssueだけをクローズする。
 
 ## リリースワークフロー
 
