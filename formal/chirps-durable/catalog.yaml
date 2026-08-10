@@ -1,0 +1,249 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-v0-7-send-lease
+  language: TLA+
+  implementation_status: pre-production-contract
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 24
+    constants: {MaxAttempts: 2, LeaseLength: 2, UnsafeMode: none}
+    execution:
+      working_directory: formal
+      normal: "rtk docker compose -f compose.yml run --rm apalache check --config=chirps-durable/SendLease.cfg --length=24 chirps-durable/SendLease.tla"
+      profile_command: "rtk docker compose -f compose.yml run --rm apalache check --config=${temporary_output} --length=${max_steps} chirps-durable/SendLease.tla"
+      witness_command: "rtk docker compose -f compose.yml run --rm apalache check --config=${temporary_output} --length=${max_steps} chirps-durable/SendLease.tla"
+      profile_materialization:
+        base_config: chirps-durable/SendLease.cfg
+        constant_replacement: {name: UnsafeMode, from: none, to: "${constant_overrides.UnsafeMode}"}
+        invariant_selection: [TypeOK, "${target}"]
+        temporary_output: "tmp/SendLease-${id}.cfg"
+      witness_materialization:
+        base_config: chirps-durable/SendLease.cfg
+        next_replacement: {from: Next, to: "${next}"}
+        invariant_selection: [TypeOK, "${target}"]
+        temporary_output: "tmp/SendLease-${id}.cfg"
+      cleanup: "Remove only the generated tmp/SendLease-*.cfg and formal/_apalache-out after evidence capture."
+    mutation_profiles:
+      - {id: duplicate-append, constant_overrides: {UnsafeMode: duplicate-append}, target: AtMostOneAppendPerAttempt, expected: counterexample, max_steps: 8}
+      - {id: missing-oracle, constant_overrides: {UnsafeMode: missing-oracle}, target: OracleIntentPrecedesAppend, expected: counterexample, max_steps: 6}
+      - {id: retry-identity, constant_overrides: {UnsafeMode: retry-identity}, target: StableIdentity, expected: counterexample, max_steps: 6}
+      - {id: unauthenticated-bind, constant_overrides: {UnsafeMode: unauthenticated-bind}, target: BindingCreatedOnlyFromAuthenticatedReport, expected: counterexample, max_steps: 3}
+      - {id: invalid-binding-start, constant_overrides: {UnsafeMode: invalid-binding-start}, target: NoOperationWithoutValidBinding, expected: counterexample, max_steps: 3}
+      - {id: false-not-submitted, constant_overrides: {UnsafeMode: false-not-submitted}, target: NotSubmittedImpliesNoAppend, expected: counterexample, max_steps: 3}
+      - {id: indeterminate-inexact, constant_overrides: {UnsafeMode: indeterminate-inexact}, target: IndeterminateAllowsZeroOrOneRecord, expected: counterexample, max_steps: 3}
+      - {id: premature-receipt, constant_overrides: {UnsafeMode: premature-receipt}, target: ExactReceipt, expected: counterexample, max_steps: 8}
+      - {id: stale-success, constant_overrides: {UnsafeMode: stale-success}, target: NoStaleSuccess, expected: counterexample, max_steps: 8}
+      - {id: broker-promoted, constant_overrides: {UnsafeMode: broker-promoted}, target: BrokerAcceptedNeverPromoted, expected: counterexample, max_steps: 3}
+      - {id: pre-retention-loss, constant_overrides: {UnsafeMode: pre-retention-loss}, target: StrongReceiptPresentBeforeEligibility, expected: counterexample, max_steps: 3}
+      - {id: outcome-rewrite, constant_overrides: {UnsafeMode: outcome-rewrite}, target: OutcomePreservation, expected: counterexample, max_steps: 7}
+      - {id: duplicate-advances-frontier, constant_overrides: {UnsafeMode: duplicate-advances-frontier}, target: DuplicateDoesNotAdvanceUnackedFrontier, expected: counterexample, max_steps: 18}
+      - {id: mutation-before-durable, constant_overrides: {UnsafeMode: mutation-before-durable}, target: EpochDurableBeforeMutation, expected: counterexample, max_steps: 5}
+      - {id: runtime-mutation, constant_overrides: {UnsafeMode: runtime-mutation}, target: RuntimeCannotMutateResources, expected: counterexample, max_steps: 3}
+      - {id: mutation-under-lease, constant_overrides: {UnsafeMode: mutation-under-lease}, target: ProtectedResourceMutationRequiresNoLease, expected: counterexample, max_steps: 3}
+      - {id: resource-reuse, constant_overrides: {UnsafeMode: resource-reuse}, target: ResourceEpochNeverReused, expected: counterexample, max_steps: 6}
+      - {id: cross-connection-renew, constant_overrides: {UnsafeMode: cross-connection-renew}, target: LeaseValidOnlyOnBoundConnection, expected: counterexample, max_steps: 4}
+      - {id: storage-continues, constant_overrides: {UnsafeMode: storage-continues}, target: StorageFaultStopsPartition, expected: counterexample, max_steps: 3}
+      - {id: bootstrap-ready, constant_overrides: {UnsafeMode: bootstrap-ready}, target: NoReadyAfterOpenSyncFailure, expected: counterexample, max_steps: 3}
+      - {id: shutdown-unjoined, constant_overrides: {UnsafeMode: shutdown-unjoined}, target: OwnedTransportTerminates, expected: counterexample, max_steps: 3}
+      - {id: plane-coupling, constant_overrides: {UnsafeMode: plane-coupling}, target: PlaneIsolation, expected: counterexample, max_steps: 3}
+      - {id: fallback, constant_overrides: {UnsafeMode: fallback}, target: NoDurableFallback, expected: counterexample, max_steps: 3}
+      - {id: uncorrelated-event, constant_overrides: {UnsafeMode: uncorrelated-event}, target: CorrelatedEvents, expected: counterexample, max_steps: 3}
+      - {id: uncorrelated-attempt, constant_overrides: {UnsafeMode: uncorrelated-attempt}, target: CorrelatedEvents, expected: counterexample, max_steps: 3}
+      - {id: uncorrelated-epoch, constant_overrides: {UnsafeMode: uncorrelated-epoch}, target: CorrelatedEvents, expected: counterexample, max_steps: 3}
+      - {id: uncorrelated-race, constant_overrides: {UnsafeMode: uncorrelated-race}, target: CorrelatedEvents, expected: counterexample, max_steps: 3}
+      - {id: uncorrelated-storage, constant_overrides: {UnsafeMode: uncorrelated-storage}, target: CorrelatedEvents, expected: counterexample, max_steps: 3}
+    witness_profiles:
+      - id: response-loss-same-id-duplicate
+        expected: reachable
+        max_steps: 18
+        next: DuplicateWitnessNext
+        target: DuplicateWitnessAbsent
+        predicate: "state.responseLost /\\ state.duplicateObserved /\\ state.deliveries = 2 /\\ state.unackedFrontier = 0 /\\ state.attemptDigest[1] = state.attemptDigest[2]"
+    scenario_profiles:
+      fixed: [strong-send, broker-send, response-loss-retry, pre-failure, post-failure, lease-expiry, resource-mutation, config-mutation, security-mutation, shutdown, crash-pre, crash-post, storage-fault, bootstrap-fault, stale-lease, stale-resource, binding-missing-report, binding-auth-failure, binding-projection-mismatch, binding-stale-epoch, receipt-crash, plane-fault]
+      stale_race_matrix:
+        causes: [lease-expiry, permission-revoke, security-change, config-change, capability-change]
+        stages: [invoked, written, flushed, message-synced, index-synced]
+      storage_fault_matrix:
+        stages: [invoked, written, flushed, message-synced, index-synced]
+    scope: "Twenty-two fixed lanes plus all 5 x 5 stale-binding race combinations and 5 stage-specific storage faults, over one prepared message, two attempts/connections, one partition, epochs 1..2, one mutation and one crash/restart, checked through length 24."
+    exclusions:
+      - "Bounded scenario checking is not an infinite proof; fairness, wall-clock precision and arbitrary permutations outside the catalogued matrices are excluded."
+      - "HA, replication, broker exactly-once semantics, mTLS, device power-loss durability and atomic data snapshots are excluded."
+      - "Payload encoding, TCP/TLS byte framing and filesystem implementation are refined by later production and fault-test tasks."
+      - "Subscription checkpoint ownership beyond the abstract unacked frontier belongs to Task 1.2."
+
+repository_roots:
+  chirps: "Task 0.2 release/v0.7.0 worktree root"
+  iggy-compatible: "Task 0.3 pinned compatible-server worktree root"
+
+requirements:
+  - id: V7-ARCH-005
+    property: NoDurableFallback
+    refinement: [{repository: chirps, path: crates/chirps-core/src/backend.rs, task: "2.4"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-core/tests/backend_profile_contract.rs, task: "2.4"}]
+    red_profile: fallback
+  - id: V7-ARCH-006
+    property: NoDurableFallback
+    refinement: [{repository: chirps, path: crates/alopex-chirps/src/profile.rs, task: "4.6"}, {repository: chirps, path: crates/alopex-chirps/tests/profile_compatibility.rs, task: "2.4"}]
+    planned_local_component_test: [{repository: chirps, path: crates/alopex-chirps/tests/profile_compatibility.rs, task: "2.4"}]
+    red_profile: fallback
+  - id: V7-ARCH-008
+    property: PlaneIsolation
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/observability.rs, task: "4.5"}]
+    red_profile: plane-coupling
+  - id: V7-CAP-002
+    property: BindingCreatedOnlyFromAuthenticatedReport
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/session.rs, task: "3.6"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/binding.rs, task: "5.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/session.rs, task: "3.6"}]
+    red_profile: unauthenticated-bind
+  - id: V7-CAP-003
+    property: NoOperationWithoutValidBinding
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/session.rs, task: "3.6"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/binding.rs, task: "5.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/session.rs, task: "3.6"}]
+    red_profile: invalid-binding-start
+  - id: V7-CAP-005
+    property: RuntimeCannotMutateResources
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/session.rs, task: "3.6"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    red_profile: runtime-mutation
+  - id: V7-CAP-006
+    property: NoReadyAfterOpenSyncFailure
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_state.rs, task: "5.4"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_state.rs, task: "5.4"}]
+    red_profile: bootstrap-ready
+  - id: V7-CAP-007
+    property: StorageFaultStopsPartition
+    refinement: [{repository: iggy-compatible, path: core/common/src/types/segment_storage/messages_writer.rs, task: "5.9"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/common/src/types/segment_storage/messages_writer.rs, task: "5.9"}]
+    red_profile: storage-continues
+  - id: V7-CAP-008
+    property: ExactReceipt
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/protocol.rs, task: "3.4"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/append.rs, task: "5.9.3"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}]
+    red_profile: premature-receipt
+  - id: V7-CAP-009
+    property: NoStaleSuccess
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/binding.rs, task: "5.5"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/binding.rs, task: "5.5"}]
+    red_profile: stale-success
+  - id: V7-CAP-010
+    property: ProtectedResourceMutationRequiresNoLease
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    red_profile: mutation-under-lease
+  - id: V7-CAP-016
+    property: OwnedTransportTerminates
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/transport.rs, task: "3.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/transport.rs, task: "3.5"}]
+    red_profile: shutdown-unjoined
+  - id: V7-CAP-017
+    property: ResourceEpochNeverReused
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_store.rs, task: "5.3"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    red_profile: resource-reuse
+  - id: V7-CAP-018
+    property: EpochDurableBeforeMutation
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_store.rs, task: "5.3"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    red_profile: mutation-before-durable
+  - id: V7-CAP-020
+    property: LeaseValidOnlyOnBoundConnection
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/session.rs, task: "3.6"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/binding.rs, task: "5.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/session.rs, task: "3.6"}]
+    red_profile: cross-connection-renew
+  - id: V7-CAP-021
+    property: OwnedTransportTerminates
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    red_profile: shutdown-unjoined
+  - id: V7-SEND-002
+    property: NotSubmittedImpliesNoAppend
+    refinement: [{repository: chirps, path: crates/chirps-core/src/durable/message.rs, task: "2.1"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}]
+    red_profile: false-not-submitted
+  - id: V7-SEND-003
+    property: AtMostOneAppendPerAttempt
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/transport.rs, task: "3.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/transport.rs, task: "3.5"}]
+    red_profile: duplicate-append
+  - id: V7-SEND-004
+    property: AtMostOneAppendPerAttempt
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/protocol.rs, task: "3.4"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/append.rs, task: "5.9.3"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}]
+    red_profile: duplicate-append
+  - id: V7-SEND-005
+    property: NotSubmittedImpliesNoAppend
+    refinement: [{repository: chirps, path: crates/chirps-core/src/durable/message.rs, task: "2.1"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/transport.rs, task: "3.5"}]
+    red_profile: false-not-submitted
+  - id: V7-SEND-006
+    property: IndeterminateAllowsZeroOrOneRecord
+    refinement: [{repository: chirps, path: crates/chirps-core/src/durable/message.rs, task: "2.1"}, {repository: chirps, path: crates/chirps-backend-iggy/src/transport.rs, task: "3.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}]
+    red_profile: indeterminate-inexact
+  - id: V7-SEND-007
+    property: BrokerAcceptedNeverPromoted
+    refinement: [{repository: chirps, path: crates/chirps-core/src/durable/message.rs, task: "2.1"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}]
+    red_profile: broker-promoted
+  - id: V7-SEND-008
+    property: ExactReceipt
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/append.rs, task: "5.9.3"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}]
+    red_profile: premature-receipt
+  - id: V7-SEND-010
+    property: StableIdentity
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/codec.rs, task: "3.2"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/codec.rs, task: "3.2"}]
+    red_profile: retry-identity
+  - id: V7-SEND-011
+    property: DuplicateDoesNotAdvanceUnackedFrontier
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}]
+    red_profile: duplicate-advances-frontier
+  - id: V7-FAULT-004
+    property: OracleIntentPrecedesAppend
+    refinement: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}]
+    planned_local_component_test: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}]
+    red_profile: missing-oracle
+  - id: V7-FAULT-005
+    property: ExactReceipt
+    refinement: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/binding.rs, task: "5.5"}]
+    planned_local_component_test: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}]
+    red_profile: premature-receipt
+  - id: V7-FAULT-006
+    property: IndeterminateAllowsZeroOrOneRecord
+    refinement: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}]
+    planned_local_component_test: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}]
+    red_profile: indeterminate-inexact
+  - id: V7-FAULT-014
+    property: StrongReceiptPresentBeforeEligibility
+    refinement: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_send.rs, task: "6.4"}]
+    red_profile: pre-retention-loss
+  - id: V7-SEC-002
+    property: NoOperationWithoutValidBinding
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/session.rs, task: "3.6"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/binding.rs, task: "5.5"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/binding.rs, task: "5.5"}]
+    red_profile: invalid-binding-start
+  - id: V7-OBS-003
+    property: CorrelatedEvents
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/observability.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/observability.rs, task: "4.5"}]
+    red_profiles: [uncorrelated-event, uncorrelated-attempt, uncorrelated-epoch, uncorrelated-race, uncorrelated-storage]
+  - id: V7-MODEL-001
+    property: AllRequiredScenarioMatricesCatalogued
+    refinement: [{repository: chirps, path: formal/chirps-durable/catalog.yaml, task: "1.5"}]
+    planned_local_component_test: [{repository: chirps, path: formal/chirps-durable/compose.yml, task: "1.5", check: missing-model-blocks}]
+  - id: V7-MODEL-002
+    property: AllActions
+    refinement: [{repository: chirps, path: formal/chirps-durable/SendLease.tla, task: "1.1"}]
+    planned_local_component_test: [{repository: chirps, path: formal/compose.yml, task: "1.5", check: missing-action-blocks}]
+  - id: V7-MODEL-003
+    property: EverySafetyInvariantHasUnsafeProfile
+    refinement: [{repository: chirps, path: formal/chirps-durable/catalog.yaml, task: "1.1"}]
+    planned_local_component_test: [{repository: chirps, path: formal/chirps-durable/evidence.md, task: "1.5", check: missing-red-profile-blocks}]
