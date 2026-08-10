@@ -1,0 +1,168 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-v0-7-subscription
+  language: TLA+
+  implementation_status: pre-production-contract
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 28
+    constants: {MaxOffset: 3, MaxOwnerEpoch: 2, MaxDeliveryAttempts: 2, LivenessBudget: 3, UnsafeMode: none}
+    execution:
+      working_directory: formal
+      typecheck: "rtk docker compose -f compose.yml run --rm apalache typecheck chirps-durable/Subscription.tla"
+      normal: "rtk docker compose -f compose.yml run --rm apalache check --config=chirps-durable/Subscription.cfg --length=28 chirps-durable/Subscription.tla"
+      profile_command: "rtk docker compose -f compose.yml run --rm apalache check --config=${temporary_output} --length=${max_steps} chirps-durable/Subscription.tla"
+      witness_command: "rtk docker compose -f compose.yml run --rm apalache check --config=${temporary_output} --length=${max_steps} chirps-durable/Subscription.tla"
+      profile_materialization:
+        base_config: chirps-durable/Subscription.cfg
+        constant_replacement: {name: UnsafeMode, from: none, to: "${constant_overrides.UnsafeMode}"}
+        next_replacement: {from: Next, to: UnsafeAction}
+        invariant_selection: [TypeOK, "${target}"]
+        temporary_output: "tmp/Subscription-${id}.cfg"
+      witness_materialization:
+        base_config: chirps-durable/Subscription.cfg
+        next_replacement: {from: Next, to: "${next}"}
+        invariant_selection: [TypeOK, "${target}"]
+        temporary_output: "tmp/Subscription-${id}.cfg"
+      cleanup: "Remove only generated tmp/Subscription-*.cfg and formal/_apalache-out after evidence capture."
+    mutation_profiles:
+      - {id: poll-mixed, constant_overrides: {UnsafeMode: poll-mixed}, target: PollObservationCoherent, expected: counterexample, max_steps: 2}
+      - {id: misroute-delivered, constant_overrides: {UnsafeMode: misroute-delivered}, target: MisrouteNeverDeliveredOrAcked, expected: counterexample, max_steps: 2}
+      - {id: identity-conflict-delivered, constant_overrides: {UnsafeMode: identity-conflict-delivered}, target: IdentityConflictStopsPartition, expected: counterexample, max_steps: 2}
+      - {id: delivery-before-identity, constant_overrides: {UnsafeMode: delivery-before-identity}, target: IdentityPersistedBeforeDelivery, expected: counterexample, max_steps: 2}
+      - {id: resolved-start-change, constant_overrides: {UnsafeMode: resolved-start-change}, target: ResolvedStartNeverChanges, expected: counterexample, max_steps: 2}
+      - {id: owner-fork, constant_overrides: {UnsafeMode: owner-fork}, target: SingleOwnerEpoch, expected: counterexample, max_steps: 2}
+      - {id: double-inflight, constant_overrides: {UnsafeMode: double-inflight}, target: SingleInflightPerPartition, expected: counterexample, max_steps: 2}
+      - {id: handle-substitution, constant_overrides: {UnsafeMode: handle-substitution}, target: HandleBoundToExactDelivery, expected: counterexample, max_steps: 2}
+      - {id: old-handle-ack, constant_overrides: {UnsafeMode: old-handle-ack}, target: OldHandleCannotAckRedelivery, expected: counterexample, max_steps: 2}
+      - {id: stale-handle-ack, constant_overrides: {UnsafeMode: stale-handle-ack}, target: StaleHandleNeverAdvances, expected: counterexample, max_steps: 2}
+      - {id: poll-owner-change, constant_overrides: {UnsafeMode: poll-owner-change}, target: PollReservationFencesOwner, expected: counterexample, max_steps: 2}
+      - {id: delivery-without-reservation, constant_overrides: {UnsafeMode: delivery-without-reservation}, target: PollReservationFencesOwner, expected: counterexample, max_steps: 2}
+      - {id: poll-before-checkpoint, constant_overrides: {UnsafeMode: poll-before-checkpoint}, target: NoPollPastUncommittedCheckpoint, expected: counterexample, max_steps: 2}
+      - {id: known-old-terminal, constant_overrides: {UnsafeMode: known-old-terminal}, target: KnownOldCheckpointIsRetryable, expected: counterexample, max_steps: 2}
+      - {id: unknown-keeps-active, constant_overrides: {UnsafeMode: unknown-keeps-active}, target: UnknownCheckpointStopsPartition, expected: counterexample, max_steps: 2}
+      - {id: recovery-neither, constant_overrides: {UnsafeMode: recovery-neither}, target: RecoveryChoosesCompleteOldOrNew, expected: counterexample, max_steps: 2}
+      - {id: invalid-state-active, constant_overrides: {UnsafeMode: invalid-state-active}, target: NoActiveFromInvalidState, expected: counterexample, max_steps: 2}
+      - {id: advisory-advances, constant_overrides: {UnsafeMode: advisory-advances}, target: AdvisoryOffsetNeverOwnsFrontier, expected: counterexample, max_steps: 2}
+      - {id: effect-not-redelivered, constant_overrides: {UnsafeMode: effect-not-redelivered}, target: EffectBeforeCheckpointMayRedeliver, expected: counterexample, max_steps: 2}
+      - {id: invalid-exact-commits, constant_overrides: {UnsafeMode: invalid-exact-commits}, target: InvalidExactNeverCommitsManifest, expected: counterexample, max_steps: 2}
+      - {id: unknown-creation-polls, constant_overrides: {UnsafeMode: unknown-creation-polls}, target: UnknownCreationBlocksPollAndOverwrite, expected: counterexample, max_steps: 2}
+      - {id: double-handle-winner, constant_overrides: {UnsafeMode: double-handle-winner}, target: SingleHandleTerminalWinner, expected: counterexample, max_steps: 2}
+      - {id: offset-wrap, constant_overrides: {UnsafeMode: offset-wrap}, target: ExpectedIsCheckedSuccessor, expected: counterexample, max_steps: 2}
+      - {id: tail-incoherent, constant_overrides: {UnsafeMode: tail-incoherent}, target: HMonotonicAndTailCoherent, expected: counterexample, max_steps: 2}
+      - {id: selected-skip, constant_overrides: {UnsafeMode: selected-skip}, target: NoSelectedOffsetSkip, expected: counterexample, max_steps: 2}
+      - {id: namespace-unfenced, constant_overrides: {UnsafeMode: namespace-unfenced}, target: DestructiveChangeFencesNamespace, expected: counterexample, max_steps: 2}
+      - {id: liveness-stalled, constant_overrides: {UnsafeMode: liveness-stalled}, target: AtLeastOnceUnderAssumptions, expected: counterexample, max_steps: 2}
+      - {id: liveness-weak-selected, constant_overrides: {UnsafeMode: liveness-weak-selected}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-offset-before-e0, constant_overrides: {UnsafeMode: liveness-offset-before-e0}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-no-broker, constant_overrides: {UnsafeMode: liveness-no-broker}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-no-recovery, constant_overrides: {UnsafeMode: liveness-no-recovery}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-no-subscription, constant_overrides: {UnsafeMode: liveness-no-subscription}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-no-retention, constant_overrides: {UnsafeMode: liveness-no-retention}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-unfair-poll, constant_overrides: {UnsafeMode: liveness-unfair-poll}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-unfair-redelivery, constant_overrides: {UnsafeMode: liveness-unfair-redelivery}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-corrupt, constant_overrides: {UnsafeMode: liveness-corrupt}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-no-capacity, constant_overrides: {UnsafeMode: liveness-no-capacity}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-owner-change, constant_overrides: {UnsafeMode: liveness-owner-change}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-resource-change, constant_overrides: {UnsafeMode: liveness-resource-change}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: liveness-inbox-change, constant_overrides: {UnsafeMode: liveness-inbox-change}, target: LivenessAssumptionsPresent, expected: counterexample, max_steps: 2}
+      - {id: retention-as-tail, constant_overrides: {UnsafeMode: retention-as-tail}, target: RetentionLossNeverLooksLikeTail, expected: counterexample, max_steps: 2}
+      - {id: corrupt-delivered, constant_overrides: {UnsafeMode: corrupt-delivered}, target: CorruptRecordNeverDelivered, expected: counterexample, max_steps: 2}
+      - {id: read-failure-advances, constant_overrides: {UnsafeMode: read-failure-advances}, target: ReadFailureNeverAdvancesFrontier, expected: counterexample, max_steps: 2}
+      - {id: invalid-prefix-active, constant_overrides: {UnsafeMode: invalid-prefix-active}, target: RecoveryUsesContiguousValidPrefix, expected: counterexample, max_steps: 2}
+      - {id: early-creation-success, constant_overrides: {UnsafeMode: early-creation-success}, target: SuccessAfterRequiredSyncs, expected: counterexample, max_steps: 2}
+      - {id: early-checkpoint-success, constant_overrides: {UnsafeMode: early-checkpoint-success}, target: SuccessAfterRequiredSyncs, expected: counterexample, max_steps: 2}
+      - {id: checkpoint-outcome-mismatch, constant_overrides: {UnsafeMode: checkpoint-outcome-mismatch}, target: CheckpointOutcomeMatchesRecoveredState, expected: counterexample, max_steps: 2}
+      - {id: creation-outcome-mismatch, constant_overrides: {UnsafeMode: creation-outcome-mismatch}, target: CreationOutcomeMatchesRecoveredState, expected: counterexample, max_steps: 2}
+      - {id: duplicate-advances-frontier, constant_overrides: {UnsafeMode: duplicate-advances-frontier}, target: DuplicateDoesNotAdvanceUnackedFrontier, expected: counterexample, max_steps: 2}
+    witness_profiles:
+      - id: retention-scoped-at-least-once
+        expected: reachable
+        max_steps: 12
+        next: LivenessNext
+        target: LivenessWitnessAbsent
+        predicate: 'state.liveTracked /\ state.liveDelivered /\ state.liveBudget = 0 /\ AllLivenessAssumptions'
+      - id: duplicate-then-current-handle-ack
+        expected: reachable
+        max_steps: 20
+        next: DuplicateRedeliveryNext
+        target: DuplicateAckWitnessAbsent
+        predicate: 'state.duplicateObserved /\ state.checkpointOutcome = "committed" /\ state.lastCheckpointAttempt = 2 /\ state.unackedFrontier = 2'
+      - id: valid-zero-checkpoint-commit
+        expected: reachable
+        max_steps: 20
+        next: ZeroCheckpointNext
+        target: ZeroCheckpointWitnessAbsent
+        predicate: 'state.scenario = "checkpoint-zero-commit" /\ state.checkpointPresent /\ state.checkpoint = 0 /\ state.checkpointOutcome = "committed" /\ state.unackedFrontier = 1'
+      - id: present-old-checkpoint-tuple-recovery
+        expected: reachable
+        max_steps: 20
+        next: PresentOldCheckpointNext
+        target: PresentOldCheckpointWitnessAbsent
+        predicate: 'state.scenario = "checkpoint-present-unknown-old" /\ state.lastEvent = "checkpoint-recovered-old" /\ state.checkpointPresent /\ state.checkpoint = 0 /\ state.lastCheckpointOwnerEpoch = 1 /\ state.lastCheckpointAttempt = 1 /\ state.lastCheckpointOffset = 0'
+      - id: present-new-checkpoint-tuple-recovery
+        expected: reachable
+        max_steps: 20
+        next: PresentNewCheckpointNext
+        target: PresentNewCheckpointWitnessAbsent
+        predicate: 'state.scenario = "checkpoint-present-unknown-new" /\ state.lastEvent = "checkpoint-recovered-new" /\ state.checkpointPresent /\ state.checkpoint = 1 /\ state.lastCheckpointOwnerEpoch = 2 /\ state.lastCheckpointAttempt = 1 /\ state.lastCheckpointOffset = 1'
+    scenario_profiles:
+      fixed: [creation-known-old, creation-unknown-old, creation-unknown-new, owner-reopen, poll-record-ack, checkpoint-known-old-retry, checkpoint-unknown-old, checkpoint-unknown-new, checkpoint-zero-commit, checkpoint-present-unknown-old, checkpoint-present-unknown-new, nack-redelivery, timeout-redelivery, shutdown-fence, tail, retention-gap, checkpoint-conflict, incoherent-poll, read-failure, misroute, corrupt-record, identity-conflict, advisory-mirror, effect-crash-redelivery, duplicate-redelivery, resource-change, config-change, offset-exhaustion, invalid-recovery, liveness]
+      creation_matrix:
+        selection: [earliest, latest, exact]
+        stream: [empty, nonempty]
+        invalid_exact: [below-oldest, above-high-watermark]
+      checkpoint_recovery: [known-old, unknown-old, unknown-new, present-old-tuple, present-new-tuple, committed-zero, committed-new]
+      handle_winners: [ack, nack-release, timeout, shutdown-fence]
+    scope: "One subscription and partition, owner epochs 1..2, attempts 1..2, valid offset zero distinct from absence, offsets 0..3 plus checked exhaustion, one creation/checkpoint/recovery cycle, checked through length 28. Channel close refines ShutdownFenced."
+    exclusions:
+      - "This is bounded safety plus bounded conditional reachability evidence, not an infinite temporal-liveness proof."
+      - "Identity-before-delivery is a design-derived auxiliary invariant; V7-STATE-001 is not claimed by Task 1.2."
+      - "V7-MODEL-001 and V7-MODEL-002 are registered only for this Subscription subset; aggregate completeness remains Task 1.5."
+      - "High availability, replication, broker exactly-once, mTLS, device power-loss durability and atomic data snapshots remain excluded."
+      - "Lifecycle capacity, GC, compaction and shutdown protocol internals belong to Task 1.3."
+
+repositories:
+  chirps: "Task 0.2 release/v0.7.0 worktree root"
+  iggy-compatible: "Task 0.3 pinned compatible-server worktree root"
+
+requirements:
+  - {id: V7-CAP-011, property: PollObservationCoherent, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/poll.rs, task: "3.8"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/checked_poll.rs, task: "5.10"}], planned_test: [{repository: chirps, path: crates/chirps-backend-iggy/tests/checked_poll.rs, task: "3.8"}, {repository: chirps, path: tests/e2e/tests/durable_retention.rs, task: "6.8"}], red_profile: poll-mixed}
+  - {id: V7-WIRE-004, property: MisrouteNeverDeliveredOrAcked, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/routing.rs, task: "3.3"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: crates/chirps-backend-iggy/tests/routing.rs, task: "3.3"}], red_profile: misroute-delivered}
+  - {id: V7-WIRE-006, property: IdentityConflictStopsPartition, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/codec.rs, task: "3.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/state/journal.rs, task: "4.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: crates/chirps-backend-iggy/tests/subscriber.rs, task: "4.4"}], red_profile: identity-conflict-delivered}
+  - {id: V7-CONS-004, property: ResolvedStartNeverChanges, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/creation.rs, task: "4.1"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_creation.rs, task: "6.6"}], red_profile: resolved-start-change}
+  - {id: V7-CONS-005, property: SingleOwnerEpoch, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/owner.rs, task: "4.1"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_creation.rs, task: "6.6"}], red_profile: owner-fork}
+  - {id: V7-CONS-006, property: SingleInflightPerPartition, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_delivery.rs, task: "6.9"}], red_profile: double-inflight}
+  - {id: V7-CONS-007, property: HandleBoundToExactDelivery, refinement: [{repository: chirps, path: crates/chirps-core/src/durable/subscription.rs, task: "2.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: crates/chirps-core/tests/durable_contract.rs, task: "2.2"}], red_profile: handle-substitution}
+  - {id: V7-CONS-008, property: OldHandleCannotAckRedelivery, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_redelivery.rs, task: "6.9"}], red_profile: old-handle-ack}
+  - {id: V7-CONS-009, property: StaleHandleNeverAdvances, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/checkpoint.rs, task: "4.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_checkpoint_recovery.rs, task: "6.7"}, {repository: chirps, path: tests/e2e/tests/durable_delivery.rs, task: "6.9"}], red_profile: stale-handle-ack}
+  - {id: V7-CONS-010, property: NoPollPastUncommittedCheckpoint, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/checkpoint.rs, task: "4.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_checkpoint_recovery.rs, task: "6.7"}], red_profile: poll-before-checkpoint}
+  - {id: V7-CONS-011, property: KnownOldCheckpointIsRetryable, refinement: [{repository: chirps, path: crates/chirps-core/src/durable/subscription.rs, task: "2.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/state/checkpoint.rs, task: "4.2"}], planned_test: [{repository: chirps, path: crates/chirps-backend-iggy/tests/checkpoint.rs, task: "4.2"}], red_profile: known-old-terminal}
+  - {id: V7-CONS-012, property: UnknownCheckpointStopsPartition, refinement: [{repository: chirps, path: crates/chirps-core/src/durable/subscription.rs, task: "2.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/state/checkpoint.rs, task: "4.2"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_checkpoint_recovery.rs, task: "6.7"}], red_profile: unknown-keeps-active}
+  - {id: V7-CONS-013, property: RecoveryChoosesCompleteOldOrNew, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/checkpoint.rs, task: "4.2"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_checkpoint_recovery.rs, task: "6.7"}], red_profile: recovery-neither}
+  - {id: V7-CONS-014, property: NoActiveFromInvalidState, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/creation.rs, task: "4.1"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_checkpoint_recovery.rs, task: "6.7"}], red_profile: invalid-state-active}
+  - {id: V7-CONS-015, property: AdvisoryOffsetNeverOwnsFrontier, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/offset_mirror.rs, task: "3.8"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_retention.rs, task: "6.8"}], red_profile: advisory-advances}
+  - {id: V7-CONS-016, property: EffectBeforeCheckpointMayRedeliver, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_redelivery.rs, task: "6.9"}], red_profile: effect-not-redelivered}
+  - {id: V7-CONS-018, property: InvalidExactNeverCommitsManifest, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/creation.rs, task: "4.1"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_creation.rs, task: "6.6"}], red_profile: invalid-exact-commits}
+  - {id: V7-CONS-019, property: UnknownCreationBlocksPollAndOverwrite, refinement: [{repository: chirps, path: crates/chirps-core/src/durable/subscription.rs, task: "2.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/state/creation.rs, task: "4.1"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_creation.rs, task: "6.6"}], red_profile: unknown-creation-polls}
+  - {id: V7-CONS-020, property: SingleHandleTerminalWinner, refinement: [{repository: chirps, path: crates/chirps-core/src/durable/subscription.rs, task: "2.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_delivery.rs, task: "6.9"}], red_profile: double-handle-winner}
+  - {id: V7-REPLAY-001, property: ExpectedIsCheckedSuccessor, refinement: [{repository: chirps, path: crates/chirps-core/src/durable/subscription.rs, task: "2.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/poll.rs, task: "3.8"}], planned_test: [{repository: chirps, path: crates/chirps-backend-iggy/tests/checked_poll.rs, task: "3.8"}], red_profile: offset-wrap}
+  - {id: V7-REPLAY-002, property: HMonotonicAndTailCoherent, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/poll.rs, task: "3.8"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_retention.rs, task: "6.8"}], red_profile: tail-incoherent}
+  - {id: V7-REPLAY-003, property: NoSelectedOffsetSkip, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/poll.rs, task: "3.8"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: crates/chirps-backend-iggy/tests/checked_poll.rs, task: "3.8"}], red_profile: selected-skip}
+  - {id: V7-REPLAY-004, property: ResolvedStartNeverChanges, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/creation.rs, task: "4.1"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_creation.rs, task: "6.6"}], red_profile: resolved-start-change}
+  - {id: V7-REPLAY-005, property: DestructiveChangeFencesNamespace, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/retention.rs, task: "4.3"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_retention.rs, task: "6.8"}], red_profile: namespace-unfenced}
+  - {id: V7-REPLAY-008, property: AtLeastOnceUnderAssumptions, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_redelivery.rs, task: "6.9"}], red_profile: liveness-stalled}
+  - {id: V7-REPLAY-010, property: RetentionLossNeverLooksLikeTail, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/retention.rs, task: "4.3"}, {repository: chirps, path: crates/chirps-backend-iggy/src/poll.rs, task: "3.8"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_retention.rs, task: "6.8"}], red_profile: retention-as-tail}
+  - {id: V7-REPLAY-011, property: CorruptRecordNeverDelivered, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/codec.rs, task: "3.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/state/journal.rs, task: "4.2"}], planned_test: [{repository: chirps, path: crates/chirps-backend-iggy/tests/codec.rs, task: "3.2"}], red_profile: corrupt-delivered}
+  - {id: V7-REPLAY-012, property: ReadFailureNeverAdvancesFrontier, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/poll.rs, task: "3.8"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: crates/chirps-backend-iggy/tests/checked_poll.rs, task: "3.8"}], red_profile: read-failure-advances}
+  - {id: V7-STATE-002, property: RecoveryUsesContiguousValidPrefix, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/journal.rs, task: "4.2"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_checkpoint_recovery.rs, task: "6.7"}], red_profile: invalid-prefix-active}
+  - {id: V7-STATE-003, property: SuccessAfterRequiredSyncs, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/creation.rs, task: "4.1"}, {repository: chirps, path: crates/chirps-backend-iggy/src/state/checkpoint.rs, task: "4.2"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_creation.rs, task: "6.6"}, {repository: chirps, path: tests/e2e/tests/durable_checkpoint_recovery.rs, task: "6.7"}], red_profile: early-creation-success}
+  - {id: V7-FAULT-007, property: CheckpointOutcomeMatchesRecoveredState, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/checkpoint.rs, task: "4.2"}], planned_test: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}, {repository: chirps, path: tests/e2e/tests/durable_checkpoint_recovery.rs, task: "6.7"}], red_profile: checkpoint-outcome-mismatch}
+  - {id: V7-FAULT-013, property: CreationOutcomeMatchesRecoveredState, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/creation.rs, task: "4.1"}], planned_test: [{repository: chirps, path: tools/chirps-durable-harness/src/oracle.rs, task: "6.2"}, {repository: chirps, path: tests/e2e/tests/durable_creation.rs, task: "6.6"}], red_profile: creation-outcome-mismatch}
+  - {id: V7-SEND-011, property: DuplicateDoesNotAdvanceUnackedFrontier, refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/producer.rs, task: "3.7"}, {repository: chirps, path: crates/chirps-backend-iggy/src/subscriber.rs, task: "4.4"}], planned_test: [{repository: chirps, path: tests/e2e/tests/durable_send.rs, task: "6.4"}], red_profile: duplicate-advances-frontier}
+  - {id: V7-MODEL-001, property: SubscriptionModelRegistered, refinement: [{repository: chirps, path: formal/chirps-durable/subscription-catalog.yaml, task: "1.2"}], planned_test: [{repository: chirps, path: formal/chirps-durable/evidence.md, task: "1.5", check: missing-model-blocks}]}
+  - {id: V7-MODEL-002, property: SubscriptionActionInventoryComplete, refinement: [{repository: chirps, path: formal/chirps-durable/Subscription.tla, task: "1.2"}], planned_test: [{repository: chirps, path: formal/chirps-durable/evidence.md, task: "1.5", check: missing-action-blocks}]}
+  - {id: V7-MODEL-003, property: EverySubscriptionSafetyInvariantHasUnsafeProfile, refinement: [{repository: chirps, path: formal/chirps-durable/Subscription.cfg, task: "1.2"}], planned_test: [{repository: chirps, path: formal/chirps-durable/evidence.md, task: "1.5", check: missing-red-profile-blocks}]}
+  - {id: V7-MODEL-006, property: AtLeastOnceUnderAssumptions, refinement: [{repository: chirps, path: formal/chirps-durable/Subscription.tla, task: "1.2"}], planned_test: [{repository: chirps, path: formal/chirps-durable/subscription-catalog.yaml, task: "1.2"}], red_profile: liveness-stalled}
