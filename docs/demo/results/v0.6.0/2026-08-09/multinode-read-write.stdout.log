@@ -1,0 +1,42 @@
+{
+  "scenario": "v0.6.0-three-node-multi-raft-read-write",
+  "group_id": 600,
+  "nodes": 3,
+  "writes_requested": 6,
+  "writes_committed": 6,
+  "leader": 1,
+  "reads_consistent": true,
+  "replica_key_counts": {
+    "node-1": 6,
+    "node-2": 6,
+    "node-3": 6
+  },
+  "values_sha256_inputs": {
+    "node-1": [
+      "key-0=value-0",
+      "key-1=value-1",
+      "key-2=value-2",
+      "key-3=value-3",
+      "key-4=value-4",
+      "key-5=value-5"
+    ],
+    "node-2": [
+      "key-0=value-0",
+      "key-1=value-1",
+      "key-2=value-2",
+      "key-3=value-3",
+      "key-4=value-4",
+      "key-5=value-5"
+    ],
+    "node-3": [
+      "key-0=value-0",
+      "key-1=value-1",
+      "key-2=value-2",
+      "key-3=value-3",
+      "key-4=value-4",
+      "key-5=value-5"
+    ]
+  },
+  "scope": "three logical nodes in one process using MockNetwork and WAL-backed storage; not physical-node evidence",
+  "elapsed_ms": 756
+}

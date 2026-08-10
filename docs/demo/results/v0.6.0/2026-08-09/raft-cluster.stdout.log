@@ -1,0 +1,12 @@
+
+running 7 tests
+test cluster_handles_node_failure_and_partition ... ok
+test membership_changes_promote_and_remove_voters ... ok
+test proposals_replicate_to_all_nodes ... ok
+test raft_node_shutdown_is_explicit_and_idempotent ... ok
+test snapshot_transfer_catches_up_new_node ... ok
+test stale_partitioned_leader_cannot_commit_and_heal_converges ... ok
+test three_node_cluster_elects_leader ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+

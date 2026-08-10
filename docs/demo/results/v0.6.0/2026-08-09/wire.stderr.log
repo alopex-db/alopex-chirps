@@ -1,0 +1,4 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_wire-974b885ee153f8c0)
+     Running tests/file_transfer.rs (target/debug/deps/file_transfer-0e5b7421f73f6e15)
+   Doc-tests alopex_chirps_wire

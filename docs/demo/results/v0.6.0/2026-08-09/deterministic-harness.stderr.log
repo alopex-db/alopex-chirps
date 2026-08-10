@@ -1,0 +1,5 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/chirps_deterministic_harness-a2e1348493fe5f14)
+     Running unittests src/main.rs (target/debug/deps/chirps_deterministic_harness-3c3ddf91b8d8a0cf)
+     Running tests/replay.rs (target/debug/deps/replay-901a49901914922a)
+   Doc-tests chirps_deterministic_harness

@@ -1,0 +1,2 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.51s
+     Running tests/quic_integration.rs (target/debug/deps/quic_integration-a274f0f9b9bde795)

@@ -21,6 +21,8 @@ use std::io::Cursor;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(not(target_os = "linux"))]
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
@@ -978,6 +980,7 @@ struct ProcessMetrics {
     disk_write_bytes: u64,
 }
 
+#[cfg(target_os = "linux")]
 fn read_process_metrics() -> anyhow::Result<ProcessMetrics> {
     let stat = std::fs::read_to_string("/proc/self/stat")?;
     let close = stat
@@ -1009,6 +1012,13 @@ fn read_process_metrics() -> anyhow::Result<ProcessMetrics> {
     })
 }
 
+#[cfg(not(target_os = "linux"))]
+fn read_process_metrics() -> anyhow::Result<ProcessMetrics> {
+    // /proc and POSIX clock-tick counters are Linux-specific. Keep the
+    // measurement schema usable on other CI hosts without fabricating values.
+    Ok(ProcessMetrics::default())
+}
+
 fn read_network_metrics() -> anyhow::Result<(u64, u64)> {
     let text = std::fs::read_to_string("/proc/net/dev")?;
     let mut rx = 0;
@@ -1026,6 +1036,7 @@ fn read_network_metrics() -> anyhow::Result<(u64, u64)> {
     Ok((rx, tx))
 }
 
+#[cfg(target_os = "linux")]
 pub fn monotonic_ns() -> u64 {
     let mut value = libc::timespec {
         tv_sec: 0,
@@ -1036,6 +1047,16 @@ pub fn monotonic_ns() -> u64 {
         return 0;
     }
     value.tv_sec as u64 * 1_000_000_000 + value.tv_nsec as u64
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn monotonic_ns() -> u64 {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    EPOCH
+        .get_or_init(Instant::now)
+        .elapsed()
+        .as_nanos()
+        .min(u64::MAX as u128) as u64
 }
 
 fn wire_node_id(node_id: u64) -> NodeId {

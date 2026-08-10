@@ -1,0 +1,10 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.60s
+     Running unittests src/lib.rs (target/debug/deps/alopex_chirps_transport_quic-46ceb1bb52b405a3)
+     Running tests/priority_integration.rs (target/debug/deps/priority_integration-645e1d12400448b1)
+     Running tests/qos_integration.rs (target/debug/deps/qos_integration-b7d3f0e12b3c6dee)
+     Running tests/quic_integration.rs (target/debug/deps/quic_integration-f0a5c462569e3807)
+     Running tests/resilience_qos.rs (target/debug/deps/resilience_qos-81f3ad15211bae83)
+     Running tests/retransmit_integration.rs (target/debug/deps/retransmit_integration-4e04400a0bc07968)
+     Running tests/snapshot_integration.rs (target/debug/deps/snapshot_integration-765d82e7983bcee0)
+     Running tests/version_integration.rs (target/debug/deps/version_integration-3af653dd25e04403)
+   Doc-tests alopex_chirps_transport_quic

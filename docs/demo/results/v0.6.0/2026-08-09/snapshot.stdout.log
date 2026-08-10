@@ -1,0 +1,11 @@
+
+running 6 tests
+test failed_chunk_is_retried_without_resending_verified_chunks ... ok
+test failed_transfer_never_exposes_partial_snapshot ... ok
+test locked_snapshot_transfer_defaults_match_issue_22 ... ok
+test raft_transport_and_wal_storage_install_verified_snapshot ... ok
+test receiver_installs_only_after_all_chunks_verify_and_checkpoint ... ok
+test sender_never_exceeds_configured_parallelism ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+

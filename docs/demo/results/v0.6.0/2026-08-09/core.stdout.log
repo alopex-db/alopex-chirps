@@ -1,0 +1,19 @@
+
+running 2 tests
+test time::tests::timestamp_order_and_range_cross_logical_overflow ... ok
+test time::tests::timestamp_rejects_physical_overflow ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test control_and_ephemeral_keep_the_additive_legacy_path ... ok
+test durable_requires_a_backend_override_and_never_uses_raw_send ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

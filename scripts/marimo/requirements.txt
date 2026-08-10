@@ -1,0 +1,2 @@
+marimo>=0.15
+pandas>=2.0

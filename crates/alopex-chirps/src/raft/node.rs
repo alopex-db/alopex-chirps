@@ -580,10 +580,12 @@ impl RaftNode {
             .map_err(RaftError::from)
     }
 
+    #[cfg(feature = "multi-raft")]
     pub(crate) fn close_transport_admission(&self) {
         self.transport.close_rpc_admission();
     }
 
+    #[cfg(feature = "multi-raft")]
     pub(crate) fn cancel_pending_transport_rpcs(&self) {
         self.transport.cancel_pending_rpcs();
     }
