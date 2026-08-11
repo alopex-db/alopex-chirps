@@ -65,6 +65,11 @@ chirps-v{major}.{minor}.{patch}
 3. **Publish Crate**: 保護された GitHub `release` environment の承認後に crates.io へ依存順で公開
 4. **Create Release**: 同 environment の承認後に GitHub Release を作成
 
+`workflow_dispatch` の run は dispatch 時点の workflow 定義を保持します。`release` environment
+の承認待ちが 5 日以上になった古い run は承認してはいけません。承認前にその run を
+**cancel**し、修正済みの workflow で同じ入力を使って新しい run を dispatch し直してください。
+古い run は environment ゲート通過直後にも検査され、公開処理を開始せず失敗します。
+
 controller runner・二台の測定 host・必要な repository variables が未登録、または evidence が不適格な場合、公開ジョブは開始されない。通常の CI、同一プロセス fixture、ローカル二プロセス実行でこの要件を代替してはならない。構成と artifact の確認方法は [二ノード性能測定・証跡手順](docs/v0_5_2_two_node_performance.md) を参照する。
 
 対象版には `docs/release/vX.Y.Z.md` の受入契約が必須です。要件、実装、独立検証、artifact、未証明事項、実装者以外の検証者、release captain を記録し、未証明・`BLOCKED`・`TODO` が一つでもあれば公開できません。作成方法は [開発・リリース品質 workflow](docs/development-workflow.md) と [受入契約テンプレート](docs/release/acceptance-template.md) を参照してください。
@@ -154,6 +159,10 @@ gh workflow run Release --ref main \
 ```
 
 workflow の `release` environment 承認では、受入契約の commit SHA、CI、evidence artifact を再確認してください。`--ref main` は workflow/tooling の revision、`commit` は検証・tag・package の対象 revision です。両者を意図的に指定し、ユーザーから公開許可を得ていない場合、この手順を実行してはいけません。
+
+承認待ちが長引き、dispatch から 5 日以上経過した場合は、古い run を承認せずに **cancel
+して dispatch し直す**こと。承認前に workflow 定義と受入契約を再確認し、新しい run の
+environment ゲートで承認してください。
 
 ### 8. リリース確認
 
