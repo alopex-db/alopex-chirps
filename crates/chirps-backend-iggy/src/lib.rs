@@ -6,3 +6,6 @@
 //! compatible-server extension.
 
 #![forbid(unsafe_code)]
+
+pub mod codec;
+pub mod message_id;
