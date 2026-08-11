@@ -11,3 +11,4 @@ pub mod codec;
 pub mod message_id;
 pub mod protocol;
 pub mod routing;
+pub mod transport;
