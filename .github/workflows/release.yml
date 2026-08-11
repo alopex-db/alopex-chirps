@@ -109,17 +109,14 @@ jobs:
           version="${{ steps.release_metadata.outputs.version }}"
           commit="${{ steps.release_metadata.outputs.commit }}"
           args=(--version "${version}" --require-ready)
-          # This workflow always runs from the default branch while the
-          # repository is checked out at the release commit. A release cut
-          # before a verifier option existed must stay verifiable, so pass
-          # --source-commit only when the checked-out verifier accepts it.
-          if grep -q -- '--source-commit' scripts/verify-release-contract.sh; then
-            args+=(--source-commit "${commit}")
-          else
-            echo "checked-out verify-release-contract.sh predates --source-commit; verifying the contract without commit binding"
-          fi
+          # --source-commit only feeds the evidence-manifest verifier, so it is
+          # meaningful only together with --manifest. Passing it unconditionally
+          # made the workflow unusable for any release commit predating the
+          # option, because the verifier checked out at that commit rejects
+          # unknown arguments.
           if [[ "${version}" == "0.6.0" ]]; then
             args+=(--manifest "${RUNNER_TEMP}/chirps-v0.6-release-evidence/manifest.json")
+            args+=(--source-commit "${commit}")
           fi
           scripts/verify-release-contract.sh "${args[@]}"
       - name: Archive v0.6 release evidence
