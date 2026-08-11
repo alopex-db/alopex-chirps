@@ -95,7 +95,7 @@ def validate(args: argparse.Namespace) -> dict:
         schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema"
         or schema.get("additionalProperties") is not False
         or properties.get("schema", {}).get("const") != "chirps.registry-dependency-evidence/v1"
-        or properties.get("release_version", {}).get("const") != "0.6.0"
+        or properties.get("release_version", {}).get("const") != args.release_version
         or properties.get("command", {}).get("const")
         != "cargo build --locked -p alopex-chirps-raft-storage"
         or dependency_properties.get("requirement", {}).get("const") != EXPECTED_REQUIREMENT
@@ -139,7 +139,7 @@ def validate(args: argparse.Namespace) -> dict:
 
     return {
         "schema": "chirps.registry-dependency-evidence/v1",
-        "release_version": "0.6.0",
+        "release_version": args.release_version,
         "source_commit": args.source_commit,
         "result": "pass",
         "dependency": {
@@ -164,6 +164,7 @@ def main() -> int:
     parser.add_argument("--root-lock", type=Path, required=True)
     parser.add_argument("--fixture", type=Path, required=True)
     parser.add_argument("--schema", type=Path, required=True)
+    parser.add_argument("--release-version", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()

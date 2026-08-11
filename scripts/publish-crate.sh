@@ -1,20 +1,29 @@
 #!/bin/bash
 # publish-crate.sh
-# Publish a crate and ignore "already exists" errors.
+# Publish a crate and ignore only the registry's idempotent "already exists" error.
 #
-# Usage: ./scripts/publish-crate.sh <crate-name>
+# Usage: ./scripts/publish-crate.sh --repo-root DIR <crate-name>
 
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 <crate-name>" >&2
+repo_root=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo-root) repo_root="${2:?missing value for --repo-root}"; shift 2 ;;
+    -h|--help) echo "Usage: $0 --repo-root DIR <crate-name>"; exit 0 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+[[ -n "$repo_root" && $# -eq 1 ]] || {
+  echo "Usage: $0 --repo-root DIR <crate-name>" >&2
   exit 2
-fi
+}
 
 crate_name="$1"
 
 set +e
-publish_output="$(cargo publish -p "${crate_name}" 2>&1)"
+publish_output="$(cargo publish --manifest-path "${repo_root}/Cargo.toml" -p "${crate_name}" 2>&1)"
 publish_status=$?
 set -e
 

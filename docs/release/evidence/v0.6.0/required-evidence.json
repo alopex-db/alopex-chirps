@@ -3,6 +3,7 @@
   "release_version": "0.6.0",
   "contract": "docs/release/v0.6.0.md",
   "target_gate_id": "chirps-v0.6-target-gate",
+  "target_gate_runner": "scripts/run-v0.6-release-gate.sh",
   "required_evidence": [
     {"id": "multi-raft-deterministic", "source_path": "docs/release/evidence/v0.6.0/multi-raft-fault-v2.json"},
     {"id": "multi-raft-controlled-failure", "source_path": "docs/release/evidence/v0.6.0/multi-raft-controlled-failure-v2.json"},

@@ -129,6 +129,7 @@ class RegistryDependencyTests(unittest.TestCase):
             "--root-lock", str(REPO / "Cargo.lock"),
             "--fixture", str(REPO / "scripts/fixtures/alopex-core-registry-check"),
             "--schema", str(REPO / "docs/release/evidence/v0.6.0/registry-dependency.schema.json"),
+            "--release-version", "0.6.0",
             "--source-commit", COMMIT,
         ]
 

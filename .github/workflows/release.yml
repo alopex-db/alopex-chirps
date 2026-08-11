@@ -43,6 +43,18 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           fetch-depth: 0
+          path: source
+      # Release tooling is taken from the revision that supplied this
+      # workflow, not from the historical release commit under test. This is
+      # what makes recovery of an old partial publish use the fixed tooling.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: release-tools
+          sparse-checkout: |
+            scripts
+            docs/release
       - name: Verify publish confirmation, tag candidate, commit, and version
         id: release_metadata
         run: |
@@ -66,6 +78,7 @@ jobs:
             echo "commit must be an exact lowercase 40-character SHA" >&2
             exit 1
           }
+          cd "$GITHUB_WORKSPACE/source"
           [[ "$(git rev-parse HEAD)" == "${RELEASE_COMMIT}" ]] || {
             echo "checkout does not match requested commit" >&2
             exit 1
@@ -94,52 +107,68 @@ jobs:
           echo "Tag version ${tag_version} matches Cargo.toml"
           echo "version=${tag_version}" >> "${GITHUB_OUTPUT}"
           echo "commit=${RELEASE_COMMIT}" >> "${GITHUB_OUTPUT}"
+          requirements="docs/release/evidence/v${tag_version}/required-evidence.json"
+          if [[ -f "$requirements" ]]; then
+            echo "evidence_required=true" >> "${GITHUB_OUTPUT}"
+          else
+            evidence_dir="docs/release/evidence/v${tag_version}"
+            if [[ -d "$evidence_dir" ]] && find "$evidence_dir" -type f -print -quit | grep -q .; then
+              echo "Evidence artifacts exist without a required-evidence catalog: ${evidence_dir}" >&2
+              exit 1
+            fi
+            echo "evidence_required=false" >> "${GITHUB_OUTPUT}"
+            echo "No required-evidence catalog for ${tag_version}; version-bound evidence gate is not required"
+          fi
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Run v0.6 target-version release gate
-        if: steps.release_metadata.outputs.version == '0.6.0'
+      - name: Run version-bound release evidence gate
+        if: steps.release_metadata.outputs.evidence_required == 'true'
         run: |
-          scripts/run-v0.6-release-gate.sh \
-            --output-dir "${RUNNER_TEMP}/chirps-v0.6-release-evidence" \
+          bash "$GITHUB_WORKSPACE/release-tools/scripts/run-release-evidence-gate.sh" \
+            --repo-root "$GITHUB_WORKSPACE/source" \
+            --version "${{ steps.release_metadata.outputs.version }}" \
+            --output-dir "${RUNNER_TEMP}/chirps-${{ steps.release_metadata.outputs.version }}-release-evidence" \
             --source-commit "${{ steps.release_metadata.outputs.commit }}"
       - name: Verify release contract and version-bound evidence
         run: |
           version="${{ steps.release_metadata.outputs.version }}"
           commit="${{ steps.release_metadata.outputs.commit }}"
-          args=(--version "${version}" --require-ready)
-          # --source-commit only feeds the evidence-manifest verifier, so it is
-          # meaningful only together with --manifest. Passing it unconditionally
-          # made the workflow unusable for any release commit predating the
-          # option, because the verifier checked out at that commit rejects
-          # unknown arguments.
-          if [[ "${version}" == "0.6.0" ]]; then
-            args+=(--manifest "${RUNNER_TEMP}/chirps-v0.6-release-evidence/manifest.json")
+          args=(--repo-root "$GITHUB_WORKSPACE/source" --version "${version}" --require-ready)
+          if [[ "${{ steps.release_metadata.outputs.evidence_required }}" == "true" ]]; then
+            args+=(--manifest "${RUNNER_TEMP}/chirps-${version}-release-evidence/manifest.json")
             args+=(--source-commit "${commit}")
           fi
-          scripts/verify-release-contract.sh "${args[@]}"
-      - name: Archive v0.6 release evidence
-        if: steps.release_metadata.outputs.version == '0.6.0'
+          bash "$GITHUB_WORKSPACE/release-tools/scripts/verify-release-contract.sh" "${args[@]}"
+      - name: Archive version-bound release evidence
+        if: steps.release_metadata.outputs.evidence_required == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: chirps-v0.6-release-evidence-${{ steps.release_metadata.outputs.commit }}
-          path: ${{ runner.temp }}/chirps-v0.6-release-evidence
+          name: chirps-${{ steps.release_metadata.outputs.version }}-release-evidence-${{ steps.release_metadata.outputs.commit }}
+          path: ${{ runner.temp }}/chirps-${{ steps.release_metadata.outputs.version }}-release-evidence
           if-no-files-found: error
       - name: Check formatting
         run: cargo fmt --all -- --check
+        working-directory: source
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: source
       - name: Run tests
         run: cargo test --workspace --all-features -- --test-threads=1
+        working-directory: source
       - name: Run documentation tests
         run: cargo test --doc --workspace
+        working-directory: source
       - name: Run File Transfer release acceptance tests
         run: cargo test -p alopex-chirps-file-transfer --all-features
+        working-directory: source
       - name: Run QUIC network integration tests
         run: cargo test -p alopex-chirps-transport-quic --test quic_integration -- --ignored
+        working-directory: source
       - name: Run three-node mesh integration tests
         run: cargo test -p chirps-e2e --test three_node_mesh -- --ignored
+        working-directory: source
 
   publish-tag:
     name: Publish verified annotated tag
@@ -190,45 +219,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
+          path: source
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: release-tools
+          sparse-checkout: |
+            scripts
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-
-      # Layer 1: No internal dependencies
-      - name: Publish alopex-chirps-wire
-        run: ./scripts/publish-crate.sh alopex-chirps-wire
-
-      - name: Publish alopex-chirps-raft-storage
-        run: ./scripts/publish-crate.sh alopex-chirps-raft-storage
-
-      - name: Wait for crates.io index update
-        run: sleep 30
-
-      # Layer 2: Depends on alopex-chirps-wire
-      - name: Publish alopex-chirps-core
-        run: ./scripts/publish-crate.sh alopex-chirps-core
-
-      - name: Publish alopex-chirps-gossip-swim
-        run: ./scripts/publish-crate.sh alopex-chirps-gossip-swim
-
-      - name: Wait for crates.io index update
-        run: sleep 30
-
-      # Layer 3: Depends on alopex-chirps-wire + alopex-chirps-core
-      - name: Publish alopex-chirps-mock
-        run: ./scripts/publish-crate.sh alopex-chirps-mock
-
-      - name: Publish alopex-chirps-transport-quic
-        run: ./scripts/publish-crate.sh alopex-chirps-transport-quic
-
-      - name: Publish alopex-chirps-file-transfer
-        run: ./scripts/publish-crate.sh alopex-chirps-file-transfer
-
-      - name: Wait for crates.io index update
-        run: sleep 30
-
-      # Layer 4: Depends on all above
-      - name: Publish alopex-chirps
-        run: ./scripts/publish-crate.sh alopex-chirps
+      - name: Resolve dependency layers and publish crates
+        run: |
+          bash "$GITHUB_WORKSPACE/release-tools/scripts/publish-crates.sh" \
+            --repo-root "$GITHUB_WORKSPACE/source"
 
   create-release:
     name: Create GitHub Release

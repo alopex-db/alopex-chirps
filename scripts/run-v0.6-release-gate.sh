@@ -2,20 +2,22 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --output-dir DIR --source-commit SHA" >&2
+  echo "Usage: $0 --version X.Y.Z --output-dir DIR --source-commit SHA" >&2
 }
 
 output_dir=""
 source_commit=""
+version=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --version) version="${2:?missing version}"; shift 2 ;;
     --output-dir) output_dir="${2:?missing output dir}"; shift 2 ;;
     --source-commit) source_commit="${2:?missing source commit}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
 done
-[[ -n "$output_dir" && -n "$source_commit" ]] || { usage; exit 2; }
+[[ -n "$version" && -n "$output_dir" && -n "$source_commit" ]] || { usage; exit 2; }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp_root="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/chirps-v06-gate.XXXXXX")"
@@ -24,7 +26,8 @@ trap cleanup EXIT
 
 python3 "$repo_root/scripts/release/bundle-v0.6-evidence.py" \
   --repo-root "$repo_root" \
-  --catalog "$repo_root/docs/release/evidence/v0.6.0/required-evidence.json" \
+  --catalog "$repo_root/docs/release/evidence/v${version}/required-evidence.json" \
+  --version "$version" \
   --preflight
 
 CARGO_TARGET_DIR="$tmp_root/target-tests" cargo test --locked -p alopex-chirps --all-features -- --test-threads=1
@@ -37,17 +40,21 @@ CARGO_TARGET_DIR="$tmp_root/target-replay" cargo run --locked -p chirps-determin
 
 registry="$tmp_root/alopex-core-registry.json"
 bash "$repo_root/scripts/verify-registry-dependency.sh" \
-  --output "$registry" --source-commit "$source_commit"
+  --output "$registry" --release-version "$version" --source-commit "$source_commit"
 
 rm -rf "$output_dir"
 python3 "$repo_root/scripts/release/bundle-v0.6-evidence.py" \
   --repo-root "$repo_root" \
-  --catalog "$repo_root/docs/release/evidence/v0.6.0/required-evidence.json" \
+  --catalog "$repo_root/docs/release/evidence/v${version}/required-evidence.json" \
+  --version "$version" \
   --source-commit "$source_commit" \
   --registry-evidence "$registry" \
-  --output-dir "$output_dir"
+  --output-dir "$output_dir" \
+  --target-command "cargo test --locked -p alopex-chirps --all-features -- --test-threads=1" \
+  --target-command "cargo test --locked -p chirps-deterministic-harness" \
+  --target-command "cargo build --locked -p alopex-chirps-raft-storage (isolated registry-only workspace)"
 python3 "$repo_root/scripts/release/verify-evidence-manifest.py" \
   --manifest "$output_dir/manifest.json" \
-  --requirements "$repo_root/docs/release/evidence/v0.6.0/required-evidence.json" \
-  --schema "$repo_root/docs/release/evidence/v0.6.0/manifest.schema.json" \
-  --version 0.6.0 --source-commit "$source_commit"
+  --requirements "$repo_root/docs/release/evidence/v${version}/required-evidence.json" \
+  --schema "$repo_root/docs/release/evidence/v${version}/manifest.schema.json" \
+  --version "$version" --source-commit "$source_commit"
