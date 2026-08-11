@@ -1,6 +1,7 @@
 use crate::backend::MessageBackend;
 use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
+use crate::memory::{MemoryConfig, MemoryError, MemoryManager, MemoryStats};
 use crate::node_id::{NodeId, load_or_create_node_id};
 use crate::profile::{EnvelopeMetadata, MessageProfile, resolve_profile};
 use alopex_chirps_file_transfer::{
@@ -32,6 +33,21 @@ pub struct MeshHandle {
 }
 
 impl MeshHandle {
+    /// Dynamically changes the logical memory budget for this node.
+    pub fn resize_memory_budget(&self, new_budget: usize) -> Result<(), MemoryError> {
+        self.inner.memory.resize_memory_budget(new_budget)
+    }
+
+    /// Returns the current Chirps-owned memory accounting snapshot.
+    pub fn get_memory_stats(&self) -> MemoryStats {
+        self.inner.memory.get_memory_stats()
+    }
+
+    /// Applies configured caps and synchronously releases accounted cache usage.
+    pub fn trigger_gc(&self) -> Result<(), MemoryError> {
+        self.inner.memory.trigger_gc()
+    }
+
     /// 指定したピアへフレームを送信する。
     pub async fn send_to(&self, target: NodeId, frame: Frame) -> Result<(), MeshError> {
         self.send_to_with_profile(target, frame, MessageProfile::Control)
@@ -226,6 +242,7 @@ pub struct Mesh {
     status_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     _tasks: Vec<JoinHandle<()>>,
     metrics: Arc<MeshMetrics>,
+    memory: Arc<MemoryManager>,
 }
 
 #[derive(Default)]
@@ -327,6 +344,9 @@ impl Mesh {
             status_handlers: std::sync::Mutex::new(Vec::new()),
             _tasks: Vec::new(),
             metrics: Arc::new(MeshMetrics::default()),
+            memory: Arc::new(
+                MemoryManager::new(MemoryConfig::default()).expect("default memory config"),
+            ),
         });
 
         let tasks = vec![

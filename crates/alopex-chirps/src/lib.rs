@@ -1,10 +1,12 @@
 //! Alopex Chirps のメッシュAPI。QUICトランスポートとSWIMゴシップをまとめて起動し、送信・ブロードキャスト・イベント購読を提供する。
 
 pub mod backend;
+pub mod buffer;
 pub mod config;
 pub mod error;
 #[cfg(feature = "hlc")]
 pub mod hlc;
+pub mod memory;
 pub mod mesh;
 #[cfg(feature = "multi-raft")]
 pub mod multi_raft;
@@ -16,6 +18,9 @@ pub mod snapshot;
 #[cfg(feature = "tso")]
 pub mod tso;
 
+pub use crate::buffer::{
+    BackpressureController, BackpressureLevel, BufferError, MessageBuffer, PriorityQueue,
+};
 pub use crate::config::NodeConfig;
 use crate::error::MeshError;
 #[cfg(feature = "hlc")]
@@ -23,6 +28,7 @@ pub use crate::hlc::{
     Clock, HlcAdvance, HlcError, HlcMetricsSink, HlcReceiveResult, HybridTimestamp, LocalHlc,
     SystemClock,
 };
+pub use crate::memory::{MemoryComponent, MemoryConfig, MemoryError, MemoryManager, MemoryStats};
 use crate::mesh::Mesh;
 pub use crate::mesh::MeshHandle;
 pub use crate::node_id::NodeId;
@@ -33,8 +39,8 @@ pub use crate::profile::{
 pub use crate::raft::{
     ChirpsMetricsCollector, ChirpsRaftTransport, HlcMetricsUpdate, MetricsAuthError,
     MetricsEndpointAuth, MetricsError, RaftConfig, RaftError, RaftMessage, RaftMessageMetric,
-    RaftMetricsCollector, RaftMetricsUpdate, RaftNode, TsoMetricsUpdate, serve_metrics,
-    serve_metrics_authorized,
+    RaftMetricsCollector, RaftMetricsUpdate, RaftNode, SwimMetricsUpdate, TransportMetricsUpdate,
+    TsoMetricsUpdate, serve_metrics, serve_metrics_authorized,
 };
 pub use alopex_chirps_file_transfer::{
     BroadcastHandle, CompressionAlgorithm, ConflictResolution, FileInfo, FileMetadata,

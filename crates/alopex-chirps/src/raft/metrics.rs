@@ -160,6 +160,24 @@ pub struct HlcMetricsUpdate {
     pub physical_advances: u64,
 }
 
+/// Counter deltas and the current active-connection gauge from QUIC transport.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TransportMetricsUpdate {
+    pub messages_sent: u64,
+    pub messages_received: u64,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub active_connections: u64,
+}
+
+/// One SWIM membership state observation and its corresponding event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwimMetricsUpdate {
+    pub node_id: u64,
+    pub state: &'static str,
+    pub event: &'static str,
+}
+
 #[derive(Debug, Error)]
 pub enum MetricsError {
     #[error("メトリクスエンコードに失敗しました: {0}")]
@@ -240,6 +258,16 @@ pub struct RaftMetricsCollector {
     hlc_clock_skew_seconds: Histogram,
     hlc_logical_advances_total: Counter,
     hlc_physical_advances_total: Counter,
+    transport_messages_sent_total: Counter,
+    transport_messages_received_total: Counter,
+    transport_bytes_sent_total: Counter,
+    transport_bytes_received_total: Counter,
+    transport_connections_active: Gauge,
+    transport_active_connections: Gauge,
+    swim_node_state: GaugeVec,
+    swim_events_total: CounterVec,
+    membership_node_state: GaugeVec,
+    membership_events_total: CounterVec,
     coherence: Mutex<()>,
     group_states: Mutex<HashMap<GroupId, &'static str>>,
     last_successful_output: Mutex<String>,
@@ -383,6 +411,56 @@ impl RaftMetricsCollector {
             "HLC physical time advances",
         )
         .expect("hlc physical counter");
+        let transport_messages_sent_total = Counter::new(
+            "chirps_transport_messages_sent_total",
+            "Total messages sent by the transport",
+        )
+        .expect("transport sent counter");
+        let transport_messages_received_total = Counter::new(
+            "chirps_transport_messages_received_total",
+            "Total messages received by the transport",
+        )
+        .expect("transport received counter");
+        let transport_bytes_sent_total = Counter::new(
+            "chirps_transport_bytes_sent_total",
+            "Total bytes sent by the transport",
+        )
+        .expect("transport sent bytes counter");
+        let transport_bytes_received_total = Counter::new(
+            "chirps_transport_bytes_received_total",
+            "Total bytes received by the transport",
+        )
+        .expect("transport received bytes counter");
+        let transport_connections_active = Gauge::new(
+            "chirps_transport_connections_active",
+            "Number of active transport connections",
+        )
+        .expect("transport active connections gauge");
+        let transport_active_connections = Gauge::new(
+            "chirps_transport_active_connections",
+            "Backward-compatible active transport connection gauge",
+        )
+        .expect("transport active connections alias gauge");
+        let swim_node_state = gauge_vec(
+            "chirps_swim_node_state",
+            "One-hot SWIM state for each node",
+            &["node_id", "state"],
+        );
+        let swim_events_total = counter_vec(
+            "chirps_swim_events_total",
+            "SWIM membership events",
+            &["event"],
+        );
+        let membership_node_state = gauge_vec(
+            "chirps_membership_node_state",
+            "One-hot membership state for each node",
+            &["node_id", "state"],
+        );
+        let membership_events_total = counter_vec(
+            "chirps_membership_events_total",
+            "Membership state events",
+            &["event"],
+        );
 
         let register = |collector| {
             registry
@@ -414,6 +492,16 @@ impl RaftMetricsCollector {
         register(Box::new(hlc_clock_skew_seconds.clone()));
         register(Box::new(hlc_logical_advances_total.clone()));
         register(Box::new(hlc_physical_advances_total.clone()));
+        register(Box::new(transport_messages_sent_total.clone()));
+        register(Box::new(transport_messages_received_total.clone()));
+        register(Box::new(transport_bytes_sent_total.clone()));
+        register(Box::new(transport_bytes_received_total.clone()));
+        register(Box::new(transport_connections_active.clone()));
+        register(Box::new(transport_active_connections.clone()));
+        register(Box::new(swim_node_state.clone()));
+        register(Box::new(swim_events_total.clone()));
+        register(Box::new(membership_node_state.clone()));
+        register(Box::new(membership_events_total.clone()));
 
         Self {
             registry,
@@ -442,6 +530,16 @@ impl RaftMetricsCollector {
             hlc_clock_skew_seconds,
             hlc_logical_advances_total,
             hlc_physical_advances_total,
+            transport_messages_sent_total,
+            transport_messages_received_total,
+            transport_bytes_sent_total,
+            transport_bytes_received_total,
+            transport_connections_active,
+            transport_active_connections,
+            swim_node_state,
+            swim_events_total,
+            membership_node_state,
+            membership_events_total,
             coherence: Mutex::new(()),
             group_states: Mutex::new(HashMap::new()),
             last_successful_output: Mutex::new(String::new()),
@@ -693,6 +791,43 @@ impl RaftMetricsCollector {
         }
     }
 
+    /// Publishes transport counter deltas and the current connection gauge.
+    pub fn update_transport(&self, metrics: &TransportMetricsUpdate) {
+        let _coherence = self.coherence_guard();
+        self.transport_messages_sent_total
+            .inc_by(metrics.messages_sent as f64);
+        self.transport_messages_received_total
+            .inc_by(metrics.messages_received as f64);
+        self.transport_bytes_sent_total
+            .inc_by(metrics.bytes_sent as f64);
+        self.transport_bytes_received_total
+            .inc_by(metrics.bytes_received as f64);
+        self.transport_connections_active
+            .set(metrics.active_connections as f64);
+        self.transport_active_connections
+            .set(metrics.active_connections as f64);
+    }
+
+    /// Publishes a one-hot node state and increments the bounded event series.
+    pub fn update_swim(&self, metrics: &SwimMetricsUpdate) {
+        let _coherence = self.coherence_guard();
+        let node_id = metrics.node_id.to_string();
+        let state = bounded_swim_state(metrics.state);
+        for candidate in SWIM_STATES {
+            self.swim_node_state
+                .with_label_values(&[&node_id, candidate])
+                .set(f64::from(candidate == state));
+            self.membership_node_state
+                .with_label_values(&[&node_id, candidate])
+                .set(f64::from(candidate == state));
+        }
+        let event = bounded_swim_event(metrics.event);
+        self.swim_events_total.with_label_values(&[event]).inc();
+        self.membership_events_total
+            .with_label_values(&[event])
+            .inc();
+    }
+
     fn update_group_state_summary(&self, group_id: GroupId, role: &'static str) {
         let previous = self
             .group_states
@@ -769,6 +904,21 @@ impl RaftMetricsCollector {
     pub fn inject_encode_error(&self) {
         self.fail_next_encode.store(true, Ordering::SeqCst);
     }
+}
+
+const SWIM_STATES: [&str; 4] = ["alive", "suspect", "dead", "other"];
+
+fn bounded_swim_state(value: &str) -> &'static str {
+    match value {
+        "alive" => "alive",
+        "suspect" => "suspect",
+        "dead" => "dead",
+        _ => "other",
+    }
+}
+
+fn bounded_swim_event(value: &str) -> &'static str {
+    bounded_swim_state(value)
 }
 
 #[cfg(feature = "hlc")]

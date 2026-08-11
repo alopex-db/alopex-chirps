@@ -502,6 +502,11 @@ impl QuicBackend {
             .map_err(|_| TransportError::Connection("reconnect worker stopped".into()))
     }
 
+    /// Returns the address selected by the QUIC endpoint.
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        self.endpoint.local_addr()
+    }
+
     /// 現在のトランスポートメトリクスを取得する。
     pub fn metrics(&self) -> TransportMetricsSnapshot {
         TransportMetricsSnapshot {
@@ -1589,19 +1594,9 @@ fn build_tls_configs(
         (cert.serialize_der()?, cert.serialize_private_key_der())
     };
 
-    let cert_chain = vec![CertificateDer::from(cert_der.clone())];
-    let priv_key = PrivatePkcs8KeyDer::from(key_der).into();
-    let mut server_crypto = rustls::ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(cert_chain, priv_key)?;
-    server_crypto.alpn_protocols = vec![b"alopex".to_vec()];
-    let mut server_config =
-        ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
-    server_config.transport_config(Arc::clone(&transport_config));
-
     let mut roots = RootCertStore::empty();
     roots
-        .add(CertificateDer::from(cert_der))
+        .add(CertificateDer::from(cert_der.clone()))
         .map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
     for cert_path in &config.trusted_cert_paths {
         let trusted_cert = fs::read(cert_path)?;
@@ -1610,9 +1605,26 @@ fn build_tls_configs(
             .map_err(|_| anyhow::anyhow!("failed to add trusted root cert"))?;
     }
 
-    let mut client_crypto = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let cert_chain = vec![CertificateDer::from(cert_der.clone())];
+    let priv_key = PrivatePkcs8KeyDer::from(key_der.clone()).into();
+    let client_verifier =
+        rustls::server::WebPkiClientVerifier::builder(Arc::new(roots.clone())).build()?;
+    let mut server_crypto =
+        rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_client_cert_verifier(client_verifier)
+            .with_single_cert(cert_chain, priv_key)?;
+    server_crypto.alpn_protocols = vec![b"alopex".to_vec()];
+    let mut server_config =
+        ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
+    server_config.transport_config(Arc::clone(&transport_config));
+
+    let mut client_crypto =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_root_certificates(roots)
+            .with_client_auth_cert(
+                vec![CertificateDer::from(cert_der)],
+                PrivatePkcs8KeyDer::from(key_der).into(),
+            )?;
     client_crypto.alpn_protocols = vec![b"alopex".to_vec()];
 
     let mut client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
