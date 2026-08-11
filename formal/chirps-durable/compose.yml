@@ -1,0 +1,621 @@
+x-chirps-durable-suite:
+  schema: alopex-formal-suite/v1
+  checker: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+  required_models:
+    - chirps-v0-7-send-lease
+    - chirps-v0-7-subscription
+    - chirps-v0-7-lifecycle-state
+    - chirps-v0-7-metadata-recovery
+  required_requirements:
+    - V7-MODEL-001
+    - V7-MODEL-002
+    - V7-MODEL-003
+    - V7-MODEL-004
+    - V7-MODEL-005
+    - V7-MODEL-006
+
+services:
+  suite:
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    working_dir: /var/apalache
+    environment:
+      CHIRPS_DURABLE_MODE: all
+      CHIRPS_DURABLE_PROBE: none
+      CHIRPS_DURABLE_ONLY: ""
+      CHIRPS_DURABLE_WORKERS: "4"
+      JAVA_TOOL_OPTIONS: -XX:ErrorFile=/var/apalache/_apalache-out/hs_err_pid%p.log -XX:ReplayDataFile=/var/apalache/_apalache-out/replay_pid%p.log
+      CHIRPS_DURABLE_CHECKER_IMAGE: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+      CHIRPS_DURABLE_REQUIRED_MODELS: chirps-v0-7-send-lease,chirps-v0-7-subscription,chirps-v0-7-lifecycle-state,chirps-v0-7-metadata-recovery
+      CHIRPS_DURABLE_REQUIRED_REQUIREMENTS: V7-MODEL-001,V7-MODEL-002,V7-MODEL-003,V7-MODEL-004,V7-MODEL-005,V7-MODEL-006
+      CHIRPS_DURABLE_TASKS: 1.1,1.2,1.3,1.4,1.5,2.1,2.2,2.3,2.4,3.2,3.3,3.4,3.5,3.6,3.7,3.8,4.1,4.2,4.3,4.4,4.5,4.5.1,4.6,5.3,5.4,5.5,5.6,5.9,5.9.3,5.10,6.2,6.4,6.5,6.6,6.7,6.8,6.9,6.10,6.13
+      CHIRPS_DURABLE_MODELS: |-
+        chirps-v0-7-send-lease|chirps-durable/catalog.yaml|chirps-durable/SendLease.tla|chirps-durable/SendLease.cfg|24|28|1|decf0a86691a6ad8fd40aec667c57e6cae57ff0b844a1b479b9e951bec7d42b9|012f62cc5d5a9a7da340bd872fe2341713b1975b5b267b37d5acdfed40106981|f65851a3665b9af700b6c91b8703cd34a219b53ff4d6af63463ceb3f5653235c|39|V7-ARCH-005,V7-ARCH-006,V7-ARCH-008,V7-CAP-002,V7-CAP-003,V7-CAP-005,V7-CAP-006,V7-CAP-007,V7-CAP-008,V7-CAP-009,V7-CAP-010,V7-CAP-016,V7-CAP-017,V7-CAP-018,V7-CAP-020,V7-CAP-021,V7-SEND-002,V7-SEND-003,V7-SEND-004,V7-SEND-005,V7-SEND-006,V7-SEND-007,V7-SEND-008,V7-SEND-010,V7-SEND-011,V7-FAULT-004,V7-FAULT-005,V7-FAULT-006,V7-FAULT-014,V7-SEC-002,V7-OBS-003,V7-MODEL-001,V7-MODEL-002,V7-MODEL-003
+        chirps-v0-7-subscription|chirps-durable/subscription-catalog.yaml|chirps-durable/Subscription.tla|chirps-durable/Subscription.cfg|28|49|5|28e2eca3ca4d57b0b04176f0a7e3daa4c683464ee656a46f4e8c4d8d8347d401|787497cc43ce006340dbcc101e171086657e9245286d3dcc05a91a1a21bea2a7|09cb487670418664994100dd8ddaddce3582f0c6eaf653e89bc2488c7437eb31|53|V7-CAP-011,V7-WIRE-004,V7-WIRE-006,V7-CONS-004,V7-CONS-005,V7-CONS-006,V7-CONS-007,V7-CONS-008,V7-CONS-009,V7-CONS-010,V7-CONS-011,V7-CONS-012,V7-CONS-013,V7-CONS-014,V7-CONS-015,V7-CONS-016,V7-CONS-018,V7-CONS-019,V7-CONS-020,V7-REPLAY-001,V7-REPLAY-002,V7-REPLAY-003,V7-REPLAY-004,V7-REPLAY-005,V7-REPLAY-008,V7-REPLAY-010,V7-REPLAY-011,V7-REPLAY-012,V7-STATE-002,V7-STATE-003,V7-FAULT-007,V7-FAULT-013,V7-SEND-011,V7-MODEL-001,V7-MODEL-002,V7-MODEL-003,V7-MODEL-006
+        chirps-v0-7-lifecycle-state|chirps-durable/lifecycle-catalog.yaml|chirps-durable/LifecycleState.tla|chirps-durable/LifecycleState.cfg|24|26|8|2190c9d037b88a10321f21e4e53971aa5e5e04ccabd511f35ba5517d62024ef3|5b4af7f2c968e6763113713384c2cbfa9c15cecb24c88d72a84b0c8624b36091|6d900a8d3f329ca8d89997aed5ddcbfa1c443aafd346552e6119e3055396a52e|43|V7-STATE-004,V7-STATE-005,V7-STATE-006,V7-STATE-007,V7-STATE-008,V7-LIFE-001,V7-LIFE-002,V7-LIFE-003,V7-LIFE-004,V7-LIFE-005,V7-LIFE-006,V7-LIFE-007,V7-MODEL-001,V7-MODEL-002,V7-MODEL-005
+        chirps-v0-7-metadata-recovery|chirps-durable/metadata-catalog.yaml|chirps-durable/MetadataRecovery.tla|chirps-durable/MetadataRecovery.cfg|20|22|13|229ec5743cecf752d370b76ed10daea86a9893292cffb7ff58a5cd9e12cb151e|8230048ebc266569422c7da7359bafc39550ddd6396db8ca5705a4a1ec4c57ad|cb9da8fa3d08cf0cd494d49c37b7c09a0265f786be3c1269dd281bd1a6770a5b|44|V7-CAP-017,V7-CAP-018,V7-FAULT-003,V7-FAULT-008,V7-FAULT-010,V7-FAULT-011,V7-MODEL-002,V7-MODEL-004
+      CHIRPS_DURABLE_META_PROPERTIES: |-
+        chirps-v0-7-send-lease|AllRequiredScenarioMatricesCatalogued|scenario-matrix-signature
+        chirps-v0-7-send-lease|EverySafetyInvariantHasUnsafeProfile|invariant-red-bijection
+        chirps-v0-7-subscription|SubscriptionModelRegistered|exact-model-registry
+        chirps-v0-7-subscription|SubscriptionActionInventoryComplete|all-actions-signature
+        chirps-v0-7-subscription|EverySubscriptionSafetyInvariantHasUnsafeProfile|invariant-red-bijection
+        chirps-v0-7-lifecycle-state|AllConcurrentCapabilitiesModeled|all-actions-catalog-bijection
+    entrypoint: ["/bin/sh", "-eu", "-c"]
+    command:
+      - |
+        exec /usr/bin/perl - <<'PERL'
+        
+        use strict;
+        use warnings;
+        use File::Path qw(make_path remove_tree);
+        
+        my $$root = "/var/apalache";
+        chdir $$root or die "cannot chdir $$root: $$!\n";
+        
+        my $$mode = $$ENV{CHIRPS_DURABLE_MODE} // "all";
+        my $$probe = $$ENV{CHIRPS_DURABLE_PROBE} // "none";
+        my $$only = $$ENV{CHIRPS_DURABLE_ONLY} // "";
+        my $$workers = $$ENV{CHIRPS_DURABLE_WORKERS} // 4;
+        die "invalid mode $$mode\n" unless $$mode =~ /^(?:catalog|normal|profiles|witnesses|all)$$/;
+        die "invalid probe $$probe\n"
+            unless $$probe =~ /^(?:none|missing-tool|missing-model|missing-action|missing-action-catalog|missing-scenario-matrix|missing-red-profile|missing-refinement|missing-requirement|bad-property|bad-repository)$$/;
+        die "invalid workers $$workers\n" unless $$workers =~ /^\d+$$/ && $$workers >= 1 && $$workers <= 8;
+        
+        sub slurp {
+            my ($$path) = @_;
+            open my $$fh, "<", $$path or die "$$path: $$!\n";
+            local $$/;
+            my $$text = <$$fh>;
+            close $$fh;
+            return $$text;
+        }
+
+        sub file_sha256 {
+            my ($$path) = @_;
+            open my $$fh, "-|", "/usr/bin/sha256sum", $$path
+                or die "sha256sum $$path: $$!\n";
+            my $$line = <$$fh>;
+            close $$fh or die "sha256sum $$path failed\n";
+            my ($$digest) = $$line =~ /^([0-9a-f]{64})\b/;
+            die "invalid sha256sum output for $$path\n" unless defined $$digest;
+            return $$digest;
+        }
+        
+        sub parse_registry {
+            my ($$text) = @_;
+            my @models;
+            for my $$line (split /\n/, $$text) {
+                next unless $$line =~ /\S/;
+                my ($$id, $$catalog, $$tla, $$cfg, $$bound, $$profiles, $$witnesses,
+                    $$tla_sha, $$cfg_sha, $$catalog_sha, $$actions, $$requirements) =
+                    split /\|/, $$line, -1;
+                die "invalid model registry line: $$line\n"
+                    unless defined $$requirements
+                        && $$id =~ /^[a-z0-9-]+$$/
+                        && $$catalog =~ m{^[A-Za-z0-9_./-]+$$}
+                        && $$tla =~ m{^[A-Za-z0-9_./-]+$$}
+                        && $$cfg =~ m{^[A-Za-z0-9_./-]+$$}
+                        && $$bound =~ /^\d+$$/
+                        && $$profiles =~ /^\d+$$/
+                        && $$witnesses =~ /^\d+$$/
+                        && $$tla_sha =~ /^[0-9a-f]{64}$$/
+                        && $$cfg_sha =~ /^[0-9a-f]{64}$$/
+                        && $$catalog_sha =~ /^[0-9a-f]{64}$$/
+                        && $$actions =~ /^\d+$$/
+                        && $$requirements =~ /^V7-[A-Z]+-[0-9]{3}(?:,V7-[A-Z]+-[0-9]{3})*$$/;
+                push @models, {
+                    id => $$id, catalog => $$catalog, tla => $$tla, cfg => $$cfg,
+                    bound => 0 + $$bound, expected_profiles => 0 + $$profiles,
+                    expected_witnesses => 0 + $$witnesses,
+                    tla_sha => $$tla_sha, cfg_sha => $$cfg_sha,
+                    catalog_sha => $$catalog_sha, expected_actions => 0 + $$actions,
+                    expected_requirements => [split /,/, $$requirements],
+                };
+            }
+            return @models;
+        }
+        
+        sub parse_meta_properties {
+            my ($$text) = @_;
+            my %meta;
+            for my $$line (split /\n/, $$text) {
+                next unless $$line =~ /\S/;
+                my ($$id, $$property, $$gate) = split /\|/, $$line, -1;
+                die "invalid meta-property registry line: $$line\n"
+                    unless defined $$gate
+                        && $$id =~ /^[a-z0-9-]+$$/
+                        && $$property =~ /^[A-Z][A-Za-z0-9_]*$$/
+                        && $$gate =~ /^(?:exact-model-registry|scenario-matrix-signature|all-actions-signature|all-actions-catalog-bijection|invariant-red-bijection)$$/;
+                die "duplicate meta property $$id:$$property\n"
+                    if exists $$meta{"$$id|$$property"};
+                $$meta{"$$id|$$property"} = $$gate;
+            }
+            return %meta;
+        }
+        
+        sub operator_defined {
+            my ($$tla, $$operator) = @_;
+            return $$tla =~ /^\Q$$operator\E(?:\([^)]*\))?\s*==/m;
+        }
+
+        sub extract_all_actions {
+            my ($$tla, $$path) = @_;
+            my ($$block) = $$tla =~ /^AllActions ==\n(.*?)(?=\n\n)/ms;
+            die "$$path: AllActions block missing\n" unless defined $$block;
+            my @actions;
+            my %seen;
+            for my $$line (split /\n/, $$block) {
+                next unless $$line =~ /^\s*\\\/\s+(.*)/;
+                my $$expression = $$1;
+                next if $$expression =~ m{^/\\};
+                my ($$name) = $$expression =~ /:\s*([A-Z][A-Za-z0-9_]*)\s*(?:\(|$$)/;
+                ($$name) = $$expression =~ /^([A-Z][A-Za-z0-9_]*)\s*(?:\(|$$)/
+                    unless defined $$name;
+                next unless defined $$name;
+                next if $$name eq "UnsafeAction" || $$name eq "Stutter";
+                die "$$path: duplicate AllActions member $$name\n" if $$seen{$$name}++;
+                push @actions, $$name;
+            }
+            die "$$path: empty AllActions\n" unless @actions;
+            return @actions;
+        }
+
+        sub extract_catalog_actions {
+            my ($$yaml) = @_;
+            my ($$section) = $$yaml =~ /action_catalog:\n(.*?)(?:    scope:|    source_boundary:)/s;
+            return () unless defined $$section;
+            my @actions;
+            while ($$section =~ /\[([^\]]*)\]/g) {
+                push @actions, map { s/^\s+|\s+$$//gr } split /,/, $$1;
+            }
+            return @actions;
+        }
+        
+        sub extract_profiles {
+            my ($$yaml) = @_;
+            my ($$section) = $$yaml =~ /mutation_profiles:\n(.*?)    witness_profiles:/s;
+            die "missing mutation_profiles\n" unless defined $$section;
+            my @profiles;
+            while ($$section =~ /^\s+- \{id: ([^,]+), constant_overrides: \{UnsafeMode: ([^}]+)\}, target: ([A-Za-z0-9_]+), expected: ([a-z-]+), max_steps: (\d+)\}/mg) {
+                push @profiles, {
+                    id => $$1, unsafe_mode => $$2, target => $$3,
+                    expected => $$4, max_steps => 0 + $$5,
+                };
+            }
+            return @profiles;
+        }
+        
+        sub extract_witnesses {
+            my ($$yaml) = @_;
+            my ($$section) = $$yaml =~ /witness_profiles:\n(.*?)    scenario_profiles:/s;
+            die "missing witness_profiles\n" unless defined $$section;
+            my @blocks = $$section =~ /(^      - id:.*?)(?=^      - id:|\z)/msg;
+            my @witnesses;
+            for my $$block (@blocks) {
+                my ($$id) = $$block =~ /^      - id:\s*([^\n]+)/m;
+                my ($$expected) = $$block =~ /^\s+expected:\s*([^\n]+)/m;
+                my ($$max_steps) = $$block =~ /^\s+max_steps:\s*(\d+)/m;
+                my ($$init) = $$block =~ /^\s+init:\s*([A-Za-z0-9_]+)/m;
+                my ($$next) = $$block =~ /^\s+next:\s*([A-Za-z0-9_]+)/m;
+                my ($$target) = $$block =~ /^\s+target:\s*([A-Za-z0-9_]+)/m;
+                die "invalid witness block\n"
+                    unless defined $$id && defined $$expected && defined $$max_steps
+                        && defined $$next && defined $$target;
+                push @witnesses, {
+                    id => $$id, expected => $$expected, max_steps => 0 + $$max_steps,
+                    init => $$init, next => $$next, target => $$target,
+                };
+            }
+            return @witnesses;
+        }
+        
+        sub extract_requirement_blocks {
+            my ($$yaml) = @_;
+            my ($$section) = $$yaml =~ /^requirements:\n(.*)\z/ms;
+            die "missing requirements\n" unless defined $$section;
+            return $$section =~ /(^  - .*?)(?=^  - |\z)/msg;
+        }
+
+        sub validate_locations {
+            my ($$catalog, $$requirement, $$kind, $$block, $$allowed_tasks) = @_;
+            my ($$contents) = $$block =~ /\b\Q$$kind\E:\s*\[([^\]]*)\]/s;
+            die "$$catalog: missing $$kind for $$requirement\n" unless defined $$contents;
+            my @entries = $$contents =~ /(\{[^{}]+\})/g;
+            die "$$catalog: empty $$kind for $$requirement\n" unless @entries;
+            for my $$entry (@entries) {
+                my ($$repository) = $$entry =~ /\brepository:\s*([^,}\s]+)/;
+                my ($$path) = $$entry =~ /\bpath:\s*([^,}\s]+)/;
+                my ($$task) = $$entry =~ /\btask:\s*"([^"]+)"/;
+                die "$$catalog: malformed $$kind entry for $$requirement\n"
+                    unless defined $$repository && defined $$path && defined $$task;
+                die "$$catalog: unknown repository $$repository for $$requirement\n"
+                    unless $$repository eq "chirps" || $$repository eq "iggy-compatible";
+                die "$$catalog: unsafe path $$path for $$requirement\n"
+                    unless $$path =~ m{^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+$$}
+                        && $$path !~ m{(?:^|/)\.\.(?:/|$$)};
+                die "$$catalog: path $$path outside $$repository roots for $$requirement\n"
+                    unless ($$repository eq "chirps" && $$path =~ m{^(?:formal|crates|tools|tests|scripts)/})
+                        || ($$repository eq "iggy-compatible" && $$path =~ m{^(?:core|tests)/});
+                die "$$catalog: unapproved task $$task for $$requirement\n"
+                    unless $$allowed_tasks->{$$task};
+                if ($$entry =~ /\bcheck:\s*([^,}\s]+)/) {
+                    die "$$catalog: unsafe check identifier $$1 for $$requirement\n"
+                        unless $$1 =~ /^[a-z0-9][a-z0-9-]*$$/;
+                }
+            }
+        }
+        
+        sub write_cfg {
+            my ($$model, $$kind, $$entry, $$path) = @_;
+            my $$base = slurp($$model->{cfg});
+            my @constants = $$base =~ /^(CONSTANT .*)$$/mg;
+            die "no constants in $$model->{cfg}\n" unless @constants;
+            if ($$kind eq "profile") {
+                my $$replaced = 0;
+                for (@constants) {
+                    if (/^CONSTANT UnsafeMode = /) {
+                        $$_ = qq{CONSTANT UnsafeMode = "$$entry->{unsafe_mode}"};
+                        $$replaced++;
+                    }
+                }
+                die "UnsafeMode constant absent in $$model->{cfg}\n" unless $$replaced == 1;
+            }
+            my ($$base_init) = $$base =~ /^INIT\s+([A-Za-z0-9_]+)/m;
+            my ($$base_next) = $$base =~ /^NEXT\s+([A-Za-z0-9_]+)/m;
+            die "INIT/NEXT absent in $$model->{cfg}\n" unless defined $$base_init && defined $$base_next;
+            my $$init = $$kind eq "witness" && defined $$entry->{init} ? $$entry->{init} : $$base_init;
+            my $$next =
+                $$kind eq "witness" ? $$entry->{next}
+                : $$model->{direct_unsafe_next} ? "UnsafeAction"
+                : $$base_next;
+            open my $$fh, ">", $$path or die "$$path: $$!\n";
+            print {$$fh} join("\n", @constants), "\n\n";
+            print {$$fh} "INIT $$init\nNEXT $$next\n\n";
+            print {$$fh} "INVARIANT TypeOK\nINVARIANT $$entry->{target}\n";
+            close $$fh;
+        }
+        
+        my @models = parse_registry($$ENV{CHIRPS_DURABLE_MODELS} // "");
+        my %meta_properties = parse_meta_properties($$ENV{CHIRPS_DURABLE_META_PROPERTIES} // "");
+        my @required_models = split /,/, ($$ENV{CHIRPS_DURABLE_REQUIRED_MODELS} // "");
+        my @required_requirements = split /,/, ($$ENV{CHIRPS_DURABLE_REQUIRED_REQUIREMENTS} // "");
+        my %allowed_tasks = map { $$_ => 1 } split /,/, ($$ENV{CHIRPS_DURABLE_TASKS} // "");
+        my $$expected_image = $$ENV{CHIRPS_DURABLE_CHECKER_IMAGE} // "";
+        my $$apalache = $$probe eq "missing-tool"
+            ? "/opt/apalache/bin/absent-apalache-mc"
+            : "/opt/apalache/bin/apalache-mc";
+        die "checker tool missing: $$apalache\n" unless -x $$apalache;
+        
+        my @observed_models = map { $$_->{id} } @models;
+        pop @observed_models if $$probe eq "missing-model";
+        die "model registry mismatch\n"
+            unless join(",", sort @observed_models) eq join(",", sort @required_models);
+        die "unknown CHIRPS_DURABLE_ONLY=$$only\n"
+            if $$only ne "" && !grep { $$_->{id} eq $$only } @models;
+        
+        my %requirement_union;
+        my %observed_meta_properties;
+        for my $$model (@models) {
+            for my $$path ($$model->{catalog}, $$model->{tla}, $$model->{cfg}) {
+                die "required artifact missing: $$path\n" unless -f $$path;
+            }
+            die "$$model->{tla}: digest mismatch\n"
+                unless file_sha256($$model->{tla}) eq $$model->{tla_sha};
+            die "$$model->{cfg}: digest mismatch\n"
+                unless file_sha256($$model->{cfg}) eq $$model->{cfg_sha};
+            die "$$model->{catalog}: digest mismatch\n"
+                unless file_sha256($$model->{catalog}) eq $$model->{catalog_sha};
+            my $$yaml = slurp($$model->{catalog});
+            my $$tla = slurp($$model->{tla});
+            my $$cfg = slurp($$model->{cfg});
+            die "$$model->{catalog}: schema mismatch\n"
+                unless $$yaml =~ /^schema: alopex-formal-catalog\/v1$$/m;
+            die "$$model->{catalog}: model id mismatch\n"
+                unless $$yaml =~ /^\s+id: \Q$$model->{id}\E$$/m;
+            die "$$model->{catalog}: checker image mismatch\n"
+                unless $$yaml =~ /^\s+image: \Q$$expected_image\E$$/m;
+            die "$$model->{catalog}: bound mismatch\n"
+                unless $$yaml =~ /^\s+max_steps: $$model->{bound}$$/m;
+            die "$$model->{catalog}: normal config mismatch\n"
+                unless $$yaml =~ /^\s+normal: .*--config=\Q$$model->{cfg}\E\b.*--length=$$model->{bound}\b.*\Q$$model->{tla}\E/m;
+            my ($$scenario_matrix) =
+                $$yaml =~ /scenario_profiles:\n(.*?)(?:    action_catalog:|    scope:)/s;
+            $$scenario_matrix = undef
+                if $$probe eq "missing-scenario-matrix" && $$model == $$models[0];
+            my $$scenario_matrix_valid =
+                defined $$scenario_matrix && $$scenario_matrix =~ /:\s*\[[^\]]+\]/;
+        
+            my @model_actions = extract_all_actions($$tla, $$model->{tla});
+            shift @model_actions if $$probe eq "missing-action" && $$model == $$models[0];
+            die "$$model->{tla}: AllActions count mismatch\n"
+                unless @model_actions == $$model->{expected_actions};
+            for my $$action (@model_actions) {
+                die "$$model->{tla}: action definition missing: $$action\n"
+                    unless operator_defined($$tla, $$action);
+            }
+        
+            my @declared_actions = extract_catalog_actions($$yaml);
+            @declared_actions = ()
+                if $$probe eq "missing-action-catalog"
+                    && $$model->{id} eq "chirps-v0-7-lifecycle-state";
+            my $$action_catalog_bijection = 0;
+            if (@declared_actions) {
+                my %declared_seen;
+                die "$$model->{catalog}: duplicate action in action_catalog\n"
+                    if grep { $$declared_seen{$$_}++ } @declared_actions;
+                die "$$model->{catalog}: action catalog mismatch\n"
+                    unless join(",", sort @declared_actions) eq join(",", sort @model_actions);
+                $$action_catalog_bijection = 1;
+            }
+        
+            my @profiles = extract_profiles($$yaml);
+            my @witnesses = extract_witnesses($$yaml);
+            my @requirement_blocks = extract_requirement_blocks($$yaml);
+            pop @requirement_blocks
+                if $$probe eq "missing-requirement" && $$model == $$models[0];
+            die "$$model->{catalog}: profile count mismatch\n"
+                unless @profiles == $$model->{expected_profiles};
+            die "$$model->{catalog}: witness count mismatch\n"
+                unless @witnesses == $$model->{expected_witnesses};
+        
+            my %profile_ids;
+            my %profile_targets;
+            for my $$profile (@profiles) {
+                die "$$model->{catalog}: duplicate profile $$profile->{id}\n"
+                    if $$profile_ids{$$profile->{id}}++;
+                die "$$model->{catalog}: non-counterexample profile $$profile->{id}\n"
+                    unless $$profile->{expected} eq "counterexample";
+                die "$$model->{tla}: profile target absent $$profile->{target}\n"
+                    unless operator_defined($$tla, $$profile->{target});
+                die "$$model->{tla}: unsafe mode absent $$profile->{unsafe_mode}\n"
+                    unless $$tla =~ /"\Q$$profile->{unsafe_mode}\E"/;
+                $$profile_targets{$$profile->{target}}++;
+            }
+            if ($$probe eq "missing-red-profile" && $$model == $$models[0]) {
+                delete $$profile_ids{$$profiles[0]{id}};
+                delete $$profile_targets{$$profiles[0]{target}};
+            }
+        
+            my %witness_ids;
+            for my $$witness (@witnesses) {
+                die "$$model->{catalog}: duplicate witness $$witness->{id}\n"
+                    if $$witness_ids{$$witness->{id}}++;
+                die "$$model->{catalog}: non-reachability witness $$witness->{id}\n"
+                    unless $$witness->{expected} eq "reachable";
+                for my $$operator (grep { defined } ($$witness->{init}, $$witness->{next}, $$witness->{target})) {
+                    die "$$model->{tla}: witness operator absent $$operator\n"
+                        unless operator_defined($$tla, $$operator);
+                }
+            }
+        
+            my $$claims_model_003 = 0;
+            my %model_requirement_ids;
+            for my $$index (0 .. $$#requirement_blocks) {
+                my $$block = $$requirement_blocks[$$index];
+                $$block =~ s/refinement:\s*\[[^\]]*\]/refinement: []/s
+                    if $$probe eq "missing-refinement" && $$model == $$models[0] && $$index == 0;
+                $$block =~ s/property:\s*[A-Za-z0-9_]+/property: TypoProperty/
+                    if $$probe eq "bad-property" && $$model == $$models[0] && $$index == 0;
+                $$block =~ s/repository:\s*(?:chirps|iggy-compatible)/repository: fictional/
+                    if $$probe eq "bad-repository" && $$model == $$models[0] && $$index == 0;
+                my ($$id) = $$block =~ /- (?:\{)?id:\s*([^,\n}]+)/;
+                my ($$property) = $$block =~ /\bproperty:\s*([A-Za-z][A-Za-z0-9_]*)/;
+                die "$$model->{catalog}: malformed requirement\n"
+                    unless defined $$id && defined $$property;
+                $$id =~ s/^\s+|\s+$$//g;
+                die "$$model->{catalog}: invalid requirement id $$id\n"
+                    unless $$id =~ /^V7-[A-Z]+-[0-9]{3}$$/;
+                die "$$model->{catalog}: duplicate requirement $$id\n"
+                    if $$model_requirement_ids{$$id}++;
+                $$requirement_union{$$id}++;
+                $$claims_model_003 = 1 if $$id eq "V7-MODEL-003";
+                unless (operator_defined($$tla, $$property)) {
+                    my $$key = "$$model->{id}|$$property";
+                    die "$$model->{catalog}: unknown meta property $$property for $$id\n"
+                        unless exists $$meta_properties{$$key};
+                    $$observed_meta_properties{$$key}++;
+                }
+                validate_locations($$model->{catalog}, $$id, "refinement", $$block, \%allowed_tasks);
+                my ($$planned_kind) = $$block =~ /\b(planned_(?:local_component_)?test):/;
+                die "$$model->{catalog}: missing planned test for $$id\n"
+                    unless defined $$planned_kind;
+                validate_locations($$model->{catalog}, $$id, $$planned_kind, $$block, \%allowed_tasks);
+
+                my @red_profiles;
+                if (my ($$list) = $$block =~ /\bred_profiles:\s*\[([^\]]*)\]/) {
+                    @red_profiles = map { s/^\s+|\s+$$//gr } split /,/, $$list;
+                } elsif (my ($$single) = $$block =~ /\bred_profile:\s*([^,}\s]+)/) {
+                    @red_profiles = ($$single);
+                }
+                for my $$red_profile (@red_profiles) {
+                    die "$$model->{catalog}: requirement $$id references unknown RED profile $$red_profile\n"
+                        unless $$profile_ids{$$red_profile};
+                }
+            }
+            my @observed_requirement_ids = sort keys %model_requirement_ids;
+            my @expected_requirement_ids = sort @{$$model->{expected_requirements}};
+            die "$$model->{catalog}: exact requirement set mismatch\n"
+                unless join(",", @observed_requirement_ids) eq join(",", @expected_requirement_ids);
+            if ($$claims_model_003) {
+                my @invariants = $$cfg =~ /^INVARIANT\s+([A-Za-z0-9_]+)/mg;
+                my @missing = grep { $$_ ne "TypeOK" && !$$profile_targets{$$_} } @invariants;
+                die "$$model->{catalog}: safety invariant lacks RED profile: @missing\n" if @missing;
+            }
+
+            my %executed_gates = (
+                "exact-model-registry" => 1,
+                "scenario-matrix-signature" => $$scenario_matrix_valid,
+                "all-actions-signature" => 1,
+                "all-actions-catalog-bijection" => $$action_catalog_bijection,
+                "invariant-red-bijection" => $$claims_model_003,
+            );
+            for my $$key (grep { /^\Q$$model->{id}\E\|/ } keys %observed_meta_properties) {
+                my $$gate = $$meta_properties{$$key};
+                die "$$model->{catalog}: meta property gate not executed: $$key ($$gate)\n"
+                    unless $$executed_gates{$$gate};
+            }
+        
+            $$model->{direct_unsafe_next} =
+                $$yaml =~ /profile_materialization:.*?next_replacement:.*?to:\s*UnsafeAction/s ? 1 : 0;
+            $$model->{profiles} = \@profiles;
+            $$model->{witnesses} = \@witnesses;
+            $$model->{actions} = \@model_actions;
+        }
+        
+        for my $$required (@required_requirements) {
+            die "required requirement missing: $$required\n" unless $$requirement_union{$$required};
+        }
+        for my $$key (keys %meta_properties) {
+            die "declared meta property not used: $$key\n"
+                unless $$observed_meta_properties{$$key};
+        }
+        my $$requirement_mapping_count = 0;
+        $$requirement_mapping_count += scalar(@{$$_->{expected_requirements}}) for @models;
+        print "catalog PASS models=", scalar(@models),
+            " profiles=", scalar(map { @{$$_->{profiles}} } @models),
+            " witnesses=", scalar(map { @{$$_->{witnesses}} } @models),
+            " requirement_mappings=$$requirement_mapping_count",
+            " requirements=", join(",", @required_requirements), "\n";
+        for my $$model (@models) {
+            print "input $$model->{id} tla=", file_sha256($$model->{tla}),
+                " cfg=", file_sha256($$model->{cfg}),
+                " catalog=", file_sha256($$model->{catalog}),
+                " bound=$$model->{bound} actions=", scalar(@{$$model->{actions}}), "\n";
+        }
+        exit 0 if $$mode eq "catalog";
+        
+        die "generated tmp already exists\n" if -e "tmp";
+        die "generated _apalache-out already exists\n" if -e "_apalache-out";
+        make_path("tmp", "_apalache-out/suite-logs");
+        my $$owner_pid = $$$$;
+        my $$owns_generated = 1;
+        END {
+            if ($$owns_generated && $$$$ == $$owner_pid) {
+                remove_tree("tmp", "_apalache-out");
+            }
+        }
+        
+        my @selected_models = grep { $$only eq "" || $$_->{id} eq $$only } @models;
+        die "no selected model\n" unless @selected_models;
+
+        my @jobs;
+        if ($$mode eq "normal" || $$mode eq "all") {
+            for my $$model (@selected_models) {
+                push @jobs, {
+                    phase => 1, kind => "typecheck", id => $$model->{id}, expected => 0,
+                    command => "$$apalache typecheck $$model->{tla}",
+                };
+            }
+            for my $$model (@selected_models) {
+                push @jobs, {
+                    phase => 2, kind => "normal", id => $$model->{id}, expected => 0,
+                    command => "$$apalache check --config=$$model->{cfg} --length=$$model->{bound} $$model->{tla}",
+                };
+            }
+        }
+        if ($$mode eq "profiles" || $$mode eq "all") {
+            for my $$model (@selected_models) {
+                for my $$profile (@{$$model->{profiles}}) {
+                    my $$path = "tmp/$$model->{id}-profile-$$profile->{id}.cfg";
+                    write_cfg($$model, "profile", $$profile, $$path);
+                    push @jobs, {
+                        phase => 3, kind => "profile", id => "$$model->{id}:$$profile->{id}", expected => 12,
+                        command => "$$apalache check --config=$$path --length=$$profile->{max_steps} $$model->{tla}",
+                    };
+                }
+            }
+        }
+        if ($$mode eq "witnesses" || $$mode eq "all") {
+            for my $$model (@selected_models) {
+                for my $$witness (@{$$model->{witnesses}}) {
+                    my $$path = "tmp/$$model->{id}-witness-$$witness->{id}.cfg";
+                    write_cfg($$model, "witness", $$witness, $$path);
+                    push @jobs, {
+                        phase => 4, kind => "witness", id => "$$model->{id}:$$witness->{id}", expected => 12,
+                        command => "$$apalache check --config=$$path --length=$$witness->{max_steps} $$model->{tla}",
+                    };
+                }
+            }
+        }
+        die "no checker jobs selected\n" unless @jobs;
+        
+        my @failures;
+        my @infrastructure_retries;
+        my %passed;
+        for my $$phase (1 .. 4) {
+            my @phase_jobs = grep { $$jobs[$$_]{phase} == $$phase } 0 .. $$#jobs;
+            next unless @phase_jobs;
+            print "checker phase $$phase start jobs=", scalar(@phase_jobs), "\n";
+            my %children;
+            my $$next_job = 0;
+            my @phase_retries;
+            while ($$next_job < @phase_jobs || keys %children) {
+                while ($$next_job < @phase_jobs && keys(%children) < $$workers) {
+                    my $$index = $$phase_jobs[$$next_job++];
+                    my $$pid = fork();
+                    die "fork failed: $$!\n" unless defined $$pid;
+                    if ($$pid == 0) {
+                        my $$log = "_apalache-out/suite-logs/job-$$index.log";
+                        my $$result = "tmp/job-$$index.result";
+                        my $$rc = system("$$jobs[$$index]{command} >$$log 2>&1");
+                        my $$exit_code = $$rc == -1 ? 127 : ($$rc >> 8);
+                        open my $$fh, ">", $$result or die "$$result: $$!\n";
+                        print {$$fh} "$$exit_code\n";
+                        close $$fh;
+                        CORE::exit(0);
+                    }
+                    $$children{$$pid} = $$index;
+                }
+                my $$pid;
+                do {
+                    $$pid = wait();
+                } while ($$pid >= 0 && !exists $$children{$$pid});
+                last if $$pid < 0;
+                my $$index = delete $$children{$$pid};
+                my $$result = "tmp/job-$$index.result";
+                my $$exit_code = slurp($$result);
+                chomp $$exit_code;
+                if ($$exit_code == $$jobs[$$index]{expected}) {
+                    $$passed{$$jobs[$$index]{kind}}++;
+                } else {
+                    my $$log = "_apalache-out/suite-logs/job-$$index.log";
+                    my $$log_text = slurp($$log);
+                    if ($$exit_code == 134
+                            && $$log_text =~ /A fatal error has been detected by the Java Runtime Environment/) {
+                        push @phase_retries, $$index;
+                        push @infrastructure_retries, $$index;
+                        next;
+                    }
+                    my @lines = split /\n/, $$log_text;
+                    my $$start = @lines > 20 ? @lines - 20 : 0;
+                    push @failures,
+                        "$$jobs[$$index]{kind} $$jobs[$$index]{id}: expected=$$jobs[$$index]{expected} actual=$$exit_code\n"
+                        . join("\n", @lines[$$start .. $$#lines]);
+                }
+            }
+            for my $$index (@phase_retries) {
+                my $$log = "_apalache-out/suite-logs/job-$$index-retry.log";
+                my $$rc = system("$$jobs[$$index]{command} >$$log 2>&1");
+                my $$exit_code = $$rc == -1 ? 127 : ($$rc >> 8);
+                print "infrastructure retry $$jobs[$$index]{kind} $$jobs[$$index]{id} original=134 retry=$$exit_code\n";
+                if ($$exit_code == $$jobs[$$index]{expected}) {
+                    $$passed{$$jobs[$$index]{kind}}++;
+                } else {
+                    my @lines = split /\n/, slurp($$log);
+                    my $$start = @lines > 20 ? @lines - 20 : 0;
+                    push @failures,
+                        "$$jobs[$$index]{kind} $$jobs[$$index]{id}: expected=$$jobs[$$index]{expected} retry=$$exit_code after JVM exit=134\n"
+                        . join("\n", @lines[$$start .. $$#lines]);
+                }
+            }
+            die "checker failures in phase $$phase:\n" . join("\n---\n", @failures) . "\n"
+                if @failures;
+            print "checker phase $$phase PASS\n";
+        }
+        print "checker PASS typecheck=", ($$passed{typecheck} // 0),
+            " normal=", ($$passed{normal} // 0),
+            " profiles=", ($$passed{profile} // 0),
+            " witnesses=", ($$passed{witness} // 0),
+            " workers=$$workers mode=$$mode infrastructure_retries=", scalar(@infrastructure_retries), "\n";
+        
+        PERL
