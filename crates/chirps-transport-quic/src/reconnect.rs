@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
 use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
-use tokio::time::{interval, sleep};
+use tokio::time::{Instant, interval, sleep};
 use tracing::{info, warn};
 
 use super::{
@@ -25,6 +25,7 @@ pub fn start_seed_reconnector(
     endpoint: Endpoint,
     client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: Arc<RwLock<HashMap<NodeId, Instant>>>,
     receive_handler: Arc<ReceiveHandler>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
@@ -33,6 +34,7 @@ pub fn start_seed_reconnector(
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
     handshake_config: HandshakeConfig,
+    max_connections: usize,
 ) -> mpsc::Sender<ReconnectCommand> {
     let seeds = Arc::new(seeds);
     let inflight = Arc::new(Mutex::new(HashSet::new()));
@@ -45,6 +47,7 @@ pub fn start_seed_reconnector(
         let endpoint = endpoint.clone();
         let client_config = client_config.clone();
         let connections = Arc::clone(&connections);
+        let last_activity = Arc::clone(&last_activity);
         let handler = Arc::clone(&receive_handler);
         let peer_capabilities = Arc::clone(&peer_capabilities);
         let retransmit_buffer = Arc::clone(&retransmit_buffer);
@@ -62,6 +65,7 @@ pub fn start_seed_reconnector(
                             endpoint.clone(),
                             client_config.clone(),
                             Arc::clone(&connections),
+                            Arc::clone(&last_activity),
                             Arc::clone(&handler),
                             Arc::clone(&peer_capabilities),
                             Arc::clone(&retransmit_buffer),
@@ -70,6 +74,7 @@ pub fn start_seed_reconnector(
                             local_id,
                             Arc::clone(&metrics),
                             handshake_config.clone(),
+                            max_connections,
                             Arc::clone(&inflight),
                         ).await;
                     }
@@ -79,6 +84,7 @@ pub fn start_seed_reconnector(
                             endpoint.clone(),
                             client_config.clone(),
                             Arc::clone(&connections),
+                            Arc::clone(&last_activity),
                             Arc::clone(&handler),
                             Arc::clone(&peer_capabilities),
                             Arc::clone(&retransmit_buffer),
@@ -87,6 +93,7 @@ pub fn start_seed_reconnector(
                             local_id,
                             Arc::clone(&metrics),
                             handshake_config.clone(),
+                            max_connections,
                             Arc::clone(&inflight),
                         ).await;
                     }
@@ -104,6 +111,7 @@ async fn launch_attempts(
     endpoint: Endpoint,
     client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: Arc<RwLock<HashMap<NodeId, Instant>>>,
     receive_handler: Arc<ReceiveHandler>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
@@ -112,6 +120,7 @@ async fn launch_attempts(
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
     handshake_config: HandshakeConfig,
+    max_connections: usize,
     inflight: Arc<Mutex<HashSet<SocketAddr>>>,
 ) {
     for seed in seeds.iter().copied() {
@@ -130,6 +139,7 @@ async fn launch_attempts(
             endpoint.clone(),
             client_config.clone(),
             Arc::clone(&connections),
+            Arc::clone(&last_activity),
             Arc::clone(&receive_handler),
             Arc::clone(&peer_capabilities),
             Arc::clone(&retransmit_buffer),
@@ -138,6 +148,7 @@ async fn launch_attempts(
             local_id,
             Arc::clone(&metrics),
             handshake_config.clone(),
+            max_connections,
             Arc::clone(&inflight),
         ));
     }
@@ -148,6 +159,7 @@ async fn reconnect_seed(
     endpoint: Endpoint,
     client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: Arc<RwLock<HashMap<NodeId, Instant>>>,
     receive_handler: Arc<ReceiveHandler>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
@@ -156,6 +168,7 @@ async fn reconnect_seed(
     local_id: NodeId,
     metrics: Arc<TransportCounters>,
     handshake_config: HandshakeConfig,
+    max_connections: usize,
     inflight: Arc<Mutex<HashSet<SocketAddr>>>,
 ) {
     let mut shutdown_rx = shutdown.subscribe();
@@ -177,6 +190,7 @@ async fn reconnect_seed(
                 Ok(connection) => {
                     info!("connected to seed {seed}");
                     let connections = Arc::clone(&connections);
+                    let last_activity = Arc::clone(&last_activity);
                     let handler = Arc::clone(&receive_handler);
                     let peer_capabilities = Arc::clone(&peer_capabilities);
                     let retransmit_buffer = Arc::clone(&retransmit_buffer);
@@ -188,6 +202,7 @@ async fn reconnect_seed(
                         connection,
                         local_id,
                         connections,
+                        last_activity,
                         peer_capabilities,
                         handler,
                         retransmit_buffer,
@@ -195,6 +210,7 @@ async fn reconnect_seed(
                         metrics,
                         &mut handler_shutdown,
                         hs_cfg,
+                        max_connections,
                     )
                     .await
                     {

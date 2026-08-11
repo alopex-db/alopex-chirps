@@ -13,7 +13,9 @@ use alopex_chirps_file_transfer::{
     FileTransferService, FileTransferServiceImpl, HashAlgorithm, IntegrityVerifier,
     TransferOptions,
 };
-use alopex_chirps_transport_quic::{LogFormat, QuicBackend, TelemetryConfig, init_tracing};
+use alopex_chirps_transport_quic::{
+    LogFormat, QuicBackend, TelemetryConfig, TransportConfigV04, init_tracing,
+};
 use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
@@ -31,9 +33,6 @@ use tokio::sync::Mutex;
 use tokio::time::{Instant, sleep, timeout};
 
 const SERVER_NAME: &str = "alopex.local";
-const STREAM_WINDOW_BYTES: u32 = 16 * 1024 * 1024;
-const CONNECTION_WINDOW_BYTES: u32 = 64 * 1024 * 1024;
-const MAX_UNI_STREAMS: u32 = 256;
 
 type DynError = Box<dyn Error + Send + Sync>;
 
@@ -275,13 +274,9 @@ fn parse_arguments() -> Result<Arguments, DynError> {
 }
 
 fn performance_transport() -> Arc<TransportConfig> {
-    let mut transport = TransportConfig::default();
-    transport
-        .stream_receive_window(STREAM_WINDOW_BYTES.into())
-        .receive_window(CONNECTION_WINDOW_BYTES.into())
-        .send_window(CONNECTION_WINDOW_BYTES as u64)
-        .max_concurrent_uni_streams(MAX_UNI_STREAMS.into());
-    Arc::new(transport)
+    TransportConfigV04::file_transfer_performance()
+        .to_quinn_transport_config()
+        .expect("valid File Transfer performance profile")
 }
 
 fn data_tls_config(

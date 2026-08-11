@@ -1,6 +1,37 @@
 # Chirps リリースノート
 
-## [0.5.2] - 2026-08-02
+## [0.6.2] - 2026-08-11
+
+### 追加・変更
+
+- production QUIC 経路へ flow-control window、unidirectional stream 数、idle timeout、keep-alive の設定を接続し、接続数上限と idle 接続退避を追加した。
+- File Transfer の 16 MiB / 64 MiB / 256 streams 性能プロファイルを製品設定へ移し、bench・example・integration test で共有するようにした。
+- QUIC の接続数、処理中 stream 数、再送バッファ使用量、接続拒否、idle 退避を Prometheus で観測できるようにした。
+
+## [0.6.1] - 2026-08-10
+
+### 修正
+
+- v0.6.0 の patch release として、feature 組み合わせの compile gate と代表デモの再実行経路を整備した。
+
+## [0.6.0] - 2026-08-09
+
+### 追加
+
+- Multi-Raft: `MultiRaftManager` と `RaftStorageFactory` を追加し、group ごとの storage 隔離、routing、tick を実装した。`GroupHandle` は group あたり 8 proposal の backpressure gate を持つ。
+- Raft TSO: `TimestampOracle` と `TsoClient` を追加した。leader handoff と clock rollback を含む単調性を検証している。
+- Gossip HLC: `HybridTimestamp` と `HlcGossip` を SWIM / Gossip message へ統合し、per-peer の因果順序と重複排除、clock skew の拒否を実装した。
+- Raft snapshot 転送: chunk 単位の再送、並列度の上限、atomic install を実装した。
+- Prometheus metrics API: 共有 registry、認証付き endpoint、Grafana dashboard (`docs/observability/grafana/chirps-v0.6.json`) を追加した。
+- `MeshHandle::file_transfer(config)`: 公開 API から File Transfer service を構築できるようにした（v0.5.2 から繰り越し）。
+- 決定的ネットワーク障害ハーネス: seed 展開、fresh replay、失敗の最小化に対応した `chirps-deterministic-harness` を追加した。
+- v0.7 Durable の前方互換契約: profile-aware routing、capability / error、Durable envelope の予約、fallback 禁止を契約テストで固定した。Iggy 永続化の実装は v0.7。
+
+### 変更
+
+- `alopex-core` を path 依存から crates.io 公開版 (`0.3`) へ移行し、registry-only fixture で検証するようにした。
+
+## [0.5.2] - 2026-08-11
 
 ### 修正
 

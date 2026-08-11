@@ -10,6 +10,7 @@ use alopex_chirps_file_transfer::{
     TransferMode, TransferOptions, TransferSessionId,
 };
 use alopex_chirps_mock::{MockBackend, MockNetwork};
+use alopex_chirps_transport_quic::TransportConfigV04;
 use alopex_chirps_wire::file_transfer::{
     CancelRequest, FileTransferFrame, FileTransferMessage, ManifestAck, TransferResponse,
 };
@@ -36,9 +37,12 @@ const SERVER_NAME: &str = "localhost";
 // The Quinn 0.10 defaults are tuned for a 100 Mbps / 100 ms path.  The
 // release performance gate is explicitly a 1 Gbps profile, so its test
 // endpoint must advertise enough flow-control credit for that contract.
-const PERFORMANCE_STREAM_WINDOW_BYTES: u32 = 16 * 1024 * 1024;
-const PERFORMANCE_CONNECTION_WINDOW_BYTES: u32 = 64 * 1024 * 1024;
-const PERFORMANCE_MAX_UNI_STREAMS: u32 = 256;
+const PERFORMANCE_STREAM_WINDOW_BYTES: u64 =
+    alopex_chirps_transport_quic::FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES;
+const PERFORMANCE_CONNECTION_WINDOW_BYTES: u64 =
+    alopex_chirps_transport_quic::FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES;
+const PERFORMANCE_MAX_UNI_STREAMS: u32 =
+    alopex_chirps_transport_quic::FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS;
 
 fn build_tls_configs(transport: Option<Arc<TransportConfig>>) -> (ServerConfig, ClientConfig) {
     let cert = generate_simple_self_signed([SERVER_NAME.to_string()]).expect("cert");
@@ -62,13 +66,14 @@ fn build_tls_configs(transport: Option<Arc<TransportConfig>>) -> (ServerConfig, 
 }
 
 fn performance_transport_config() -> Arc<TransportConfig> {
-    let mut transport = TransportConfig::default();
-    transport
-        .stream_receive_window(PERFORMANCE_STREAM_WINDOW_BYTES.into())
-        .receive_window(PERFORMANCE_CONNECTION_WINDOW_BYTES.into())
-        .send_window(PERFORMANCE_CONNECTION_WINDOW_BYTES as u64)
-        .max_concurrent_uni_streams(PERFORMANCE_MAX_UNI_STREAMS.into());
-    Arc::new(transport)
+    let profile = TransportConfigV04::file_transfer_performance();
+    assert_eq!(
+        profile.max_concurrent_uni_streams,
+        PERFORMANCE_MAX_UNI_STREAMS
+    );
+    profile
+        .to_quinn_transport_config()
+        .expect("valid File Transfer performance profile")
 }
 
 struct TestChunkNetwork {
