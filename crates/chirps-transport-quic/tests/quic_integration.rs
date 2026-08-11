@@ -2,7 +2,7 @@
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
 use alopex_chirps_core::error::TransportError;
-use alopex_chirps_transport_quic::{QuicBackend, init_test_tracing};
+use alopex_chirps_transport_quic::{QuicBackend, TransportConfigV04, init_test_tracing};
 use alopex_chirps_wire::file_transfer::{
     CancelRequest, FileTransferFrame, FileTransferMessage, TransferSessionId,
 };
@@ -30,10 +30,18 @@ struct TestTls {
 
 impl TestTls {
     fn two_nodes() -> Self {
+        Self::nodes(2)
+    }
+
+    fn three_nodes() -> Self {
+        Self::nodes(3)
+    }
+
+    fn nodes(count: usize) -> Self {
         let dir = TempDir::new().expect("temporary certificate directory");
-        let mut cert_paths = Vec::with_capacity(2);
-        let mut key_paths = Vec::with_capacity(2);
-        for index in 0..2 {
+        let mut cert_paths = Vec::with_capacity(count);
+        let mut key_paths = Vec::with_capacity(count);
+        for index in 0..count {
             let cert = generate_simple_self_signed(["alopex.local".to_string()])
                 .expect("self-signed test certificate");
             let cert_path = dir.path().join(format!("node-{index}.crt"));
@@ -68,6 +76,18 @@ impl TestTls {
     }
 }
 
+fn tuned_transport_config(
+    max_connections: usize,
+    max_concurrent_uni_streams: u32,
+) -> TransportConfigV04 {
+    TransportConfigV04 {
+        max_connections,
+        max_concurrent_uni_streams,
+        max_idle_timeout: Duration::from_secs(5),
+        ..Default::default()
+    }
+}
+
 async fn wait_for_connected(backend: &QuicBackend, expected: usize) {
     wait_for_connected_with_timeout(backend, expected, Duration::from_secs(3)).await;
 }
@@ -87,6 +107,77 @@ async fn wait_for_connected_with_timeout(
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
+async fn production_transport_limits_reach_quinn_and_bound_connections() -> anyhow::Result<()> {
+    let tls = TestTls::three_nodes();
+    let addr_a = free_addr()?;
+    let addr_b = free_addr()?;
+    let addr_c = free_addr()?;
+    let node_a = NodeId::new();
+    let node_b = NodeId::new();
+    let node_c = NodeId::new();
+
+    let mut limited_transport = tuned_transport_config(1, 1);
+    limited_transport.max_idle_timeout = Duration::from_secs(3);
+    let backend_a =
+        QuicBackend::new_with_config(node_a, tls.config(0, addr_a, vec![]), limited_transport)
+            .await?;
+    let backend_b = QuicBackend::new_with_config(
+        node_b,
+        tls.config(1, addr_b, vec![addr_a]),
+        tuned_transport_config(4, 1),
+    )
+    .await?;
+    let backend_c = QuicBackend::new_with_config(
+        node_c,
+        tls.config(2, addr_c, vec![addr_a]),
+        tuned_transport_config(4, 1),
+    )
+    .await?;
+
+    wait_for_connected_with_timeout(&backend_a, 1, Duration::from_secs(5)).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while backend_a.metrics().connection_rejections == 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(backend_a.connected_peers().len(), 1);
+    assert!(backend_a.metrics().connection_rejections > 0);
+
+    let retained_peer = backend_a.connected_peers()[0].0;
+    let first_stream = if retained_peer == node_b {
+        backend_a.open_file_transfer_stream(node_b).await?
+    } else {
+        backend_a.open_file_transfer_stream(node_c).await?
+    };
+    let second = tokio::time::timeout(
+        Duration::from_millis(250),
+        if retained_peer == node_b {
+            backend_a.open_file_transfer_stream(node_b)
+        } else {
+            backend_a.open_file_transfer_stream(node_c)
+        },
+    )
+    .await;
+    assert!(
+        second.is_err(),
+        "second uni stream should wait at Quinn limit"
+    );
+    drop(first_stream);
+
+    let idle_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while backend_a.metrics().idle_evictions == 0 && tokio::time::Instant::now() < idle_deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(backend_a.metrics().idle_evictions > 0);
+    assert!(backend_a.connected_peers().len() <= 1);
+
+    backend_a.close().await?;
+    backend_b.close().await?;
+    backend_c.close().await?;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -18,7 +18,7 @@ use alopex_chirps_wire::{envelope::FrameEnvelopeV2, frame::Frame};
 use async_trait::async_trait;
 use bincode::{deserialize, serialize, serialized_size};
 use quinn::{
-    ClientConfig, Connection, Endpoint, RecvStream, ServerConfig,
+    ClientConfig, Connection, Endpoint, RecvStream, ServerConfig, VarInt,
     crypto::rustls::{QuicClientConfig, QuicServerConfig},
 };
 use rcgen::generate_simple_self_signed;
@@ -51,8 +51,10 @@ mod retransmit;
 mod telemetry;
 
 pub use config::{
-    BandwidthConfig, HandshakeConfig, PriorityConfig, QosConfig, QueueLimits, RetransmitConfig,
-    TransportConfigV04,
+    BandwidthConfig, DEFAULT_MAX_CONNECTIONS, FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES,
+    FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS, FILE_TRANSFER_SEND_WINDOW_BYTES,
+    FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES, HandshakeConfig, PriorityConfig, QosConfig,
+    QueueLimits, RetransmitConfig, TransportConfigV04,
 };
 pub use events::{TransportEvent, emit_event};
 pub use handshake::{
@@ -66,6 +68,7 @@ use receive::RAFT_BATCH_STREAM_MAGIC;
 pub use receive::ReceiveHandler;
 use reconnect::{ReconnectCommand, start_seed_reconnector};
 pub use retransmit::{BufferError, BufferStats, BufferedMessage, RetransmissionBuffer};
+use telemetry::ensure_metrics_recorder;
 pub use telemetry::{LogFormat, TelemetryConfig, init_metrics, init_test_tracing, init_tracing};
 
 const DEFAULT_SERVER_NAME: &str = "alopex.local";
@@ -151,6 +154,11 @@ struct TransportCounters {
     concurrent_sends: AtomicU64,
     max_concurrent_sends: AtomicU64,
     streams_opened: AtomicU64,
+    active_connections: AtomicU64,
+    active_streams: AtomicU64,
+    max_active_streams: AtomicU64,
+    connection_rejections: AtomicU64,
+    idle_evictions: AtomicU64,
 }
 
 struct BatchStream {
@@ -170,6 +178,16 @@ pub struct TransportMetricsSnapshot {
     pub max_concurrent_sends: u64,
     /// Number of Raft data streams opened (not envelope count).
     pub streams_opened: u64,
+    /// Number of established peer connections currently retained.
+    pub active_connections: u64,
+    /// Number of incoming streams currently being processed.
+    pub active_streams: u64,
+    /// High-water mark of concurrently processed incoming streams.
+    pub max_active_streams: u64,
+    /// New peer connections rejected because the configured limit was reached.
+    pub connection_rejections: u64,
+    /// Connections explicitly evicted after reaching the idle timeout.
+    pub idle_evictions: u64,
 }
 
 struct SendConcurrencyGuard {
@@ -191,6 +209,50 @@ impl Drop for SendConcurrencyGuard {
         self.metrics
             .concurrent_sends
             .fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl TransportCounters {
+    fn set_active_connections(&self, value: u64) {
+        self.active_connections.store(value, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        ::metrics::gauge!("chirps_quic_connections_active").set(value as f64);
+    }
+
+    fn record_connection_rejection(&self) {
+        self.connection_rejections.fetch_add(1, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        ::metrics::counter!("chirps_quic_connection_rejections_total").increment(1);
+    }
+
+    fn record_idle_eviction(&self) {
+        self.idle_evictions.fetch_add(1, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        ::metrics::counter!("chirps_quic_idle_evictions_total").increment(1);
+    }
+}
+
+struct ActiveStreamGuard {
+    metrics: Arc<TransportCounters>,
+}
+
+impl ActiveStreamGuard {
+    fn enter(metrics: Arc<TransportCounters>) -> Self {
+        let active = metrics.active_streams.fetch_add(1, Ordering::Relaxed) + 1;
+        metrics
+            .max_active_streams
+            .fetch_max(active, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        ::metrics::gauge!("chirps_quic_streams_active").set(active as f64);
+        Self { metrics }
+    }
+}
+
+impl Drop for ActiveStreamGuard {
+    fn drop(&mut self) {
+        let active = self.metrics.active_streams.fetch_sub(1, Ordering::Relaxed) - 1;
+        ensure_metrics_recorder();
+        ::metrics::gauge!("chirps_quic_streams_active").set(active as f64);
     }
 }
 
@@ -221,6 +283,7 @@ pub struct QuicBackend {
     node_id: NodeId,
     endpoint: Endpoint,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: Arc<RwLock<HashMap<NodeId, Instant>>>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     #[allow(dead_code)]
     incoming_tx: mpsc::Sender<(NodeId, Frame)>,
@@ -238,6 +301,7 @@ pub struct QuicBackend {
     metrics_ext: Arc<ExtendedTransportMetrics>,
     receive_handler: Arc<ReceiveHandler>,
     handshake_config: HandshakeConfig,
+    max_connections: usize,
 }
 
 impl QuicBackend {
@@ -263,7 +327,9 @@ impl QuicBackend {
         if transport_config.raft_stream_batch_size == 0 {
             anyhow::bail!("raft_stream_batch_size must be greater than zero");
         }
-        let (server_config, client_config) = build_tls_configs(&config)?;
+        let quinn_transport_config = transport_config.to_quinn_transport_config()?;
+        let (server_config, client_config) =
+            build_tls_configs(&config, Arc::clone(&quinn_transport_config))?;
         let mut endpoint = Endpoint::server(server_config, config.bind_addr)?;
         endpoint.set_default_client_config(client_config.clone());
 
@@ -273,8 +339,12 @@ impl QuicBackend {
         let send_slots = Arc::new(Semaphore::new(transport_config.send_queue_capacity));
         let (shutdown, _) = broadcast::channel(4);
         let connections = Arc::new(RwLock::new(HashMap::new()));
+        let last_activity = Arc::new(RwLock::new(HashMap::new()));
         let peer_capabilities = Arc::new(RwLock::new(HashMap::new()));
         let metrics = Arc::new(TransportCounters::default());
+        ensure_metrics_recorder();
+        ::metrics::gauge!("chirps_quic_connections_limit")
+            .set(transport_config.max_connections as f64);
         let metrics_ext = Arc::new(ExtendedTransportMetrics::new_with_enabled(
             transport_config.diagnostics_enabled,
         ));
@@ -293,6 +363,7 @@ impl QuicBackend {
             endpoint.clone(),
             client_config.clone(),
             Arc::clone(&connections),
+            Arc::clone(&last_activity),
             Arc::clone(&receive_handler),
             Arc::clone(&peer_capabilities),
             Arc::clone(&retransmit_buffer),
@@ -301,11 +372,13 @@ impl QuicBackend {
             node_id,
             Arc::clone(&metrics),
             transport_config.handshake.clone(),
+            transport_config.max_connections,
         );
         let backend = QuicBackend {
             node_id,
             endpoint: endpoint.clone(),
             connections,
+            last_activity,
             peer_capabilities,
             incoming_tx,
             incoming_rx: Arc::new(Mutex::new(Some(incoming_rx))),
@@ -322,11 +395,13 @@ impl QuicBackend {
             metrics_ext: Arc::clone(&metrics_ext),
             receive_handler: Arc::clone(&receive_handler),
             handshake_config: transport_config.handshake.clone(),
+            max_connections: transport_config.max_connections,
         };
 
         backend.spawn_accept_loop();
         spawn_send_loop(
             Arc::clone(&backend.connections),
+            Arc::clone(&backend.last_activity),
             Arc::clone(&backend.peer_capabilities),
             Arc::clone(&metrics),
             Arc::clone(&backend.retransmit_buffer),
@@ -341,6 +416,14 @@ impl QuicBackend {
             transport_config.raft_stream_batch_size,
             transport_config.priority.clone(),
         );
+        spawn_idle_eviction_loop(
+            Arc::clone(&backend.connections),
+            Arc::clone(&backend.last_activity),
+            Arc::clone(&backend.peer_capabilities),
+            Arc::clone(&backend.metrics),
+            backend.shutdown.clone(),
+            transport_config.max_idle_timeout,
+        );
         let _ = backend.reconnect_tx.try_send(ReconnectCommand::Trigger);
 
         Ok(backend)
@@ -349,6 +432,7 @@ impl QuicBackend {
     fn spawn_accept_loop(&self) {
         let endpoint = self.endpoint.clone();
         let connections = Arc::clone(&self.connections);
+        let last_activity = Arc::clone(&self.last_activity);
         let peer_capabilities = Arc::clone(&self.peer_capabilities);
         let receive_handler = Arc::clone(&self.receive_handler);
         let retransmit_buffer = Arc::clone(&self.retransmit_buffer);
@@ -357,6 +441,7 @@ impl QuicBackend {
         let local_id = self.node_id;
         let metrics = Arc::clone(&self.metrics);
         let handshake_config = self.handshake_config.clone();
+        let max_connections = self.max_connections;
 
         tokio::spawn(async move {
             loop {
@@ -368,6 +453,7 @@ impl QuicBackend {
                                 match connecting.await {
                                     Ok(connection) => {
                                         let connections = Arc::clone(&connections);
+                                        let last_activity = Arc::clone(&last_activity);
                                         let handler = Arc::clone(&receive_handler);
                                         let peer_caps = Arc::clone(&peer_capabilities);
                                         let rt_buf = Arc::clone(&retransmit_buffer);
@@ -375,11 +461,13 @@ impl QuicBackend {
                                         let mut shutdown_rx = shutdown_rx.resubscribe();
                                         let metrics = Arc::clone(&metrics);
                                         let hs_cfg = handshake_config.clone();
+                                        let max_connections = max_connections;
                                         tokio::spawn(async move {
                                             if let Err(err) = handle_connection(
                                                 connection,
                                                 local_id,
                                                 connections,
+                                                last_activity,
                                                 peer_caps,
                                                 handler,
                                                 rt_buf,
@@ -387,6 +475,7 @@ impl QuicBackend {
                                                 metrics,
                                                 &mut shutdown_rx,
                                                 hs_cfg,
+                                                max_connections,
                                             )
                                             .await
                                             {
@@ -423,6 +512,11 @@ impl QuicBackend {
             concurrent_sends: self.metrics.concurrent_sends.load(Ordering::Relaxed),
             max_concurrent_sends: self.metrics.max_concurrent_sends.load(Ordering::Relaxed),
             streams_opened: self.metrics.streams_opened.load(Ordering::Relaxed),
+            active_connections: self.metrics.active_connections.load(Ordering::Relaxed),
+            active_streams: self.metrics.active_streams.load(Ordering::Relaxed),
+            max_active_streams: self.metrics.max_active_streams.load(Ordering::Relaxed),
+            connection_rejections: self.metrics.connection_rejections.load(Ordering::Relaxed),
+            idle_evictions: self.metrics.idle_evictions.load(Ordering::Relaxed),
         }
     }
 
@@ -448,6 +542,10 @@ impl QuicBackend {
             .ok_or_else(|| {
                 TransportError::Connection(format!("peer {target:?} is not connected"))
             })?;
+        self.last_activity
+            .write()
+            .await
+            .insert(target, Instant::now());
         connection
             .open_uni()
             .await
@@ -540,6 +638,7 @@ async fn handle_connection(
     connection: Connection,
     local_id: NodeId,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: Arc<RwLock<HashMap<NodeId, Instant>>>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     receive_handler: Arc<ReceiveHandler>,
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
@@ -547,6 +646,7 @@ async fn handle_connection(
     metrics: Arc<TransportCounters>,
     shutdown_rx: &mut broadcast::Receiver<()>,
     handshake_config: HandshakeConfig,
+    max_connections: usize,
 ) -> Result<(), TransportError> {
     let local_msg = HandshakeMessage::new(local_id);
     time::timeout(
@@ -589,10 +689,31 @@ async fn handle_connection(
     let remote_id = remote_msg.node_id;
     let peer_label = format!("{remote_id:?}");
 
-    connections
+    let (is_new_connection, connection_count) = {
+        let mut map = connections.write().await;
+        let is_new = !map.contains_key(&remote_id);
+        if connection_limit_reached(map.len(), is_new, max_connections) {
+            metrics.record_connection_rejection();
+            connection.close(VarInt::from_u32(1), b"chirps connection limit");
+            return Err(TransportError::Connection(
+                "maximum established connections reached".into(),
+            ));
+        }
+        if let Some(previous) = map.get(&remote_id)
+            && previous.stable_id() != connection.stable_id()
+        {
+            previous.close(VarInt::from_u32(2), b"replaced by newer connection");
+        }
+        map.insert(remote_id, connection.clone());
+        (is_new, map.len())
+    };
+    last_activity
         .write()
         .await
-        .insert(remote_id, connection.clone());
+        .insert(remote_id, Instant::now());
+    if is_new_connection {
+        metrics.set_active_connections(connection_count as u64);
+    }
     peer_capabilities
         .write()
         .await
@@ -661,15 +782,28 @@ async fn handle_connection(
                     reason: "shutdown".into(),
                     buffered_messages: buffered,
                 });
-                connections.write().await.remove(&remote_id);
+                remove_connection_if_current(
+                    &connections,
+                    &last_activity,
+                    &peer_capabilities,
+                    &metrics,
+                    remote_id,
+                    connection.stable_id(),
+                )
+                .await;
                 info!(peer = ?remote_id, "connection closed");
                 break;
             }
             next = connection.accept_uni() => match next {
                 Ok(recv) => {
+                    last_activity
+                        .write()
+                        .await
+                        .insert(remote_id, Instant::now());
                     let handler = Arc::clone(&receive_handler);
                     let metrics = Arc::clone(&metrics);
                     tokio::spawn(async move {
+                        let _active_stream = ActiveStreamGuard::enter(Arc::clone(&metrics));
                         match handler.handle_stream(remote_id, recv).await {
                             Ok(_) => {
                                 metrics.received.fetch_add(1, Ordering::Relaxed);
@@ -682,7 +816,18 @@ async fn handle_connection(
                 }
                 Err(err) => {
                     let buffered = retransmit_buffer.read().await.stats(remote_id).buffered_count;
-                    connections.write().await.remove(&remote_id);
+                    let removed = remove_connection_if_current(
+                        &connections,
+                        &last_activity,
+                        &peer_capabilities,
+                        &metrics,
+                        remote_id,
+                        connection.stable_id(),
+                    )
+                    .await;
+                    if removed && err.to_string().contains("timed out") {
+                        metrics.record_idle_eviction();
+                    }
                     emit_event(TransportEvent::PeerDisconnected {
                         node_id: peer_label.clone(),
                         reason: err.to_string(),
@@ -695,6 +840,90 @@ async fn handle_connection(
     }
 
     Ok(())
+}
+
+async fn remove_connection_if_current(
+    connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: &Arc<RwLock<HashMap<NodeId, Instant>>>,
+    peer_capabilities: &Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    metrics: &Arc<TransportCounters>,
+    remote_id: NodeId,
+    stable_id: usize,
+) -> bool {
+    let removed = {
+        let mut map = connections.write().await;
+        if map
+            .get(&remote_id)
+            .is_some_and(|current| current.stable_id() == stable_id)
+        {
+            map.remove(&remote_id);
+            Some(map.len())
+        } else {
+            None
+        }
+    };
+    if let Some(count) = removed {
+        last_activity.write().await.remove(&remote_id);
+        peer_capabilities.write().await.remove(&remote_id);
+        metrics.set_active_connections(count as u64);
+        true
+    } else {
+        false
+    }
+}
+
+fn spawn_idle_eviction_loop(
+    connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: Arc<RwLock<HashMap<NodeId, Instant>>>,
+    peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    metrics: Arc<TransportCounters>,
+    shutdown: broadcast::Sender<()>,
+    idle_timeout: Duration,
+) {
+    let interval = Duration::from_millis((idle_timeout.as_millis() / 2).clamp(1, 1_000) as u64);
+    tokio::spawn(async move {
+        let mut ticker = time::interval(interval);
+        let mut shutdown_rx = shutdown.subscribe();
+        loop {
+            select! {
+                _ = shutdown_rx.recv() => break,
+                _ = ticker.tick() => {
+                    let now = Instant::now();
+                    let stale = {
+                        let activities = last_activity.read().await;
+                        activities.iter()
+                            .filter(|(_, last)| is_idle_expired(now, **last, idle_timeout))
+                            .map(|(id, _)| *id)
+                            .collect::<Vec<_>>()
+                    };
+                    for remote_id in stale {
+                        let Some(connection) = connections.read().await.get(&remote_id).cloned() else {
+                            continue;
+                        };
+                        if remove_connection_if_current(
+                            &connections,
+                            &last_activity,
+                            &peer_capabilities,
+                            &metrics,
+                            remote_id,
+                            connection.stable_id(),
+                        ).await {
+                            connection.close(VarInt::from_u32(3), b"chirps idle timeout");
+                            metrics.record_idle_eviction();
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn connection_limit_reached(current: usize, is_new_peer: bool, limit: usize) -> bool {
+    is_new_peer && current >= limit
+}
+
+fn is_idle_expired(now: Instant, last_activity: Instant, timeout: Duration) -> bool {
+    now.duration_since(last_activity) >= timeout
 }
 
 async fn send_handshake(
@@ -941,6 +1170,7 @@ fn map_queue_error(err: mpsc::error::TrySendError<SendCommand>) -> TransportErro
 
 fn spawn_send_loop(
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: Arc<RwLock<HashMap<NodeId, Instant>>>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     metrics: Arc<TransportCounters>,
     retransmit_buffer: Arc<RwLock<RetransmissionBuffer>>,
@@ -966,6 +1196,7 @@ fn spawn_send_loop(
                 && let Some(command) = scheduler.dequeue()
             {
                 let connections = Arc::clone(&connections);
+                let last_activity = Arc::clone(&last_activity);
                 let peer_capabilities = Arc::clone(&peer_capabilities);
                 let metrics = Arc::clone(&metrics);
                 let retransmit_buffer = Arc::clone(&retransmit_buffer);
@@ -983,6 +1214,7 @@ fn spawn_send_loop(
                         } => {
                             let send_res = send_with_retry(
                                 &connections,
+                                &last_activity,
                                 &peer_capabilities,
                                 &metrics,
                                 &retransmit_buffer,
@@ -1004,6 +1236,7 @@ fn spawn_send_loop(
                         } => {
                             let send_res = broadcast_with_retry(
                                 &connections,
+                                &last_activity,
                                 &peer_capabilities,
                                 &metrics,
                                 &retransmit_buffer,
@@ -1078,6 +1311,7 @@ fn enqueue_send_command(
 
 async fn send_with_retry(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: &Arc<RwLock<HashMap<NodeId, Instant>>>,
     peer_capabilities: &Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     metrics: &Arc<TransportCounters>,
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
@@ -1098,6 +1332,7 @@ async fn send_with_retry(
             timeout,
             send_to_peer(
                 connections,
+                last_activity,
                 peer_capabilities,
                 metrics,
                 retransmit_buffer,
@@ -1135,6 +1370,7 @@ async fn send_with_retry(
 
 async fn broadcast_with_retry(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: &Arc<RwLock<HashMap<NodeId, Instant>>>,
     peer_capabilities: &Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     metrics: &Arc<TransportCounters>,
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
@@ -1154,6 +1390,7 @@ async fn broadcast_with_retry(
             timeout,
             broadcast_to_peers(
                 connections,
+                last_activity,
                 peer_capabilities,
                 metrics,
                 retransmit_buffer,
@@ -1212,6 +1449,7 @@ fn ensure_capabilities(
 
 async fn send_to_peer(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: &Arc<RwLock<HashMap<NodeId, Instant>>>,
     peer_capabilities: &Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     metrics: &Arc<TransportCounters>,
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
@@ -1230,6 +1468,7 @@ async fn send_to_peer(
             .cloned()
             .ok_or_else(|| TransportError::Connection(format!("peer {target:?} not connected")))?
     };
+    last_activity.write().await.insert(target, Instant::now());
     let kind = stream_kind_for_frame(&frame);
     let caps = {
         let map = peer_capabilities.read().await;
@@ -1243,14 +1482,16 @@ async fn send_to_peer(
         .map_err(|_| TransportError::Send("frame exceeds u32 payload length".into()))?;
     let seq = {
         let mut buf = retransmit_buffer.write().await;
-        match buf.buffer_with_size(target, frame.clone(), frame_body.len()) {
+        let seq = match buf.buffer_with_size(target, frame.clone(), frame_body.len()) {
             Ok(seq) => seq,
             Err(e) => {
                 return Err(TransportError::Send(format!(
                     "retransmit buffer error: {e:?}"
                 )));
             }
-        }
+        };
+        metrics_ext.update_buffer_bytes(buf.total_buffered_bytes() as u64);
+        seq
     };
     let ack_seq = receive_handler.get_ack_seq_for_peer(target).await;
     let envelope = alopex_chirps_wire::envelope::FrameEnvelopeV2::new(
@@ -1286,6 +1527,7 @@ async fn send_to_peer(
 
 async fn broadcast_to_peers(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: &Arc<RwLock<HashMap<NodeId, Instant>>>,
     peer_capabilities: &Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     metrics: &Arc<TransportCounters>,
     retransmit_buffer: &Arc<RwLock<RetransmissionBuffer>>,
@@ -1305,6 +1547,7 @@ async fn broadcast_to_peers(
     for (peer_id, _conn) in peers {
         if let Err(err) = send_to_peer(
             connections,
+            last_activity,
             peer_capabilities,
             metrics,
             retransmit_buffer,
@@ -1327,7 +1570,10 @@ async fn broadcast_to_peers(
     Ok(sent)
 }
 
-fn build_tls_configs(config: &NodeConfig) -> anyhow::Result<(ServerConfig, ClientConfig)> {
+fn build_tls_configs(
+    config: &NodeConfig,
+    transport_config: Arc<quinn::TransportConfig>,
+) -> anyhow::Result<(ServerConfig, ClientConfig)> {
     // Workspace-wide feature resolution can enable more than one rustls
     // crypto provider, which makes automatic process-level selection panic.
     // Chirps pins this transport to ring, so select it explicitly. Repeated
@@ -1349,8 +1595,9 @@ fn build_tls_configs(config: &NodeConfig) -> anyhow::Result<(ServerConfig, Clien
         .with_no_client_auth()
         .with_single_cert(cert_chain, priv_key)?;
     server_crypto.alpn_protocols = vec![b"alopex".to_vec()];
-    let server_config =
+    let mut server_config =
         ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
+    server_config.transport_config(Arc::clone(&transport_config));
 
     let mut roots = RootCertStore::empty();
     roots
@@ -1368,6 +1615,33 @@ fn build_tls_configs(config: &NodeConfig) -> anyhow::Result<(ServerConfig, Clien
         .with_no_client_auth();
     client_crypto.alpn_protocols = vec![b"alopex".to_vec()];
 
-    let client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
+    let mut client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
+    client_config.transport_config(transport_config);
     Ok((server_config, client_config))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{connection_limit_reached, is_idle_expired};
+    use std::time::Duration;
+    use tokio::time::Instant;
+
+    #[test]
+    fn connection_limit_rejects_only_new_peers_at_capacity() {
+        assert!(connection_limit_reached(1, true, 1));
+        assert!(!connection_limit_reached(1, false, 1));
+        assert!(!connection_limit_reached(0, true, 1));
+    }
+
+    #[test]
+    fn idle_eviction_boundary_is_inclusive() {
+        let last = Instant::now();
+        let timeout = Duration::from_secs(30);
+        assert!(!is_idle_expired(
+            last + Duration::from_secs(29),
+            last,
+            timeout
+        ));
+        assert!(is_idle_expired(last + timeout, last, timeout));
+    }
 }

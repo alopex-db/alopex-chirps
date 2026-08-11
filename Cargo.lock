@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-file-transfer",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-core"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps-wire",
  "async-trait",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-file-transfer"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-mock",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-gossip-swim"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps-wire",
  "async-trait",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-mock"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-wire",
@@ -123,7 +123,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-raft-storage"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-core",
  "anyhow",
@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-transport-quic"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps-core",
  "alopex-chirps-wire",
@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "alopex-chirps-wire"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "bincode",
  "serde",
@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "chirps-deterministic-harness"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps",
  "alopex-chirps-core",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "chirps-e2e"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps",
  "alopex-chirps-gossip-swim",
@@ -531,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "chirps-multi-raft-perf"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps",
  "alopex-chirps-core",
@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "chirps-v06-demo"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alopex-chirps",
  "alopex-chirps-core",

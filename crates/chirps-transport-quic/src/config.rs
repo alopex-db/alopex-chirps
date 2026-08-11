@@ -1,8 +1,34 @@
+use std::sync::Arc;
 use std::time::Duration;
+
+/// Flow-control values used by the v0.5.2 File Transfer performance profile.
+///
+/// Quinn's defaults target a 100 Mbps / 100 ms path.  The release profile was
+/// measured with these larger windows and 256 concurrent unidirectional
+/// streams, so they are also the safe production defaults for Chirps.
+pub const FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES: u64 = 16 * 1024 * 1024;
+pub const FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES: u64 = 64 * 1024 * 1024;
+pub const FILE_TRANSFER_SEND_WINDOW_BYTES: u64 = 64 * 1024 * 1024;
+pub const FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS: u32 = 256;
+pub const DEFAULT_MAX_CONNECTIONS: usize = 64;
 
 /// Chirps v0.4 向けのトランスポート設定集。
 #[derive(Clone, Debug)]
 pub struct TransportConfigV04 {
+    /// Maximum bytes the peer may send without acknowledgement on one stream.
+    pub stream_receive_window: u64,
+    /// Maximum bytes the peer may send without acknowledgement on one connection.
+    pub receive_window: u64,
+    /// Maximum bytes Chirps may send without acknowledgement.
+    pub send_window: u64,
+    /// Maximum number of concurrently open peer-initiated unidirectional streams.
+    pub max_concurrent_uni_streams: u32,
+    /// QUIC idle timeout.  This is also the threshold used to evict idle peers.
+    pub max_idle_timeout: Duration,
+    /// Optional QUIC keep-alive interval.  It must be shorter than the idle timeout.
+    pub keep_alive_interval: Option<Duration>,
+    /// Maximum number of established peer connections retained by this backend.
+    pub max_connections: usize,
     /// 送信処理のタイムアウト。
     pub send_timeout: Duration,
     /// Whether data sends wait for peer-side stream stop notifications.
@@ -30,6 +56,13 @@ pub struct TransportConfigV04 {
 impl Default for TransportConfigV04 {
     fn default() -> Self {
         Self {
+            stream_receive_window: FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES,
+            receive_window: FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES,
+            send_window: FILE_TRANSFER_SEND_WINDOW_BYTES,
+            max_concurrent_uni_streams: FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS,
+            max_idle_timeout: Duration::from_secs(30),
+            keep_alive_interval: None,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
             send_timeout: Duration::from_millis(200),
             await_peer_stop: true,
             diagnostics_enabled: true,
@@ -43,9 +76,64 @@ impl Default for TransportConfigV04 {
     }
 }
 
+impl TransportConfigV04 {
+    /// Returns the production profile used for the v0.5.2 File Transfer SLO.
+    pub fn file_transfer_performance() -> Self {
+        Self {
+            stream_receive_window: FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES,
+            receive_window: FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES,
+            send_window: FILE_TRANSFER_SEND_WINDOW_BYTES,
+            max_concurrent_uni_streams: FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS,
+            ..Self::default()
+        }
+    }
+
+    /// Builds the Quinn transport configuration represented by this Chirps config.
+    pub fn to_quinn_transport_config(&self) -> anyhow::Result<Arc<quinn::TransportConfig>> {
+        if self.stream_receive_window == 0
+            || self.receive_window == 0
+            || self.send_window == 0
+            || self.max_concurrent_uni_streams == 0
+            || self.max_connections == 0
+            || self.max_idle_timeout.is_zero()
+        {
+            anyhow::bail!(
+                "QUIC windows, stream limit, and connection limit must be greater than zero"
+            );
+        }
+        if self.receive_window < self.stream_receive_window {
+            anyhow::bail!("receive_window must be at least stream_receive_window");
+        }
+        if let Some(keep_alive) = self.keep_alive_interval
+            && keep_alive >= self.max_idle_timeout
+        {
+            anyhow::bail!("keep_alive_interval must be shorter than max_idle_timeout");
+        }
+
+        let mut config = quinn::TransportConfig::default();
+        config
+            .stream_receive_window(
+                quinn::VarInt::try_from(self.stream_receive_window)
+                    .map_err(|_| anyhow::anyhow!("stream_receive_window exceeds QUIC VarInt"))?,
+            )
+            .receive_window(
+                quinn::VarInt::try_from(self.receive_window)
+                    .map_err(|_| anyhow::anyhow!("receive_window exceeds QUIC VarInt"))?,
+            )
+            .send_window(self.send_window)
+            .max_concurrent_uni_streams(self.max_concurrent_uni_streams.into())
+            .max_idle_timeout(Some(self.max_idle_timeout.try_into().map_err(|_| {
+                anyhow::anyhow!("max_idle_timeout is outside QUIC limits")
+            })?))
+            .keep_alive_interval(self.keep_alive_interval);
+        Ok(Arc::new(config))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::TransportConfigV04;
+    use std::time::Duration;
 
     #[test]
     fn peer_stop_wait_is_safe_by_default() {
@@ -79,6 +167,40 @@ mod tests {
             ..TransportConfigV04::default()
         };
         assert_eq!(config.raft_stream_batch_size, 1);
+    }
+
+    #[test]
+    fn production_defaults_match_file_transfer_profile() {
+        let default = TransportConfigV04::default();
+        let profile = TransportConfigV04::file_transfer_performance();
+        assert_eq!(default.stream_receive_window, 16 * 1024 * 1024);
+        assert_eq!(default.receive_window, 64 * 1024 * 1024);
+        assert_eq!(default.send_window, 64 * 1024 * 1024);
+        assert_eq!(default.max_concurrent_uni_streams, 256);
+        assert_eq!(
+            (
+                default.stream_receive_window,
+                default.receive_window,
+                default.send_window,
+                default.max_concurrent_uni_streams
+            ),
+            (
+                profile.stream_receive_window,
+                profile.receive_window,
+                profile.send_window,
+                profile.max_concurrent_uni_streams
+            )
+        );
+    }
+
+    #[test]
+    fn quinn_transport_config_rejects_unsafe_values() {
+        let config = TransportConfigV04 {
+            keep_alive_interval: Some(Duration::from_secs(30)),
+            max_idle_timeout: Duration::from_secs(30),
+            ..Default::default()
+        };
+        assert!(config.to_quinn_transport_config().is_err());
     }
 }
 
