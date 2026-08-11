@@ -1,0 +1,213 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-v0-7-lifecycle-state
+  language: TLA+
+  implementation_status: pre-production-contract
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 24
+    constants: {MaxCapacity: 2, MaxSequence: 3, UnsafeMode: none}
+    execution:
+      working_directory: formal
+      normal: "rtk docker compose -f compose.yml run --rm apalache check --config=chirps-durable/LifecycleState.cfg --length=24 chirps-durable/LifecycleState.tla"
+      profile_command: "rtk docker compose -f compose.yml run --rm apalache check --config=${temporary_output} --length=${max_steps} chirps-durable/LifecycleState.tla"
+      witness_command: "rtk docker compose -f compose.yml run --rm apalache check --config=${temporary_output} --length=${max_steps} chirps-durable/LifecycleState.tla"
+      profile_materialization:
+        base_config: chirps-durable/LifecycleState.cfg
+        constant_replacement: {name: UnsafeMode, from: none, to: "${constant_overrides.UnsafeMode}"}
+        invariant_selection: [TypeOK, "${target}"]
+        temporary_output: "tmp/LifecycleState-${id}.cfg"
+      witness_materialization:
+        base_config: chirps-durable/LifecycleState.cfg
+        init_replacement: {from: Init, to: "${init}"}
+        next_replacement: {from: Next, to: "${next}"}
+        invariant_selection: [TypeOK, "${target}"]
+        temporary_output: "tmp/LifecycleState-${id}.cfg"
+      cleanup: "Remove only generated tmp/LifecycleState-*.cfg and formal/_apalache-out after evidence capture."
+    mutation_profiles:
+      - {id: count-overflow, constant_overrides: {UnsafeMode: count-overflow}, target: StateNeverExceedsHardBound, expected: counterexample, max_steps: 2}
+      - {id: byte-overflow, constant_overrides: {UnsafeMode: byte-overflow}, target: StateNeverExceedsHardBound, expected: counterexample, max_steps: 2}
+      - {id: capacity-continues, constant_overrides: {UnsafeMode: capacity-continues}, target: CapacityExhaustionStopsAdmissionAndPoll, expected: counterexample, max_steps: 2}
+      - {id: live-eviction, constant_overrides: {UnsafeMode: live-eviction}, target: CapacityNeverEvictsLiveState, expected: counterexample, max_steps: 2}
+      - {id: gc-before-checkpoint, constant_overrides: {UnsafeMode: gc-before-checkpoint}, target: IdentityRemovedOnlyAfterHorizon, expected: counterexample, max_steps: 2}
+      - {id: gc-before-oldest, constant_overrides: {UnsafeMode: gc-before-oldest}, target: IdentityRemovedOnlyAfterHorizon, expected: counterexample, max_steps: 2}
+      - {id: gc-before-age, constant_overrides: {UnsafeMode: gc-before-age}, target: IdentityRemovedOnlyAfterHorizon, expected: counterexample, max_steps: 2}
+      - {id: gc-after-clock-rollback, constant_overrides: {UnsafeMode: gc-after-clock-rollback}, target: IdentityRemovedOnlyAfterHorizon, expected: counterexample, max_steps: 2}
+      - {id: gc-undurable, constant_overrides: {UnsafeMode: gc-undurable}, target: IdentityGcIsCrashSafe, expected: counterexample, max_steps: 2}
+      - {id: startup-without-reserve, constant_overrides: {UnsafeMode: startup-without-reserve}, target: StartupRequiresCapacityReserve, expected: counterexample, max_steps: 2}
+      - {id: barrier-loses-frame, constant_overrides: {UnsafeMode: barrier-loses-frame}, target: CompactionPreservesCommittedFrames, expected: counterexample, max_steps: 2}
+      - {id: mixed-recovery, constant_overrides: {UnsafeMode: mixed-recovery}, target: CompactionPreservesOldOrNewComplete, expected: counterexample, max_steps: 2}
+      - {id: barrier-misroutes-frame, constant_overrides: {UnsafeMode: barrier-misroutes-frame}, target: GenerationBarrierOrdersFrames, expected: counterexample, max_steps: 2}
+      - {id: reserve-reallocated, constant_overrides: {UnsafeMode: reserve-reallocated}, target: CompactionReserveHeldThroughBarrier, expected: counterexample, max_steps: 2}
+      - {id: cutover-before-sync, constant_overrides: {UnsafeMode: cutover-before-sync}, target: CutoverAfterRequiredSyncs, expected: counterexample, max_steps: 2}
+      - {id: old-gc-before-root, constant_overrides: {UnsafeMode: old-gc-before-root}, target: OldGenerationReclaimedOnlyAfterDurableRoot, expected: counterexample, max_steps: 2}
+      - {id: admission-after-drain, constant_overrides: {UnsafeMode: admission-after-drain}, target: NoAdmissionAfterDrainGeneration, expected: counterexample, max_steps: 2}
+      - {id: axes-coupled, constant_overrides: {UnsafeMode: axes-coupled}, target: LifecycleReadinessAxesDistinct, expected: counterexample, max_steps: 2}
+      - {id: freeze-misses-operation, constant_overrides: {UnsafeMode: freeze-misses-operation}, target: ShutdownFreezesStartedSet, expected: counterexample, max_steps: 2}
+      - {id: send-cancellation-overwrite, constant_overrides: {UnsafeMode: send-cancellation-overwrite}, target: ShutdownPreservesSendPhase, expected: counterexample, max_steps: 2}
+      - {id: checkpoint-cancellation-overwrite, constant_overrides: {UnsafeMode: checkpoint-cancellation-overwrite}, target: ShutdownPreservesCheckpointPhase, expected: counterexample, max_steps: 2}
+      - {id: close-before-join, constant_overrides: {UnsafeMode: close-before-join}, target: ClosedImpliesWorkersJoined, expected: counterexample, max_steps: 2}
+      - {id: repeat-report-changes, constant_overrides: {UnsafeMode: repeat-report-changes}, target: ShutdownTerminalReportIdempotent, expected: counterexample, max_steps: 2}
+      - {id: repeat-reruns-side-effects, constant_overrides: {UnsafeMode: repeat-reruns-side-effects}, target: ShutdownSideEffectsAtMostOnce, expected: counterexample, max_steps: 2}
+      - {id: terminal-outcome-overwrite, constant_overrides: {UnsafeMode: terminal-outcome-overwrite}, target: ShutdownPreservesOperationOutcome, expected: counterexample, max_steps: 2}
+      - {id: cancellation-advances-frontier, constant_overrides: {UnsafeMode: cancellation-advances-frontier}, target: UncommittedCheckpointDoesNotAdvanceFrontier, expected: counterexample, max_steps: 2}
+    witness_profiles:
+      - id: pre-barrier-frame-preserved
+        expected: reachable
+        max_steps: 14
+        init: CompactionWitnessInit
+        next: CompactionWitnessNext
+        target: CompactionWitnessAbsent
+        predicate: "state.scenario = \"compaction-pre-barrier\" /\\ state.compactionStage = \"old-gc\" /\\ state.activeFrames = {1, 2} /\\ state.committedFrames = {1, 2}"
+      - id: repeated-shutdown-is-cached
+        expected: reachable
+        max_steps: 12
+        init: ShutdownRepeatWitnessInit
+        next: ShutdownRepeatWitnessNext
+        target: ShutdownRepeatWitnessAbsent
+        predicate: "state.scenario = \"shutdown-repeat\" /\\ state.repeatCount = 1 /\\ state.repeatedReportDigest = state.terminalReportDigest /\\ state.transportCloseCount = 1 /\\ state.stateFinalizeCount = 1"
+      - id: clock-rollback-defers-gc
+        expected: reachable
+        max_steps: 4
+        init: ClockRollbackWitnessInit
+        next: ClockRollbackWitnessNext
+        target: ClockRollbackWitnessAbsent
+        predicate: "state.scenario = \"identity-clock-rollback\" /\\ state.clockRolledBack /\\ ~state.pollOpen /\\ ~state.identityRemoved[state.selectedIdentity]"
+      - id: capacity-count-exhaustion-stops
+        expected: reachable
+        max_steps: 4
+        init: CapacityCountExhaustionWitnessInit
+        next: CapacityExhaustionWitnessNext
+        target: CapacityCountExhaustionWitnessAbsent
+        predicate: "state.scenario = \"capacity-exhaustion\" /\\ state.selectedLimit = \"count\" /\\ state.counts[\"payload\"] = MaxCapacity /\\ state.capacityRejected /\\ ~state.admissionOpen /\\ ~state.pollOpen"
+      - id: capacity-byte-exhaustion-stops
+        expected: reachable
+        max_steps: 4
+        init: CapacityByteExhaustionWitnessInit
+        next: CapacityExhaustionWitnessNext
+        target: CapacityByteExhaustionWitnessAbsent
+        predicate: "state.scenario = \"capacity-exhaustion\" /\\ state.selectedLimit = \"byte\" /\\ state.bytes[\"payload\"] = MaxCapacity /\\ state.capacityRejected /\\ ~state.admissionOpen /\\ ~state.pollOpen"
+      - id: registration-before-drain-is-frozen
+        expected: reachable
+        max_steps: 12
+        init: RegisterWinsShutdownWitnessInit
+        next: RegisterWinsShutdownWitnessNext
+        target: RegisterWinsShutdownWitnessAbsent
+        predicate: "state.scenario = \"shutdown-registration\" /\\ state.lifecycle = \"closed\" /\\ state.startedOperations = {\"send\"} /\\ state.frozenOperations = {\"send\"}"
+      - id: drain-before-registration-rejects-new-operation
+        expected: reachable
+        max_steps: 12
+        init: DrainWinsRegistrationWitnessInit
+        next: DrainWinsRegistrationWitnessNext
+        target: DrainWinsRegistrationWitnessAbsent
+        predicate: "state.scenario = \"shutdown-registration\" /\\ state.lifecycle = \"closed\" /\\ state.startedOperations = {} /\\ state.frozenOperations = {}"
+      - id: capacity-release-reopens-after-below-limit
+        expected: reachable
+        max_steps: 5
+        init: CapacityReleaseWitnessInit
+        next: CapacityReleaseWitnessNext
+        target: CapacityReleaseWitnessAbsent
+        predicate: "state.scenario = \"capacity-release\" /\\ state.step = 3 /\\ state.counts[\"payload\"] = MaxCapacity - 1 /\\ state.bytes[\"payload\"] = MaxCapacity - 1 /\\ ~state.capacityRejected /\\ state.admissionOpen /\\ state.pollOpen"
+    scenario_profiles:
+      capacity_categories: [payload, in-flight, journal, identity, queue, concurrency]
+      capacity_exhaustion_limits: [count, byte]
+      identity_horizon: [checkpointed, original-offset-before-oldest, retry-age-elapsed, monotonic-clock]
+      compaction_success: [pre-barrier-registered-frame, post-root-sync-frame]
+      compaction_old_crash_stages: [barrier, base-written, base-synced, suffix-synced, generation-dir-synced, root-written, root-file-synced, root-renamed]
+      compaction_new_crash_stages: [root-dir-synced, cutover]
+      shutdown_send_phases: [prepared, append-invoked, terminal]
+      shutdown_checkpoint_phases: [prewrite, known-old, install-unknown, confirmed]
+    action_catalog:
+      capacity: [ReserveStartup, BecomeReady, StartupUnavailable, AdmitState, FillCategory, ReleaseState, RejectCapacity]
+      identity_gc: [AdvanceClock, RollbackClock, StopPollOnClockUncertainty, MarkIdentityGc, SyncIdentityGc, InstallIdentityGc]
+      compaction: [RegisterPreBarrierMutation, AcquireGenerationBarrier, CommitRegisteredMutation, WriteCompactionBase, SyncCompactionBase, SyncEmptySuffix, SyncGenerationDirectory, WriteRootPointerTemp, SyncRootPointerFile, RenameRootPointer, SyncRootDirectory, AppendPostBarrierFrame, ActivateNewGeneration, GarbageCollectOldGeneration, FailCompactionStage]
+      crash_recovery: [CrashCompactionOld, RecoverOldGeneration, CrashCompactionNew, RecoverNewGeneration]
+      lifecycle: [RegisterOperation, BeginShutdown, FreezeStartedOperations, ReachShutdownDeadline, CloseOwnedTransport, CancelBlockedWorkers, JoinRegisteredWorkers, FinishShutdown, RepeatShutdown]
+      readiness: [SetReadinessUnavailable, SetPartitionRecoveryRequired]
+    scope: "Six independently selected capacity categories with count/byte exhaustion and stop-before-release/reopen, two identity records, frames 1..3, generations 1..2, old/new compaction recovery, both registration/drain winners and enumerated shutdown phases, checked through length 24."
+    exclusions:
+      - "Bounded scenario checking is not an infinite proof; arbitrary capacities, frame counts, wall-clock behavior and schedules outside the catalogued matrices are excluded."
+      - "HA, replication, broker exactly-once, mTLS, device power-loss durability and atomic data snapshots are excluded."
+      - "The model preserves logical file/directory-sync stage boundaries; filesystem syscalls and bytes are refined by Tasks 4.2, 4.3, 4.5.1 and 6.10."
+      - "V7-STATE-008 startup evidence and V7-LIFE-002 public state shape also require the planned production/component tests; this model checks their guards and axis separation only."
+      - "Cross-model completeness and missing-action enforcement are assembled by Task 1.5."
+
+repository_roots:
+  chirps: "Task 0.2 release/v0.7.0 worktree root"
+
+requirements:
+  - id: V7-STATE-004
+    property: StateNeverExceedsHardBound
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/capacity.rs, task: "4.3"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/capacity.rs, task: "4.3", check: per-category-count-byte-bounds}, {repository: chirps, path: tests/e2e/tests/durable_capacity.rs, task: "6.10"}]
+    red_profiles: [count-overflow, byte-overflow]
+  - id: V7-STATE-005
+    property: CapacityNeverEvictsLiveState
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/capacity.rs, task: "4.3"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_capacity.rs, task: "6.10", check: reject-without-live-eviction}]
+    red_profiles: [capacity-continues, live-eviction]
+  - id: V7-STATE-006
+    property: IdentityRemovedOnlyAfterHorizon
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/identity.rs, task: "4.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/state/compaction.rs, task: "4.3"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/compaction.rs, task: "4.3", check: three-horizon-and-clock-rollback}, {repository: chirps, path: tests/e2e/tests/durable_compaction.rs, task: "6.10"}]
+    red_profiles: [gc-before-checkpoint, gc-before-oldest, gc-before-age, gc-after-clock-rollback, gc-undurable]
+  - id: V7-STATE-007
+    property: CompactionPreservesOldOrNewComplete
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/compaction.rs, task: "4.3"}, {repository: chirps, path: scripts/generate-v0.7-local-state-corpora.sh, task: "4.5.1"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/compaction.rs, task: "4.3", check: stage-crash-and-concurrent-frame-matrix}, {repository: chirps, path: tests/e2e/tests/durable_compaction.rs, task: "6.10"}]
+    red_profiles: [barrier-loses-frame, mixed-recovery, barrier-misroutes-frame, reserve-reallocated, cutover-before-sync, old-gc-before-root]
+  - id: V7-STATE-008
+    property: StartupRequiresCapacityReserve
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/capacity.rs, task: "4.3"}, {repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_capacity.rs, task: "6.10", check: startup-reserve-required}]
+    red_profile: startup-without-reserve
+  - id: V7-LIFE-001
+    property: NoAdmissionAfterDrainGeneration
+    refinement: [{repository: chirps, path: crates/chirps-core/src/durable/lifecycle.rs, task: "2.3"}, {repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5", check: registration-drain-race}, {repository: chirps, path: tests/e2e/tests/durable_shutdown.rs, task: "6.5"}]
+    red_profile: admission-after-drain
+  - id: V7-LIFE-002
+    property: LifecycleReadinessAxesDistinct
+    refinement: [{repository: chirps, path: crates/chirps-core/src/durable/lifecycle.rs, task: "2.3"}, {repository: chirps, path: crates/chirps-backend-iggy/src/observability.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-core/src/durable/lifecycle.rs, task: "2.3", check: orthogonal-state-matrix}]
+    red_profile: axes-coupled
+  - id: V7-LIFE-003
+    property: ShutdownFreezesStartedSet
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}, {repository: chirps, path: crates/chirps-backend-iggy/src/delivery.rs, task: "4.4"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5", check: freeze-started-set-and-fence-handles}]
+    red_profile: freeze-misses-operation
+  - id: V7-LIFE-004
+    property: ShutdownPreservesSendPhase
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/transport.rs, task: "3.5"}, {repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_shutdown.rs, task: "6.5", check: deadline-before-after-append-invocation}]
+    red_profile: send-cancellation-overwrite
+  - id: V7-LIFE-005
+    property: ShutdownPreservesCheckpointPhase
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/state/journal.rs, task: "4.2"}, {repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_shutdown.rs, task: "6.5", check: checkpoint-phase-deadline-matrix}]
+    red_profiles: [checkpoint-cancellation-overwrite, cancellation-advances-frontier]
+  - id: V7-LIFE-006
+    property: ClosedImpliesWorkersJoined
+    refinement: [{repository: chirps, path: crates/chirps-backend-iggy/src/transport.rs, task: "3.5"}, {repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_shutdown.rs, task: "6.5", check: blocked-worker-close-cancel-join}]
+    red_profiles: [close-before-join, cancellation-advances-frontier]
+  - id: V7-LIFE-007
+    property: ShutdownTerminalReportIdempotent
+    refinement: [{repository: chirps, path: crates/chirps-core/src/durable/lifecycle.rs, task: "2.3"}, {repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_shutdown.rs, task: "6.5", check: repeated-concurrent-shutdown}]
+    red_profiles: [repeat-report-changes, repeat-reruns-side-effects]
+  - id: V7-MODEL-001
+    property: AllConcurrentCapabilitiesModeled
+    refinement: [{repository: chirps, path: formal/chirps-durable/lifecycle-catalog.yaml, task: "1.3"}, {repository: chirps, path: formal/chirps-durable/compose.yml, task: "1.5"}]
+    planned_local_component_test: [{repository: chirps, path: formal/chirps-durable/compose.yml, task: "1.5", check: missing-model-blocks}]
+  - id: V7-MODEL-002
+    property: AllActions
+    refinement: [{repository: chirps, path: formal/chirps-durable/LifecycleState.tla, task: "1.3"}]
+    planned_local_component_test: [{repository: chirps, path: formal/compose.yml, task: "1.5", check: missing-action-blocks}]
+  - id: V7-MODEL-005
+    property: ShutdownPreservesOperationOutcome
+    refinement: [{repository: chirps, path: formal/chirps-durable/LifecycleState.tla, task: "1.3"}, {repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5"}]
+    planned_local_component_test: [{repository: chirps, path: crates/chirps-backend-iggy/src/lifecycle.rs, task: "4.5", check: phase-preserving-deadline-matrix}, {repository: chirps, path: tests/e2e/tests/durable_shutdown.rs, task: "6.5"}]
+    red_profiles: [send-cancellation-overwrite, checkpoint-cancellation-overwrite, terminal-outcome-overwrite, cancellation-advances-frontier]
