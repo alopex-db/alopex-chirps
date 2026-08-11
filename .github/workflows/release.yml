@@ -24,6 +24,7 @@ on:
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  RELEASE_MAX_AGE_DAYS: 5
   RELEASE_TAG: ${{ inputs.tag }}
   RELEASE_COMMIT: ${{ inputs.commit }}
   RELEASE_CONFIRM: ${{ inputs.confirm_publish }}
@@ -176,8 +177,33 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     permissions:
+      actions: read
       contents: write
     steps:
+      - name: Reject stale release run
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_MAX_AGE_DAYS}" =~ ^[0-9]+$ ]] || {
+            echo "RELEASE_MAX_AGE_DAYS must be a non-negative integer" >&2
+            exit 1
+          }
+          created_at="$(curl --fail --silent --show-error --location \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            | jq -er '.created_at')"
+          created_epoch="$(date --date="${created_at}" +%s)"
+          now_epoch="$(date +%s)"
+          age_seconds=$((now_epoch - created_epoch))
+          max_age_seconds=$((RELEASE_MAX_AGE_DAYS * 24 * 60 * 60))
+          if (( age_seconds >= max_age_seconds )); then
+            echo "This release run was dispatched at ${created_at} and is at least ${RELEASE_MAX_AGE_DAYS} days old. Cancel this run and dispatch a new run; do not approve this stale run." >&2
+            exit 1
+          fi
+          echo "Release run age is ${age_seconds}s; maximum allowed age is ${max_age_seconds}s"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit }}
@@ -213,9 +239,37 @@ jobs:
     needs: [publish-tag]
     runs-on: ubuntu-latest
     environment: release
+    permissions:
+      actions: read
+      contents: read
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
+      - name: Reject stale release run
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_MAX_AGE_DAYS}" =~ ^[0-9]+$ ]] || {
+            echo "RELEASE_MAX_AGE_DAYS must be a non-negative integer" >&2
+            exit 1
+          }
+          created_at="$(curl --fail --silent --show-error --location \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            | jq -er '.created_at')"
+          created_epoch="$(date --date="${created_at}" +%s)"
+          now_epoch="$(date +%s)"
+          age_seconds=$((now_epoch - created_epoch))
+          max_age_seconds=$((RELEASE_MAX_AGE_DAYS * 24 * 60 * 60))
+          if (( age_seconds >= max_age_seconds )); then
+            echo "This release run was dispatched at ${created_at} and is at least ${RELEASE_MAX_AGE_DAYS} days old. Cancel this run and dispatch a new run; do not approve this stale run." >&2
+            exit 1
+          fi
+          echo "Release run age is ${age_seconds}s; maximum allowed age is ${max_age_seconds}s"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
@@ -240,8 +294,33 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     permissions:
+      actions: read
       contents: write
     steps:
+      - name: Reject stale release run
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_MAX_AGE_DAYS}" =~ ^[0-9]+$ ]] || {
+            echo "RELEASE_MAX_AGE_DAYS must be a non-negative integer" >&2
+            exit 1
+          }
+          created_at="$(curl --fail --silent --show-error --location \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            | jq -er '.created_at')"
+          created_epoch="$(date --date="${created_at}" +%s)"
+          now_epoch="$(date +%s)"
+          age_seconds=$((now_epoch - created_epoch))
+          max_age_seconds=$((RELEASE_MAX_AGE_DAYS * 24 * 60 * 60))
+          if (( age_seconds >= max_age_seconds )); then
+            echo "This release run was dispatched at ${created_at} and is at least ${RELEASE_MAX_AGE_DAYS} days old. Cancel this run and dispatch a new run; do not approve this stale run." >&2
+            exit 1
+          fi
+          echo "Release run age is ${age_seconds}s; maximum allowed age is ${max_age_seconds}s"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
