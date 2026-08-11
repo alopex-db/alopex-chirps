@@ -1,0 +1,215 @@
+schema: alopex-formal-catalog/v1
+model:
+  id: chirps-v0-7-metadata-recovery
+  language: TLA+
+  implementation_status: pre-production-contract
+  checker:
+    name: Apalache
+    image: ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795
+    profile: bounded-model-check
+    max_steps: 20
+    constants: {MaxSequence: 3, UnsafeMode: none}
+    execution:
+      working_directory: formal
+      normal: "rtk docker compose -f compose.yml run --rm apalache check --config=chirps-durable/MetadataRecovery.cfg --length=20 chirps-durable/MetadataRecovery.tla"
+      profile_command: "rtk docker compose -f compose.yml run --rm apalache check --config=${temporary_output} --length=${max_steps} chirps-durable/MetadataRecovery.tla"
+      witness_command: "rtk docker compose -f compose.yml run --rm apalache check --config=${temporary_output} --length=${max_steps} chirps-durable/MetadataRecovery.tla"
+      profile_materialization:
+        base_config: chirps-durable/MetadataRecovery.cfg
+        constant_replacement: {name: UnsafeMode, from: none, to: "${constant_overrides.UnsafeMode}"}
+        invariant_selection: [TypeOK, "${target}"]
+        temporary_output: "tmp/MetadataRecovery-${id}.cfg"
+      witness_materialization:
+        base_config: chirps-durable/MetadataRecovery.cfg
+        init_replacement: {from: Init, to: "${init}"}
+        next_replacement: {from: Next, to: "${next}"}
+        invariant_selection: [TypeOK, "${target}"]
+        temporary_output: "tmp/MetadataRecovery-${id}.cfg"
+      cleanup: "Remove only generated tmp/MetadataRecovery-*.cfg and formal/_apalache-out after evidence capture."
+    mutation_profiles:
+      - {id: torn-snapshot-applied, constant_overrides: {UnsafeMode: torn-snapshot-applied}, target: SnapshotOldOrNewComplete, expected: counterexample, max_steps: 2}
+      - {id: mixed-snapshot-applied, constant_overrides: {UnsafeMode: mixed-snapshot-applied}, target: SnapshotOldOrNewComplete, expected: counterexample, max_steps: 2}
+      - {id: omit-directory-sync, constant_overrides: {UnsafeMode: omit-directory-sync}, target: SnapshotInstallStagesOrdered, expected: counterexample, max_steps: 2}
+      - {id: infer-file-sync-success, constant_overrides: {UnsafeMode: infer-file-sync-success}, target: SnapshotSyncErrorsAreNotSuccess, expected: counterexample, max_steps: 2}
+      - {id: infer-directory-sync-success, constant_overrides: {UnsafeMode: infer-directory-sync-success}, target: SnapshotSyncErrorsAreNotSuccess, expected: counterexample, max_steps: 2}
+      - {id: apply-before-install, constant_overrides: {UnsafeMode: apply-before-install}, target: AppliedStateHasDurableProvenance, expected: counterexample, max_steps: 2}
+      - {id: watermark-skip, constant_overrides: {UnsafeMode: watermark-skip}, target: SnapshotGenerationWatermarkCoherent, expected: counterexample, max_steps: 2}
+      - {id: duplicate-applied, constant_overrides: {UnsafeMode: duplicate-applied}, target: SnapshotWalApplyExactlyOnce, expected: counterexample, max_steps: 2}
+      - {id: wal-replayed-twice, constant_overrides: {UnsafeMode: wal-replayed-twice}, target: SnapshotWalApplyExactlyOnce, expected: counterexample, max_steps: 2}
+      - {id: mismatched-duplicate-ignored, constant_overrides: {UnsafeMode: mismatched-duplicate-ignored}, target: MismatchedDuplicateFailsStop, expected: counterexample, max_steps: 2}
+      - {id: generation-mismatch-duplicate-ignored, constant_overrides: {UnsafeMode: generation-mismatch-duplicate-ignored}, target: SnapshotAndWalGenerationMatch, expected: counterexample, max_steps: 2}
+      - {id: gap-applied, constant_overrides: {UnsafeMode: gap-applied}, target: RecoveryUsesContiguousValidPrefix, expected: counterexample, max_steps: 2}
+      - {id: corrupt-wal-applied, constant_overrides: {UnsafeMode: corrupt-wal-applied}, target: InvalidWalFailsStop, expected: counterexample, max_steps: 2}
+      - {id: unsynced-wal-applied, constant_overrides: {UnsafeMode: unsynced-wal-applied}, target: WalReplayRequiresDurableCommit, expected: counterexample, max_steps: 2}
+      - {id: mixed-generation-applied, constant_overrides: {UnsafeMode: mixed-generation-applied}, target: SnapshotAndWalGenerationMatch, expected: counterexample, max_steps: 2}
+      - {id: identity-install-before-durable, constant_overrides: {UnsafeMode: identity-install-before-durable}, target: IdentityInstallRequiresDurableEpoch, expected: counterexample, max_steps: 2}
+      - {id: mutation-before-epoch-durable, constant_overrides: {UnsafeMode: mutation-before-epoch-durable}, target: EpochDurableBeforeMutation, expected: counterexample, max_steps: 2}
+      - {id: mutation-before-fence, constant_overrides: {UnsafeMode: mutation-before-fence}, target: EpochDurableBeforeMutation, expected: counterexample, max_steps: 2}
+      - {id: resource-identity-reused, constant_overrides: {UnsafeMode: resource-identity-reused}, target: ResourceEpochNeverReused, expected: counterexample, max_steps: 2}
+      - {id: retention-changes-epoch, constant_overrides: {UnsafeMode: retention-changes-epoch}, target: RetentionPreservesIdentityEpoch, expected: counterexample, max_steps: 2}
+      - {id: restart-changes-identity, constant_overrides: {UnsafeMode: restart-changes-identity}, target: IdentityStableAcrossNormalRestart, expected: counterexample, max_steps: 2}
+      - {id: install-unknown-continues, constant_overrides: {UnsafeMode: install-unknown-continues}, target: InstallUnknownFailsStop, expected: counterexample, max_steps: 2}
+    witness_profiles:
+      - id: crash-before-file-sync-recovers-old
+        expected: reachable
+        max_steps: 5
+        init: OldCrashWitnessInit
+        next: OldCrashWitnessNext
+        target: OldCrashWitnessAbsent
+        predicate: "state.recoveredAfterCrash /\\ state.recovery = \"ready\" /\\ state.installedImage = \"old\" /\\ state.baseState = 101"
+      - id: crash-after-directory-sync-recovers-new
+        expected: reachable
+        max_steps: 8
+        init: NewCrashWitnessInit
+        next: NewCrashWitnessNext
+        target: NewCrashWitnessAbsent
+        predicate: "state.recoveredAfterCrash /\\ state.recovery = \"ready\" /\\ state.installedImage = \"new\" /\\ state.baseState = 202"
+      - id: rename-crash-may-recover-complete-new
+        expected: reachable
+        max_steps: 7
+        init: RenameNewWitnessInit
+        next: RenameNewWitnessNext
+        target: RenameNewWitnessAbsent
+        predicate: "state.recoveredAfterCrash /\\ state.installSource = \"recovery\" /\\ state.installedImage = \"new\" /\\ state.baseState = 202"
+      - id: contiguous-wal-replays-once
+        expected: reachable
+        max_steps: 6
+        init: ContiguousWalWitnessInit
+        next: ContiguousWalWitnessNext
+        target: ContiguousWalWitnessAbsent
+        predicate: "state.recovery = \"ready\" /\\ state.appliedCount[2] = 1 /\\ state.nextReplay = 3"
+      - id: exact-watermark-duplicate-is-harmless
+        expected: reachable
+        max_steps: 6
+        init: ExactDuplicateWitnessInit
+        next: ExactDuplicateWitnessNext
+        target: ExactDuplicateWitnessAbsent
+        predicate: "state.recovery = \"ready\" /\\ state.duplicateIgnored /\\ state.appliedCount[1] = 0"
+      - id: generation-mismatch-duplicate-fails-stop
+        expected: reachable
+        max_steps: 5
+        init: GenerationMismatchDuplicateWitnessInit
+        next: GenerationMismatchDuplicateWitnessNext
+        target: GenerationMismatchDuplicateWitnessAbsent
+        predicate: "state.recovery = \"fail-stop\" /\\ state.mismatchSeen /\\ state.failureReason = \"wal-generation-mismatch-duplicate\""
+      - id: wal-gap-fails-stop
+        expected: reachable
+        max_steps: 5
+        init: GapFailStopWitnessInit
+        next: GapFailStopWitnessNext
+        target: GapFailStopWitnessAbsent
+        predicate: "state.recovery = \"fail-stop\" /\\ state.gapSeen /\\ state.failureReason = \"wal-gap\""
+      - id: checksum-invalid-wal-fails-stop
+        expected: reachable
+        max_steps: 5
+        init: CorruptFailStopWitnessInit
+        next: CorruptFailStopWitnessNext
+        target: CorruptFailStopWitnessAbsent
+        predicate: "state.recovery = \"fail-stop\" /\\ state.invalidWalSeen /\\ state.failureReason = \"wal-checksum\""
+      - id: durable-identity-precedes-fence-and-mutation
+        expected: reachable
+        max_steps: 8
+        init: DurableMutationWitnessInit
+        next: DurableMutationWitnessNext
+        target: DurableMutationWitnessAbsent
+        predicate: "state.destructiveApplied /\\ state.epochWalSynced /\\ state.epochDirectorySynced /\\ state.oldSessionsFenced /\\ state.resourceUuid = 202 /\\ state.resourceEpoch = 2 /\\ state.resourceLifecycleGeneration = 2"
+      - id: identity-crash-before-wal-keeps-old
+        expected: reachable
+        max_steps: 4
+        init: IdentityPrepareCrashWitnessInit
+        next: IdentityPrepareCrashWitnessNext
+        target: IdentityPrepareCrashWitnessAbsent
+        predicate: "state.recoveredAfterCrash /\\ state.recovery = \"ready\" /\\ ~state.identityInstalled /\\ state.resourceUuid = state.initialResourceUuid /\\ state.resourceEpoch = state.initialResourceEpoch"
+      - id: identity-crash-after-wal-sync-fails-stop
+        expected: reachable
+        max_steps: 6
+        init: IdentitySyncCrashWitnessInit
+        next: IdentitySyncCrashWitnessNext
+        target: IdentitySyncCrashWitnessAbsent
+        predicate: "state.recoveredAfterCrash /\\ state.installUnknown /\\ state.recovery = \"fail-stop\" /\\ ~state.identityInstalled"
+      - id: identity-crash-after-directory-sync-recovers-new
+        expected: reachable
+        max_steps: 7
+        init: IdentityDirectoryCrashWitnessInit
+        next: IdentityDirectoryCrashWitnessNext
+        target: IdentityDirectoryCrashWitnessAbsent
+        predicate: "state.recoveredAfterCrash /\\ state.recovery = \"ready\" /\\ state.identityInstalled /\\ state.oldSessionsFenced /\\ state.resourceUuid = 202 /\\ state.resourceEpoch = 2"
+      - id: identity-crash-after-mutation-preserves-new
+        expected: reachable
+        max_steps: 10
+        init: IdentityMutationCrashWitnessInit
+        next: IdentityMutationCrashWitnessNext
+        target: IdentityMutationCrashWitnessAbsent
+        predicate: "state.recoveredAfterCrash /\\ state.recovery = \"ready\" /\\ state.identityInstalled /\\ state.oldSessionsFenced /\\ state.destructiveApplied /\\ state.resourceUuid = 202 /\\ state.resourceEpoch = 2"
+    scenario_profiles:
+      snapshot_crash_stages: [temp-write, file-sync, rename, directory-sync, install, post-install-apply]
+      snapshot_stage_failures: [temp-write, file-sync, rename, directory-sync, install, post-install-apply]
+      rename_crash_outcomes: [old-complete, new-complete]
+      wal_recovery: [contiguous, exact-watermark-duplicate, mismatched-digest-duplicate, mismatched-generation-duplicate, sequence-gap]
+      wal_corruption: [partial, truncated, checksum-error, unknown-version]
+      identity_lifecycle: [normal-restart, destructive-replacement, identity-mutation-stage-crash, retention-eviction, install-unknown]
+      identity_crash_stages: [identity-prepare, identity-wal-write, identity-wal-sync, identity-directory-sync, identity-install, identity-fence, identity-mutate]
+    action_catalog:
+      snapshot_install: [BeginSnapshot, WriteSnapshotTemp, SyncSnapshotFile, RenameSnapshot, SyncSnapshotDirectory, InstallSnapshot, ApplyInstalledSnapshot]
+      snapshot_crash: [CrashAfterTempWrite, CrashAfterFileSync, CrashAfterRename, CrashAfterDirectorySync, CrashAfterInstall, CrashAfterPostInstallApply, RecoverSnapshotAfterCrash]
+      snapshot_failure: [FailSnapshotTempWrite, FailSnapshotFileSync, FailSnapshotRename, FailSnapshotDirectorySync, FailSnapshotInstall, FailSnapshotPostInstallApply, RecoverAfterSnapshotFailure]
+      wal_recovery: [WriteWalFrame, SyncWalFrame, StartWalRecovery, ReplayContiguousWal, IgnoreExactWalDuplicate, RejectMismatchedWalDuplicate, RejectWalGap, RejectInvalidWal, FinishWalRecovery]
+      identity_mutation: [NormalRestart, BeginEpochMutation, WriteEpochWal, SyncEpochWal, SyncEpochDirectory, InstallPendingIdentity, FenceOldSessions, ApplyDestructiveMutation, CrashIdentityMutationStage, RecoverIdentityMutation, ApplyRetentionEviction, FailStopInstallUnknown]
+      terminal: [TerminalStutter]
+      safety_mutation: [UnsafeTransition]
+    source_boundary:
+      pinned_iggy_commit: f5350d999d883fd3ca9dd33b3dc2754ddb0df049
+      stage_reference: [core/metadata/src/stm/snapshot.rs, core/metadata/src/impls/metadata.rs, core/metadata/src/impls/recovery.rs, core/journal/src/prepare_journal.rs]
+      active_path_warning: "Pinned core/metadata recovery is a stage reference but is not the active server startup path; Task 5.3 owns the patch-specific active resource store."
+    scope: "One old/new metadata image, generations 1..2, sequences 1..3, one resource UUID/epoch/lifecycle-generation replacement, all six snapshot crash/failure stages, all seven identity mutation crash stages and the exact digest-and-generation duplicate/gap/corruption matrix, checked through length 20."
+    exclusions:
+      - "Bounded scenario checking is not an infinite proof; arbitrary WAL lengths, filesystem schedules and crash combinations outside the catalogued finite matrix are excluded."
+      - "HA, replication, broker exactly-once, mTLS, device power-loss durability and atomic data snapshots are excluded."
+      - "The model preserves logical write/file-sync/rename/directory-sync/install boundaries; physical syscalls and fresh-process behavior are refined by Tasks 5.3 and 6.13."
+      - "The pinned Iggy metadata implementation supplies source-stage context only; its missing gap/digest checks and inactive startup path do not weaken the approved contract."
+      - "Cross-model completeness and missing-action enforcement are assembled by Task 1.5."
+
+repository_roots:
+  chirps: "Task 0.2 release/v0.7.0 worktree root"
+  iggy-compatible: "Task 0.3 isolated compatible-Iggy worktree root"
+
+requirements:
+  - id: V7-CAP-017
+    property: ResourceEpochNeverReused
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_store.rs, task: "5.3"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/resource_state.rs, task: "5.4"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_store.rs, task: "5.3", check: restart-retention-and-destructive-identity-matrix}, {repository: chirps, path: tests/e2e/tests/durable_metadata_recovery.rs, task: "6.13"}]
+    red_profiles: [resource-identity-reused, retention-changes-epoch, restart-changes-identity]
+  - id: V7-CAP-018
+    property: EpochDurableBeforeMutation
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_store.rs, task: "5.3"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6", check: durable-identity-install-fence-mutation-order}, {repository: chirps, path: tests/e2e/tests/durable_metadata_recovery.rs, task: "6.13"}]
+    red_profiles: [identity-install-before-durable, mutation-before-epoch-durable, mutation-before-fence, install-unknown-continues]
+  - id: V7-FAULT-003
+    property: SnapshotOldOrNewComplete
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_snapshot.rs, task: "5.3"}]
+    planned_local_component_test: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_snapshot.rs, task: "5.3", check: temp-sync-rename-directory-install-failpoints}, {repository: chirps, path: tests/e2e/tests/durable_metadata_recovery.rs, task: "6.13"}]
+    red_profiles: [torn-snapshot-applied, mixed-snapshot-applied, omit-directory-sync, infer-file-sync-success, infer-directory-sync-success]
+  - id: V7-FAULT-008
+    property: SnapshotWalApplyExactlyOnce
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_store.rs, task: "5.3"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_metadata_recovery.rs, task: "6.13", check: old-new-duplicate-gap-matrix}]
+    red_profiles: [duplicate-applied, wal-replayed-twice, mismatched-duplicate-ignored, generation-mismatch-duplicate-ignored, gap-applied]
+  - id: V7-FAULT-010
+    property: RecoveryUsesContiguousValidPrefix
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_store.rs, task: "5.3"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_metadata_recovery.rs, task: "6.13", check: partial-truncated-checksum-version-gap-fail-stop}]
+    red_profiles: [gap-applied, corrupt-wal-applied, unsynced-wal-applied, mixed-generation-applied]
+  - id: V7-FAULT-011
+    property: SnapshotOldOrNewComplete
+    refinement: [{repository: iggy-compatible, path: core/server/src/chirps_extension/resource_snapshot.rs, task: "5.3"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/mutation.rs, task: "5.6"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_metadata_recovery.rs, task: "6.13", check: fresh-process-six-stage-crash-matrix}]
+    red_profiles: [torn-snapshot-applied, mixed-snapshot-applied, apply-before-install, install-unknown-continues]
+  - id: V7-MODEL-002
+    property: AllActions
+    refinement: [{repository: chirps, path: formal/chirps-durable/MetadataRecovery.tla, task: "1.4"}, {repository: chirps, path: formal/chirps-durable/compose.yml, task: "1.5"}]
+    planned_local_component_test: [{repository: chirps, path: formal/compose.yml, task: "1.5", check: missing-action-blocks}]
+  - id: V7-MODEL-004
+    property: SnapshotWalApplyExactlyOnce
+    refinement: [{repository: chirps, path: formal/chirps-durable/MetadataRecovery.tla, task: "1.4"}, {repository: iggy-compatible, path: core/server/src/chirps_extension/resource_store.rs, task: "5.3"}]
+    planned_local_component_test: [{repository: chirps, path: tests/e2e/tests/durable_metadata_recovery.rs, task: "6.13"}]
+    red_profiles: [torn-snapshot-applied, mixed-snapshot-applied, duplicate-applied, wal-replayed-twice, mismatched-duplicate-ignored, generation-mismatch-duplicate-ignored, gap-applied, corrupt-wal-applied, mixed-generation-applied]
