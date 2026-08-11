@@ -108,7 +108,16 @@ jobs:
         run: |
           version="${{ steps.release_metadata.outputs.version }}"
           commit="${{ steps.release_metadata.outputs.commit }}"
-          args=(--version "${version}" --source-commit "${commit}" --require-ready)
+          args=(--version "${version}" --require-ready)
+          # This workflow always runs from the default branch while the
+          # repository is checked out at the release commit. A release cut
+          # before a verifier option existed must stay verifiable, so pass
+          # --source-commit only when the checked-out verifier accepts it.
+          if grep -q -- '--source-commit' scripts/verify-release-contract.sh; then
+            args+=(--source-commit "${commit}")
+          else
+            echo "checked-out verify-release-contract.sh predates --source-commit; verifying the contract without commit binding"
+          fi
           if [[ "${version}" == "0.6.0" ]]; then
             args+=(--manifest "${RUNNER_TEMP}/chirps-v0.6-release-evidence/manifest.json")
           fi
