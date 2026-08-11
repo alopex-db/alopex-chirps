@@ -182,6 +182,45 @@ async fn production_transport_limits_reach_quinn_and_bound_connections() -> anyh
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "QUIC integration test - requires network, run manually with --ignored"]
+async fn health_check_does_not_prevent_idle_eviction() -> anyhow::Result<()> {
+    let tls = TestTls::two_nodes();
+    let addr_a = free_addr()?;
+    let addr_b = free_addr()?;
+    let node_a = NodeId::new();
+    let node_b = NodeId::new();
+
+    let mut transport = tuned_transport_config(4, 1);
+    transport.max_idle_timeout = Duration::from_secs(3);
+    let backend_a =
+        QuicBackend::new_with_config(node_a, tls.config(0, addr_a, vec![]), transport).await?;
+    let backend_b = QuicBackend::new_with_config(
+        node_b,
+        tls.config(1, addr_b, vec![addr_a]),
+        tuned_transport_config(4, 1),
+    )
+    .await?;
+
+    wait_for_connected_with_timeout(&backend_a, 1, Duration::from_secs(5)).await;
+    let probe_deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+    while tokio::time::Instant::now() < probe_deadline {
+        if !backend_a.health_check(node_b).await? {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    assert!(
+        backend_a.metrics().idle_evictions > 0,
+        "health checks must not refresh activity for idle eviction"
+    );
+
+    backend_a.close().await?;
+    backend_b.close().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
 async fn ping_ack_roundtrip() -> anyhow::Result<()> {
     let node_a = NodeId::new();
     let node_b = NodeId::new();

@@ -28,7 +28,10 @@ pub use crate::hlc::{
     Clock, HlcAdvance, HlcError, HlcMetricsSink, HlcReceiveResult, HybridTimestamp, LocalHlc,
     SystemClock,
 };
-pub use crate::memory::{MemoryComponent, MemoryConfig, MemoryError, MemoryManager, MemoryStats};
+pub use crate::memory::{
+    AllocationRatio, BlockCacheHandle, IntegratedCacheManager, MemoryComponent, MemoryConfig,
+    MemoryError, MemoryManager, MemoryStats, RaftLogCache, UnifiedMemoryMetrics, WorkloadProfile,
+};
 use crate::mesh::Mesh;
 pub use crate::mesh::MeshHandle;
 pub use crate::node_id::NodeId;
