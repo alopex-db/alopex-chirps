@@ -1,0 +1,33 @@
+[package]
+name = "alopex-chirps-backend-iggy"
+version.workspace = true
+edition = "2024"
+description = "Optional Apache Iggy durable messaging backend for Alopex Chirps"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+keywords = ["messaging", "durability", "iggy", "distributed", "alopex"]
+
+[dependencies]
+alopex-chirps-core.workspace = true
+alopex-chirps-wire.workspace = true
+async-trait = "0.1"
+bytes.workspace = true
+fs2 = "0.4"
+iggy = "=0.10.0"
+iggy_binary_protocol = "=0.10.0"
+iggy_common = "=0.10.0"
+rustls = "0.23"
+serde.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls = "0.26"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+webpki-roots = "1"
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"
