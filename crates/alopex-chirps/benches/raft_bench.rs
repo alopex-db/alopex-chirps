@@ -418,7 +418,7 @@ impl BenchCluster {
             ..Default::default()
         };
 
-        let mut node = RaftNode::new(
+        let node = RaftNode::new(
             cfg,
             ChirpsRaftTransport::factory(transport.clone()),
             store.clone(),

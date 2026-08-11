@@ -110,6 +110,8 @@ pub async fn leader_oracle(
         manager.get_group(TSO_GROUP_ID).unwrap(),
         injected_clock,
         TsoConfig {
+            batch_size: 10_000,
+            prefetch_threshold: 1_000,
             timestamp_ttl: Duration::from_millis(1_000),
         },
     )

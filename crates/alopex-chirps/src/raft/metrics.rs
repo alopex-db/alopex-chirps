@@ -239,7 +239,11 @@ pub struct RaftMetricsCollector {
     raft_term: GaugeVec,
     raft_commit_index: GaugeVec,
     raft_applied_index: GaugeVec,
+    raft_last_log_index: GaugeVec,
+    raft_leader_id: GaugeVec,
+    raft_votes_granted: GaugeVec,
     raft_proposals_total: CounterVec,
+    raft_proposals_failed_total: CounterVec,
     raft_proposals_latency_seconds: HistogramVec,
     raft_messages_sent_total: CounterVec,
     raft_messages_received_total: CounterVec,
@@ -318,10 +322,30 @@ impl RaftMetricsCollector {
             "Applied log index",
             &["group_id"],
         );
+        let raft_last_log_index = gauge_vec(
+            "chirps_raft_last_log_index",
+            "Last Raft log index",
+            &["group_id"],
+        );
+        let raft_leader_id = gauge_vec(
+            "chirps_raft_leader_id",
+            "Current Raft leader ID, or zero when unknown",
+            &["group_id"],
+        );
+        let raft_votes_granted = gauge_vec(
+            "chirps_raft_votes_granted",
+            "Committed Raft vote count",
+            &["group_id"],
+        );
         let raft_proposals_total = counter_vec(
             "chirps_raft_proposals_total",
             "Raft proposals grouped by result",
             &["group_id", "result"],
+        );
+        let raft_proposals_failed_total = counter_vec(
+            "chirps_raft_proposals_failed_total",
+            "Failed Raft proposals",
+            &["group_id"],
         );
         let raft_proposals_latency_seconds = HistogramVec::new(
             HistogramOpts::new(
@@ -473,7 +497,11 @@ impl RaftMetricsCollector {
         register(Box::new(raft_term.clone()));
         register(Box::new(raft_commit_index.clone()));
         register(Box::new(raft_applied_index.clone()));
+        register(Box::new(raft_last_log_index.clone()));
+        register(Box::new(raft_leader_id.clone()));
+        register(Box::new(raft_votes_granted.clone()));
         register(Box::new(raft_proposals_total.clone()));
+        register(Box::new(raft_proposals_failed_total.clone()));
         register(Box::new(raft_proposals_latency_seconds.clone()));
         register(Box::new(raft_messages_sent_total.clone()));
         register(Box::new(raft_messages_received_total.clone()));
@@ -511,7 +539,11 @@ impl RaftMetricsCollector {
             raft_term,
             raft_commit_index,
             raft_applied_index,
+            raft_last_log_index,
+            raft_leader_id,
+            raft_votes_granted,
             raft_proposals_total,
+            raft_proposals_failed_total,
             raft_proposals_latency_seconds,
             raft_messages_sent_total,
             raft_messages_received_total,
@@ -570,6 +602,13 @@ impl RaftMetricsCollector {
             .raft_applied_index
             .remove_label_values(&[&group_id_label]);
         let _ = self
+            .raft_last_log_index
+            .remove_label_values(&[&group_id_label]);
+        let _ = self.raft_leader_id.remove_label_values(&[&group_id_label]);
+        let _ = self
+            .raft_votes_granted
+            .remove_label_values(&[&group_id_label]);
+        let _ = self
             .raft_log_entries
             .remove_label_values(&[&group_id_label]);
         let _ = self
@@ -586,6 +625,9 @@ impl RaftMetricsCollector {
                 .raft_proposals_total
                 .remove_label_values(&[&group_id_label, result]);
         }
+        let _ = self
+            .raft_proposals_failed_total
+            .remove_label_values(&[&group_id_label]);
         for message_type in RAFT_MESSAGE_TYPES {
             let _ = self
                 .raft_messages_sent_total
@@ -699,6 +741,15 @@ impl RaftMetricsCollector {
         self.raft_applied_index
             .with_label_values(&[&group_id])
             .set(metrics.applied_index.unwrap_or(0) as f64);
+        self.raft_last_log_index
+            .with_label_values(&[&group_id])
+            .set(metrics.last_log_index.unwrap_or(0) as f64);
+        self.raft_leader_id
+            .with_label_values(&[&group_id])
+            .set(metrics.leader_id.unwrap_or(0) as f64);
+        self.raft_votes_granted
+            .with_label_values(&[&group_id])
+            .set(metrics.votes_granted.unwrap_or(0) as f64);
         self.raft_log_entries
             .with_label_values(&[&group_id])
             .set(metrics.log_entries_count.unwrap_or(0) as f64);
@@ -711,6 +762,9 @@ impl RaftMetricsCollector {
         if metrics.proposals_failed_total > 0 {
             self.raft_proposals_total
                 .with_label_values(&[&group_id, "failed"])
+                .inc_by(metrics.proposals_failed_total as f64);
+            self.raft_proposals_failed_total
+                .with_label_values(&[&group_id])
                 .inc_by(metrics.proposals_failed_total as f64);
             let reason = bounded_proposal_reason(metrics.proposals_failed_reason.as_deref());
             self.raft_proposals_failed_by_reason_total
@@ -865,6 +919,7 @@ impl RaftMetricsCollector {
             .map_err(|error| MetricsError::Encoding(error.to_string()))?;
         let encoded =
             String::from_utf8(buffer).map_err(|error| MetricsError::Encoding(error.to_string()))?;
+        let encoded = append_v05_raft_aliases(&encoded);
         *self
             .last_successful_output
             .lock()
@@ -904,6 +959,37 @@ impl RaftMetricsCollector {
     pub fn inject_encode_error(&self) {
         self.fail_next_encode.store(true, Ordering::SeqCst);
     }
+}
+
+fn append_v05_raft_aliases(encoded: &str) -> String {
+    let aliases = [
+        ("chirps_raft_state", "raft_state"),
+        ("chirps_raft_term", "raft_term"),
+        ("chirps_raft_commit_index", "raft_commit_index"),
+        ("chirps_raft_applied_index", "raft_applied_index"),
+        ("chirps_raft_last_log_index", "raft_last_log_index"),
+        ("chirps_raft_leader_id", "raft_leader_id"),
+        ("chirps_raft_votes_granted", "raft_votes_granted"),
+        ("chirps_raft_log_entries", "raft_log_entries_count"),
+        ("chirps_raft_snapshot_total", "raft_snapshot_total"),
+        ("chirps_raft_proposals_total", "raft_proposals_total"),
+        (
+            "chirps_raft_proposals_failed_total",
+            "raft_proposals_failed_total",
+        ),
+    ];
+    let mut result = encoded.to_owned();
+    for (canonical, alias) in aliases {
+        for line in encoded.lines().filter(|line| {
+            line.starts_with(&format!("# HELP {canonical}"))
+                || line.starts_with(&format!("# TYPE {canonical}"))
+                || line.starts_with(canonical)
+        }) {
+            result.push_str(&line.replace(canonical, alias));
+            result.push('\n');
+        }
+    }
+    result
 }
 
 const SWIM_STATES: [&str; 4] = ["alive", "suspect", "dead", "other"];

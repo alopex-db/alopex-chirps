@@ -64,6 +64,7 @@ fn range(physical: u64, logical: u32, count: u32) -> TimestampRange {
 fn config(batch_size: u32) -> TsoClientConfig {
     TsoClientConfig {
         batch_size,
+        prefetch_threshold: 0,
         max_retries: 3,
         initial_backoff: Duration::from_millis(10),
         max_backoff: Duration::from_millis(100),

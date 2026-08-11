@@ -15,7 +15,10 @@ use openraft::storage::{RaftLogStorage, RaftStateMachine};
 use openraft::{Config, ConfigError, LogId, MessageSummary, ServerState, SnapshotPolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Instant;
 use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
@@ -94,6 +97,32 @@ pub enum RaftMessage {
 }
 
 impl RaftMessage {
+    /// Returns the Raft identity carried by a message's vote.
+    ///
+    /// The transport uses this value to learn the stable Mesh `NodeId` of a
+    /// peer before the first response is sent. The Raft wire payload already
+    /// carries the vote, so no additional wire field is required.
+    #[cfg(feature = "multi-raft")]
+    pub(crate) fn source_node_id(&self) -> Option<ChirpsNodeId> {
+        match self {
+            Self::AppendEntries { request, .. } => Some(request.vote.leader_id.node_id),
+            Self::AppendEntriesResponse { .. } => None,
+            Self::Vote { request, .. } => Some(request.vote.leader_id.node_id),
+            Self::VoteResponse { .. } => None,
+            Self::InstallSnapshot { request, .. } => Some(request.vote.leader_id.node_id),
+            Self::InstallSnapshotResponse { .. } => None,
+            #[cfg(feature = "snapshot")]
+            Self::SnapshotTransfer { request, .. } => match request {
+                crate::snapshot::RaftSnapshotRequest::Begin(begin) => {
+                    Some(begin.vote.leader_id.node_id)
+                }
+                _ => None,
+            },
+            #[cfg(feature = "snapshot")]
+            Self::SnapshotTransferResponse { .. } => None,
+        }
+    }
+
     /// Returns whether this message completes an already-issued RPC.
     /// Responses may be delivered directly to the transport correlation map;
     /// they do not need to wait behind state-mutating request frames.
@@ -181,6 +210,7 @@ pub struct RaftNode {
     pub(crate) transport: Arc<ChirpsRaftTransport>,
     metrics_collector: Arc<Mutex<Option<Arc<RaftMetricsCollector>>>>,
     observer_handle: Mutex<Option<JoinHandle<()>>>,
+    started: AtomicBool,
     #[cfg(feature = "snapshot")]
     incoming_snapshots: AsyncMutex<HashMap<String, IncomingSnapshot>>,
 }
@@ -228,19 +258,42 @@ impl RaftNode {
             transport,
             metrics_collector: collector,
             observer_handle: Mutex::new(Some(observer_handle)),
+            started: AtomicBool::new(true),
             #[cfg(feature = "snapshot")]
             incoming_snapshots: AsyncMutex::new(HashMap::new()),
         })
     }
 
-    /// Raft起動を行う。openraftでは生成時に起動するため、ここではNOP。
-    pub async fn start(&mut self) -> RaftResult<()> {
+    /// Raft protocol is active as soon as `new` completes. `start` is an
+    /// idempotent lifecycle acknowledgement retained for the public v0.5 API.
+    pub async fn start(&self) -> RaftResult<()> {
+        self.started.store(true, Ordering::Release);
         Ok(())
+    }
+
+    /// Returns whether the OpenRaft protocol has been started.
+    pub fn is_started(&self) -> bool {
+        self.started.load(Ordering::Acquire)
     }
 
     /// クラスターを初期化する。初回のみ呼び出すこと。
     pub async fn initialize(&self, members: BTreeSet<ChirpsNodeId>) -> RaftResult<()> {
-        self.raft.initialize(members).await.map_err(RaftError::from)
+        let result = self
+            .raft
+            .initialize(members.clone())
+            .await
+            .map_err(RaftError::from);
+        if result.is_ok() {
+            tracing::info!(
+                target: "raft",
+                event = "raft_initialized",
+                group_id = %self.config.group_id.0,
+                node_id = %self.config.node_id,
+                initial_members = ?members,
+                "Raft group initialized"
+            );
+        }
+        result
     }
 
     /// 最新のメトリクススナップショットを取得する。
@@ -571,7 +624,8 @@ impl RaftNode {
         .map_err(|_| ())?
     }
 
-    /// openraftトリガーをそのまま公開。現在はハートビートのみ。
+    /// Runs the externally-triggered heartbeat hook. Election timeout
+    /// detection remains owned by OpenRaft's background protocol task.
     pub async fn tick(&self) -> RaftResult<()> {
         self.raft
             .trigger()
@@ -605,6 +659,8 @@ impl RaftNode {
             group_id = %self.config.group_id.0,
             node_id = %self.config.node_id,
             log_id = ?last_log,
+            last_included_index = ?last_log,
+            size_bytes = 0u64,
             "Snapshot generation requested"
         );
         Ok(())
@@ -717,6 +773,7 @@ impl ObservationState {
                     event = "raft_leader_elected",
                     group_id = %group_id.0,
                     node_id = %metrics.id,
+                    source_node = %metrics.id,
                     term = %metrics.current_term,
                     leader_id = %leader_id,
                     "Leader elected"
@@ -759,6 +816,7 @@ impl ObservationState {
                     event = "raft_snapshot_installed",
                     group_id = %group_id.0,
                     node_id = %metrics.id,
+                    source_node = %metrics.id,
                     term = %metrics.current_term,
                     log_id = ?log_id,
                     "Snapshot installed"
@@ -776,6 +834,8 @@ impl ObservationState {
                     node_id = %metrics.id,
                     term = %metrics.current_term,
                     up_to_log_id = ?log_id,
+                    compacted_to_index = %log_id.index,
+                    entries_removed = 0u64,
                     "Log compacted"
                 );
             }
