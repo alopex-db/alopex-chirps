@@ -30,17 +30,10 @@ version = "0.5.2"  # ← ここを変更すると全クレートに反映
 
 ### 公開順序
 
-依存関係により、以下の順序で公開する必要があります：
-
-```
-Layer 1: alopex-chirps-wire, alopex-chirps-raft-storage
-    ↓
-Layer 2: alopex-chirps-core, alopex-chirps-gossip-swim
-    ↓
-Layer 3: alopex-chirps-mock, alopex-chirps-transport-quic, alopex-chirps-file-transfer
-    ↓
-Layer 4: alopex-chirps
-```
+公開順序を workflow に列挙しません。`scripts/publish-crates.sh` が対象 commit の
+workspace manifest から publish 可能な crate と内部依存 DAG を読み、トポロジカルな
+層へ分けてから公開します。循環依存、存在しない workspace member、publish=false
+crateへの依存があれば、最初の publish 前に失敗します。
 
 ## v0.7.0以降の必須ポリシー
 
@@ -68,7 +61,7 @@ chirps-v{major}.{minor}.{patch}
 タグの push は配布を開始しません。release captain が既存の**注釈付きタグ**を指定し、`Release` workflow を手動 dispatch した場合だけ、GitHub Actions が以下を実行します。
 
 1. **CI Gate**: tag と Cargo.toml の版一致、受入契約が `READY` であること、fmt、clippy、全 workspace test、doc test、File Transfer 受入テスト、実 QUIC/mesh E2E を検証
-2. **性能 Gate**: `self-hosted`, `linux`, `chirps-1gbps-controller` ラベルを持つ controller が、二台の物理 host 上で 128 MiB の File Transfer を実行する。sender 側 `iperf3` が 900 Mbit/s 以上、実 Chirps QUIC control / QUIC chunk stream の end-to-end transfer が 100 MB/s 以上、sender/receiver SHA-256 が一致した hash-manifested evidence を必須とする
+2. **Version-bound evidence Gate**: `docs/release/evidence/vX.Y.Z/required-evidence.json` がある版だけ、同カタログが指定する target gate runner を実行し、manifest と SHA-256 を検証する。カタログがない版はその旨をログへ明示し、evidence artifact があるのにカタログがない場合は fail closed する
 3. **Publish Crate**: 保護された GitHub `release` environment の承認後に crates.io へ依存順で公開
 4. **Create Release**: 同 environment の承認後に GitHub Release を作成
 
@@ -92,10 +85,10 @@ cargo test --workspace
 # clippy チェック
 cargo clippy --all-targets --all-features -- -D warnings
 
-# dry-run で公開可能か確認（各クレート）
-cargo publish --dry-run -p alopex-chirps-wire
-cargo publish --dry-run -p alopex-chirps-core
-cargo publish --dry-run -p alopex-chirps
+# 対象 commit の依存 DAG と公開層を確認（公開はしない）
+bash scripts/publish-crates.sh --repo-root . --plan-only
+
+# 必要なら各層の package dry-run を、上の plan 順で実行する
 ```
 
 ### 2. バージョン更新
@@ -108,7 +101,7 @@ vim Cargo.toml
 
 ```toml
 [workspace.package]
-version = "0.6.0"  # 新しいバージョン
+version = "X.Y.Z"  # 新しいバージョン
 ```
 
 ### 3. CHANGELOG 更新（推奨）
@@ -121,18 +114,18 @@ vim CHANGELOG.md
 
 ```bash
 git add Cargo.toml CHANGELOG.md
-git commit -m "chore: bump chirps version to 0.6.0"
+git commit -m "chore: bump chirps version to X.Y.Z"
 ```
 
 ### 5. release branch と受入契約の確認
 
 ```bash
-git switch -c release/v0.6.0
-cp docs/release/acceptance-template.md docs/release/v0.6.0.md
+git switch -c release/vX.Y.Z
+cp docs/release/acceptance-template.md docs/release/vX.Y.Z.md
 # 要件、テスト、evidence、未証明事項、承認を記入する
-git add docs/release/v0.6.0.md
-git commit -m "docs: add v0.6.0 release acceptance contract"
-git push origin release/v0.6.0
+git add docs/release/vX.Y.Z.md
+git commit -m "docs: add X.Y.Z release acceptance contract"
+git push origin release/vX.Y.Z
 ```
 
 `release/v*` への push と pull request では通常 CI に加え、受入契約の構造検査、FileTransfer acceptance、実 QUIC、三ノード mesh acceptance が実行されます。実装者以外の検証者が、受入契約の主張と CI/artifact の範囲を確認してください。
@@ -143,23 +136,24 @@ git push origin release/v0.6.0
 
 - [ ] 対象版の release branch CI が成功している
 - [ ] 必要な package dry-run と物理環境の evidence が記録されている
-- [ ] `scripts/verify-release-contract.sh --version 0.6.0 --require-ready` が成功する
+- [ ] `scripts/verify-release-contract.sh --version X.Y.Z --require-ready` が成功する
 - [ ] 保護された `release` environment に release captain とは別の必須 reviewer が設定されている
 
 ### 7. タグ作成、push、明示的な publish 承認
 
 ```bash
 # READY の commit に注釈付きタグを作成
-git tag -a chirps-v0.6.0 -m "Release chirps v0.6.0"
-git push origin chirps-v0.6.0
+git tag -a chirps-vX.Y.Z -m "Release chirps vX.Y.Z"
+git push origin chirps-vX.Y.Z
 
 # 公開を明示的に開始する。tag push だけでは publish されない。
 gh workflow run Release --ref main \
-  -f tag=chirps-v0.6.0 \
+  -f tag=chirps-vX.Y.Z \
+  -f commit="$(git rev-parse HEAD)" \
   -f confirm_publish=true
 ```
 
-workflow の `release` environment 承認では、受入契約の commit SHA、CI、evidence artifact を再確認してください。ユーザーから公開許可を得ていない場合、この手順を実行してはいけません。
+workflow の `release` environment 承認では、受入契約の commit SHA、CI、evidence artifact を再確認してください。`--ref main` は workflow/tooling の revision、`commit` は検証・tag・package の対象 revision です。両者を意図的に指定し、ユーザーから公開許可を得ていない場合、この手順を実行してはいけません。
 
 ### 8. リリース確認
 
@@ -209,7 +203,7 @@ cargo test --workspace
 # 修正をコミット & プッシュ
 git add -A
 git commit -m "fix: resolve CI issues"
-git push origin release/v0.6.0
+git push origin release/vX.Y.Z
 ```
 
 tag は受入契約を固定する不変の参照です。公開前に修正が必要なら新しい commit と注釈付きタグを作成し、古い tag を削除・付け替えないでください。

@@ -38,10 +38,10 @@ PR 本文には、要件・モデル property・実装箇所・ローカル検�
 ## 4. 公開前: 既存 evidence を固定して確認する
 
 1. release captain は対象 tag と commit SHA を受入契約へ固定する。
-2. `scripts/verify-release-contract.sh --version X.Y.Z --require-ready` で、`BLOCKED`、`未証明`、`TODO` がないことを確認する。
+2. `scripts/verify-release-contract.sh --version X.Y.Z --require-ready` で、`BLOCKED`、`未証明`、`TODO` がないことを確認する。`docs/release/evidence/vX.Y.Z/required-evidence.json` が存在する版では、workflow も同カタログを動的に検出し、カタログ指定の target gate runner と manifest を必須にする。版名を workflow の条件へ追加してはならない。
 3. 対象版の CI、package/dry-run、必要な実機・性能・障害復旧 evidence を確認する。
 4. 実装者以外の検証者と release captain が evidence artifact / CI run URL を契約に記録する。
-5. `Release` workflow を明示的に dispatch し、production environment protection の承認後に publish する。
+5. `Release` workflow を明示的に dispatch する。workflow の `--ref` は release tooling の revision、`commit` は検証・tag・publish 対象の immutable revision として指定し、production environment protection の承認後に publish する。
 
 ### 4.1 v0.7.0以降の性能測定・リリース判定ポリシー
 
@@ -51,7 +51,7 @@ v0.7.0以降の全リリースは、次の順序と証跡を必須とする。�
 2. **UT/component gateを性能測定より前に通す。** 各性能シナリオの失敗モードを最小テストで再現し、並行、再試行、復旧、wire、backpressure、queue、RSS、timeoutを検証する。性能測定は既知の不具合を探す場所ではなく、修正済み実装の測定と回帰検出に限定する。
 3. **全featureと対象版のlocal gateを先に通す。** `cargo test --locked --workspace --all-features`、対象crateのignored/acceptance test、docs、fmt、clippy、deterministic replay、package/dry-run、registry-only dependency検証を、GitHub Actions dispatch前に同じcommitで実行する。CIで初めて要件漏れ・UT不足・公開順序不備を発見してはならない。
 4. **測定範囲を正確に主張する。** 物理3ノードがない場合はloopback、container、論理3-voterなどの範囲を明記し、物理3ノード性能・実ネットワーク障害・外部Prometheus deploymentの証明に昇格させない。性能artifactにはsample数、中央値/CI、errors/timeouts、RTT、RSS/queue、host条件、再生コマンドを固定する。
-5. **公開ゲートを冪等にする。** crate公開順は依存DAGに従い、既公開versionは検証付きでskipする。部分公開時はtag SHAとversionを照合して再開し、別commitへのtag再利用や直接`cargo publish`によるenvironment承認の迂回は禁止する。
+5. **公開ゲートを冪等にする。** crate公開順は対象 commit の Cargo manifest から依存DAGを計算し、循環・順序不備を publish 前に拒否する。既公開versionは `publish-crate.sh` の registry 応答に基づき skip する。部分公開時は tag SHA と version を照合して同じ workflow を再開し、別commitへのtag再利用や直接`cargo publish`によるenvironment承認の迂回は禁止する。
 6. **公開後に直接照合する。** workflow成功だけで完了扱いにせず、tag SHA、GitHub Release、各registryのversion/source、target-version gate artifactを直接確認する。確認結果をrelease契約と対応Issueへコメントし、受入条件を満たしたIssueだけをクローズする。未証明・対象外・残課題は次版Issueへ明示的に移す。
 
 対象版のゲートは公開前に再実行するが、それは commit / package の同一性を確認するためであり、要件設計の代替ではありません。tag push は公開開始のトリガーにせず、タグと crates.io / GitHub Release への配布を別の承認境界にします。
