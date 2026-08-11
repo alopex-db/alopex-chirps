@@ -8,6 +8,7 @@ members = [
     "crates/chirps-mock",
     "crates/chirps-core",
     "crates/chirps-raft-storage",
+    "crates/chirps-backend-iggy",
     "tests/e2e",
     "tools/chirps-deterministic-harness",
     "tools/chirps-multi-raft-perf",
@@ -32,6 +33,7 @@ alopex-chirps-mock = { version = "0.6.1", path = "crates/chirps-mock" }
 alopex-chirps-raft-storage = { version = "0.6.1", path = "crates/chirps-raft-storage" }
 alopex-chirps-transport-quic = { version = "0.6.1", path = "crates/chirps-transport-quic" }
 alopex-chirps-file-transfer = { version = "0.6.1", path = "crates/chirps-file-transfer" }
+alopex-chirps-backend-iggy = { version = "0.6.1", path = "crates/chirps-backend-iggy" }
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
