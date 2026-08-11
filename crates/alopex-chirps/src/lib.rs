@@ -36,6 +36,8 @@ pub use crate::raft::{
     RaftMetricsCollector, RaftMetricsUpdate, RaftNode, TsoMetricsUpdate, serve_metrics,
     serve_metrics_authorized,
 };
+#[cfg(feature = "durable-iggy")]
+pub use alopex_chirps_backend_iggy as durable_iggy;
 pub use alopex_chirps_file_transfer::{
     BroadcastHandle, CompressionAlgorithm, ConflictResolution, FileInfo, FileMetadata,
     FileTransferConfig, FileTransferError, FileTransferService, FileTransferServiceImpl,

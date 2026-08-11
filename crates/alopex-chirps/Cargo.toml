@@ -12,6 +12,7 @@ documentation = "https://docs.rs/alopex-chirps"
 
 [features]
 default = []
+durable-iggy = ["dep:alopex-chirps-backend-iggy"]
 multi-raft = ["openraft/storage-v2"]
 tso = ["multi-raft"]
 hlc = ["alopex-chirps-gossip-swim/hlc", "alopex-chirps-wire/hlc"]
@@ -19,6 +20,7 @@ snapshot = ["multi-raft"]
 
 [dependencies]
 alopex-chirps-core.workspace = true
+alopex-chirps-backend-iggy = { workspace = true, optional = true }
 alopex-chirps-file-transfer.workspace = true
 alopex-chirps-gossip-swim.workspace = true
 alopex-chirps-raft-storage.workspace = true

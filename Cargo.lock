@@ -70,6 +70,7 @@ dependencies = [
 name = "alopex-chirps"
 version = "0.6.1"
 dependencies = [
+ "alopex-chirps-backend-iggy",
  "alopex-chirps-core",
  "alopex-chirps-file-transfer",
  "alopex-chirps-gossip-swim",
