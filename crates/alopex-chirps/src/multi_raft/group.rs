@@ -1,6 +1,7 @@
 use super::{GroupId, MultiRaftError};
 use crate::raft::{BasicNode, ChirpsNodeId, RaftMetricsCollector};
 use crate::raft::{RaftFramePayload, RaftMessage, RaftNode};
+use alopex_chirps_wire::node_id::NodeId;
 use openraft::metrics::RaftMetrics;
 use std::future::Future;
 use std::sync::Arc;
@@ -54,6 +55,12 @@ impl GroupHandle {
 
     pub(crate) fn record_received(&self, message: &RaftMessage) {
         self.node.transport.record_received(message.metric_type());
+    }
+
+    pub(crate) fn register_node_id(&self, raft_node_id: ChirpsNodeId, wire_node_id: NodeId) {
+        self.node
+            .transport
+            .register_node_id(raft_node_id, wire_node_id);
     }
 
     pub(crate) async fn send_response(

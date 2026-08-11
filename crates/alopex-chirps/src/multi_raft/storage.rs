@@ -20,6 +20,12 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 
 /// Begins construction of storage isolated to a single Raft group.
+///
+/// Chirps v0.6 uses the transactional `begin_storage` API so a failed Raft
+/// node initialization can abort both group directories before the group is
+/// inserted into the manager. The reference design's synchronous
+/// `create_storage(group_id)` name is retained as migration terminology and
+/// is not a second trait method in this release.
 #[async_trait]
 pub trait RaftStorageFactory: Send + Sync + 'static {
     type StateMachine: StateMachine<Command = Vec<u8>, Response = Vec<u8>>;

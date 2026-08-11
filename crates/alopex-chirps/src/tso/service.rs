@@ -1,5 +1,7 @@
-use super::{TimestampOracle, TimestampRange, TsoError};
+use super::{TimestampOracle, TimestampRange, TsoError, client::TsoFrame};
 use crate::raft::RaftMetricsCollector;
+use alopex_chirps_wire::frame::{Frame, UserMessage};
+use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -65,5 +67,44 @@ impl TsoService {
         self.oracle
             .get_timestamps_started(request.count, started)
             .await
+    }
+
+    pub(crate) async fn handle_frame(&self, from: NodeId, frame: Frame) -> Option<Frame> {
+        let Frame::User(UserMessage { payload }) = frame else {
+            return None;
+        };
+        let message = bincode::deserialize::<TsoFrame>(&payload).ok()?;
+        let response = match message {
+            TsoFrame::Request {
+                correlation_id,
+                request,
+            } => TsoFrame::TimestampResponse {
+                correlation_id,
+                response: self.get_timestamps(request).await,
+            },
+            TsoFrame::DiscoverLeader {
+                correlation_id,
+                requester,
+                credential,
+            } => {
+                let authenticated = self
+                    .authenticator
+                    .authenticate(requester, &credential)
+                    .await;
+                let response = if !authenticated {
+                    Err(TsoError::Unauthenticated { node_id: requester })
+                } else {
+                    Ok(self.oracle.leader_id().unwrap_or(self.oracle.node_id()))
+                };
+                TsoFrame::LeaderResponse {
+                    correlation_id,
+                    response,
+                }
+            }
+            TsoFrame::TimestampResponse { .. } | TsoFrame::LeaderResponse { .. } => return None,
+        };
+        let payload = bincode::serialize(&response).ok()?;
+        let _ = from;
+        Some(Frame::User(UserMessage { payload }))
     }
 }

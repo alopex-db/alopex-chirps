@@ -1,8 +1,15 @@
 use crate::backend::MessageBackend;
 use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
+use crate::memory::{MemoryConfig, MemoryError, MemoryManager, MemoryStats};
+#[cfg(feature = "multi-raft")]
+use crate::multi_raft::{MultiRaftManager, RaftStorageFactory};
 use crate::node_id::{NodeId, load_or_create_node_id};
 use crate::profile::{EnvelopeMetadata, MessageProfile, resolve_profile};
+#[cfg(feature = "multi-raft")]
+use crate::raft::ChirpsRaftTransport;
+#[cfg(feature = "tso")]
+use crate::tso::TsoService;
 use alopex_chirps_file_transfer::{
     ChunkStreamOpener, FileTransferConfig, FileTransferError, FileTransferServiceImpl,
 };
@@ -32,6 +39,93 @@ pub struct MeshHandle {
 }
 
 impl MeshHandle {
+    /// Creates the Raft transport adapter over this mesh's QUIC backend.
+    #[cfg(feature = "multi-raft")]
+    pub fn raft_transport(&self, raft_node_id: u64) -> Arc<ChirpsRaftTransport> {
+        let transport = Arc::new(ChirpsRaftTransport::new(
+            Arc::clone(&self.inner.backend),
+            alopex_chirps_raft_storage::types::GroupId(0),
+            raft_node_id,
+        ));
+        transport.register_node_id(raft_node_id, self.inner.node_id);
+        transport
+    }
+
+    /// Installs the manager in the mesh receive path. Raft frames are then
+    /// dispatched internally; callers do not need to run a subscriber loop.
+    #[cfg(feature = "multi-raft")]
+    pub fn attach_raft_manager<F>(&self, manager: Arc<MultiRaftManager<F>>)
+    where
+        F: RaftStorageFactory,
+    {
+        manager.register_node_id(manager.node_id(), self.inner.node_id);
+
+        let identity_manager = Arc::clone(&manager);
+        self.inner
+            .raft_identity_handlers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(Arc::new(move |wire_node_id, raft_node_id| {
+                identity_manager.register_node_id(raft_node_id, wire_node_id);
+            }));
+
+        let join_mesh = self.clone();
+        let join_identity = manager.identity_frame();
+        self.on_node_join(move |peer| {
+            let mesh = join_mesh.clone();
+            let frame = join_identity.clone();
+            tokio::spawn(async move {
+                if let Err(error) = mesh.send_to(peer, frame).await {
+                    tracing::debug!(peer = ?peer, %error, "Raft identity advertisement failed");
+                }
+            });
+        });
+
+        let announce_mesh = self.clone();
+        let announce_identity = manager.identity_frame();
+        tokio::spawn(async move {
+            let _ = announce_mesh.broadcast(announce_identity).await;
+        });
+
+        self.inner
+            .raft_handlers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(manager);
+    }
+
+    /// Installs a TSO service in the mesh receive path.
+    #[cfg(feature = "tso")]
+    pub async fn attach_tso_service(&self, service: Arc<TsoService>) -> Result<(), MeshError> {
+        let mut receiver = self.subscribe().await?;
+        let mesh = self.clone();
+        tokio::spawn(async move {
+            while let Some((from, frame)) = receiver.recv().await {
+                if let Some(response) = service.handle_frame(from, frame).await
+                    && let Err(error) = mesh.send_to(from, response).await
+                {
+                    tracing::warn!(peer = ?from, %error, "TSO response send failed");
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Dynamically changes the logical memory budget for this node.
+    pub fn resize_memory_budget(&self, new_budget: usize) -> Result<(), MemoryError> {
+        self.inner.memory.resize_memory_budget(new_budget)
+    }
+
+    /// Returns the current Chirps-owned memory accounting snapshot.
+    pub fn get_memory_stats(&self) -> MemoryStats {
+        self.inner.memory.get_memory_stats()
+    }
+
+    /// Applies configured caps and synchronously releases accounted cache usage.
+    pub fn trigger_gc(&self) -> Result<(), MemoryError> {
+        self.inner.memory.trigger_gc()
+    }
+
     /// 指定したピアへフレームを送信する。
     pub async fn send_to(&self, target: NodeId, frame: Frame) -> Result<(), MeshError> {
         self.send_to_with_profile(target, frame, MessageProfile::Control)
@@ -213,6 +307,20 @@ impl MeshHandle {
 /// QUICトランスポートとSWIMゴシップを束ねるメッシュ本体。
 type NodeHandler = Arc<dyn Fn(NodeId) + Send + Sync>;
 
+#[cfg(feature = "multi-raft")]
+type RaftIdentityHandler = Arc<dyn Fn(NodeId, u64) + Send + Sync>;
+
+#[cfg(feature = "multi-raft")]
+#[async_trait::async_trait]
+pub(crate) trait RaftFrameHandler: Send + Sync {
+    async fn handle_raft_frame(
+        &self,
+        source: NodeId,
+        destination: NodeId,
+        frame: Frame,
+    ) -> Result<(), String>;
+}
+
 pub struct Mesh {
     pub(crate) node_id: NodeId,
     pub(crate) incarnation: u64,
@@ -221,11 +329,16 @@ pub struct Mesh {
     quic_backend: Arc<QuicBackend>,
     gossip: Arc<Mutex<GossipEngine>>,
     frame_subscribers: std::sync::Mutex<Vec<mpsc::Sender<(NodeId, Frame)>>>,
+    #[cfg(feature = "multi-raft")]
+    raft_handlers: std::sync::Mutex<Vec<Arc<dyn RaftFrameHandler>>>,
+    #[cfg(feature = "multi-raft")]
+    raft_identity_handlers: std::sync::Mutex<Vec<RaftIdentityHandler>>,
     join_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     leave_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     status_handlers: std::sync::Mutex<Vec<NodeHandler>>,
     _tasks: Vec<JoinHandle<()>>,
     metrics: Arc<MeshMetrics>,
+    memory: Arc<MemoryManager>,
 }
 
 #[derive(Default)]
@@ -322,11 +435,18 @@ impl Mesh {
             quic_backend,
             gossip,
             frame_subscribers: std::sync::Mutex::new(Vec::new()),
+            #[cfg(feature = "multi-raft")]
+            raft_handlers: std::sync::Mutex::new(Vec::new()),
+            #[cfg(feature = "multi-raft")]
+            raft_identity_handlers: std::sync::Mutex::new(Vec::new()),
             join_handlers: std::sync::Mutex::new(Vec::new()),
             leave_handlers: std::sync::Mutex::new(Vec::new()),
             status_handlers: std::sync::Mutex::new(Vec::new()),
             _tasks: Vec::new(),
             metrics: Arc::new(MeshMetrics::default()),
+            memory: Arc::new(
+                MemoryManager::new(MemoryConfig::default()).expect("default memory config"),
+            ),
         });
 
         let tasks = vec![
@@ -438,7 +558,51 @@ fn spawn_frame_loop(mesh: Arc<Mesh>) -> JoinHandle<()> {
                         tracing::warn!(peer = ?from, %error, "rejected HLC gossip message");
                     }
                 }
+                Frame::User(message) => {
+                    #[cfg(feature = "multi-raft")]
+                    if let Some(raft_node_id) =
+                        ChirpsRaftTransport::decode_identity_frame(&Frame::User(message.clone()))
+                    {
+                        let handlers = mesh
+                            .raft_identity_handlers
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .clone();
+                        for handler in handlers {
+                            handler(from, raft_node_id);
+                        }
+                        continue;
+                    }
+
+                    let subscribers = {
+                        let mut subscribers = mesh.frame_subscribers.lock().unwrap();
+                        subscribers.retain(|sender| !sender.is_closed());
+                        subscribers.clone()
+                    };
+                    for subscriber in subscribers {
+                        let _ = subscriber.send((from, Frame::User(message.clone()))).await;
+                    }
+                }
                 frame => {
+                    #[cfg(feature = "multi-raft")]
+                    if matches!(frame, Frame::Raft(_) | Frame::RaftSnapshot(_)) {
+                        let handlers = mesh
+                            .raft_handlers
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .clone();
+                        if !handlers.is_empty() {
+                            for handler in handlers {
+                                if let Err(error) = handler
+                                    .handle_raft_frame(from, mesh.node_id, frame.clone())
+                                    .await
+                                {
+                                    tracing::warn!(peer = ?from, %error, "Raft frame dispatch failed");
+                                }
+                            }
+                            continue;
+                        }
+                    }
                     let subscribers = {
                         let mut subscribers = mesh.frame_subscribers.lock().unwrap();
                         subscribers.retain(|sender| !sender.is_closed());

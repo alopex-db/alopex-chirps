@@ -24,41 +24,72 @@ fn p99(latencies: &[u64]) -> u64 {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn raft_p99_latency_under_user_load_stays_within_10pct() {
-    let mut qos = QosController::new(QosConfig::default());
+async fn raft_p99_dispatch_turns_under_user_load_are_bounded() {
+    const SAMPLE_COUNT: usize = 4_096;
+    const USER_BACKLOG: usize = 8_192;
     let from = NodeId::new();
 
-    // Baseline: Raft-only
-    let mut baseline_lat = Vec::new();
-    for i in 0..500 {
-        let start = Instant::now();
-        qos.enqueue(StreamKind::Raft, raft_frame(i, from))
+    // This is an in-memory scheduler: wall-clock enqueue/dequeue time is
+    // below useful resolution and varies with workspace load. The contract
+    // under test is logical service latency, measured in dequeue turns, over
+    // enough samples and a substantial sustained User backlog.
+    let mut baseline = QosController::new(QosConfig::default());
+    let mut baseline_turns = Vec::with_capacity(SAMPLE_COUNT);
+    for i in 0..SAMPLE_COUNT {
+        baseline
+            .enqueue(StreamKind::Raft, raft_frame(i as u64, from))
             .await
             .unwrap();
-        let _ = qos.dequeue().unwrap();
-        baseline_lat.push(start.elapsed().as_micros() as u64);
+        let mut turns = 0;
+        loop {
+            turns += 1;
+            if baseline.dequeue().expect("baseline message").0 == StreamKind::Raft {
+                break;
+            }
+        }
+        baseline_turns.push(turns);
     }
-    let baseline_p99 = p99(&baseline_lat).max(1);
+    let baseline_p99 = p99(&baseline_turns);
 
-    // Loaded: heavy User backlog plus Raft messages
-    let mut loaded_lat = Vec::new();
-    for _ in 0..2_000 {
-        qos.enqueue(StreamKind::User, user_frame()).await.unwrap();
-    }
-    for i in 0..500 {
-        let start = Instant::now();
-        qos.enqueue(StreamKind::Raft, raft_frame(i, from))
+    let mut loaded = QosController::new(QosConfig::default());
+    for _ in 0..USER_BACKLOG {
+        loaded
+            .enqueue(StreamKind::User, user_frame())
             .await
             .unwrap();
-        let _ = qos.dequeue().unwrap();
-        loaded_lat.push(start.elapsed().as_micros() as u64);
+    }
+    let mut loaded_turns = Vec::with_capacity(SAMPLE_COUNT);
+    for i in 0..SAMPLE_COUNT {
+        loaded
+            .enqueue(StreamKind::Raft, raft_frame(i as u64, from))
+            .await
+            .unwrap();
+        let mut turns = 0;
+        loop {
+            turns += 1;
+            if loaded.dequeue().expect("loaded message").0 == StreamKind::Raft {
+                break;
+            }
+        }
+        loaded_turns.push(turns);
     }
 
-    let loaded_p99 = p99(&loaded_lat);
+    let loaded_p99 = p99(&loaded_turns);
+    let mut users_served = 0;
+    while let Some((kind, _)) = loaded.dequeue() {
+        if kind == StreamKind::User {
+            users_served += 1;
+        }
+    }
     assert!(
-        loaded_p99 as f64 <= baseline_p99 as f64 * 1.10 + 1.0,
-        "Raft p99 latency degraded more than 10%: baseline {baseline_p99}µs vs loaded {loaded_p99}µs"
+        baseline_p99 >= 1,
+        "baseline must contain measurable dispatch"
     );
+    assert!(
+        loaded_p99 <= baseline_p99 + 1,
+        "Raft dispatch p99 exceeded one scheduler turn over baseline: baseline {baseline_p99} turns vs loaded {loaded_p99} turns"
+    );
+    assert!(users_served > 0, "User traffic must still make progress");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

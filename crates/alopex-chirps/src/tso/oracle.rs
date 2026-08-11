@@ -10,12 +10,16 @@ pub const TSO_GROUP_ID: GroupId = GroupId(u64::MAX);
 
 #[derive(Clone, Copy, Debug)]
 pub struct TsoConfig {
+    pub batch_size: u32,
+    pub prefetch_threshold: u32,
     pub timestamp_ttl: Duration,
 }
 
 impl Default for TsoConfig {
     fn default() -> Self {
         Self {
+            batch_size: 10_000,
+            prefetch_threshold: 1_000,
             timestamp_ttl: Duration::from_secs(3),
         }
     }
@@ -43,6 +47,16 @@ impl TimestampOracle {
                 expected: TSO_GROUP_ID,
                 actual: group.group_id(),
             });
+        }
+        if config.batch_size == 0 {
+            return Err(TsoError::InvalidConfig(
+                "batch_size must be greater than zero".into(),
+            ));
+        }
+        if config.prefetch_threshold > config.batch_size {
+            return Err(TsoError::InvalidConfig(
+                "prefetch_threshold must not exceed batch_size".into(),
+            ));
         }
         let lease_duration_ms: u64 = config.timestamp_ttl.as_millis().try_into().map_err(|_| {
             TsoError::InvalidConfig("timestamp_ttl exceeds u64 milliseconds".into())
@@ -81,6 +95,10 @@ impl TimestampOracle {
 
     pub fn leader_id(&self) -> Option<u64> {
         self.group.metrics().current_leader
+    }
+
+    pub(crate) fn node_id(&self) -> u64 {
+        self.node_id
     }
 
     pub async fn get_timestamp(&self) -> Result<super::HybridTimestamp, TsoError> {

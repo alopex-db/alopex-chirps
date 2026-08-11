@@ -29,9 +29,10 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::select;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, RwLock, Semaphore, broadcast, mpsc, oneshot};
@@ -75,6 +76,7 @@ const DEFAULT_SERVER_NAME: &str = "alopex.local";
 const MAX_FRAME_SIZE: usize = 64 * 1024;
 const MAX_CONCURRENT_SENDS: usize = 64;
 const SEND_RETRY_ATTEMPTS: usize = 1;
+const HEALTH_PROBE: &[u8] = b"chirps-health-v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -113,6 +115,25 @@ impl StreamKind {
                 | StreamKind::RaftSnapshot
                 | StreamKind::FileTransfer
         )
+    }
+}
+
+/// Replay policy for QUIC early data.
+///
+/// Chirps application messages are currently all replay-sensitive: Raft
+/// requests, file-transfer controls, and control-plane messages can trigger
+/// state changes even when their envelope is retransmitted. Keep the policy
+/// explicit so a future 0-RTT implementation cannot silently put one of
+/// those operations on an early-data stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EarlyDataPolicy {
+    /// The operation must wait for the authenticated 1-RTT handshake.
+    Disabled,
+}
+
+impl EarlyDataPolicy {
+    pub const fn for_stream(_kind: StreamKind) -> Self {
+        Self::Disabled
     }
 }
 
@@ -424,6 +445,18 @@ impl QuicBackend {
             backend.shutdown.clone(),
             transport_config.max_idle_timeout,
         );
+        spawn_health_check_loop(
+            Arc::clone(&backend.connections),
+            Arc::clone(&backend.last_activity),
+            Arc::clone(&backend.peer_capabilities),
+            Arc::clone(&backend.metrics),
+            Arc::clone(&backend.raft_batch_streams),
+            backend.shutdown.clone(),
+            transport_config
+                .max_idle_timeout
+                .min(Duration::from_secs(5)),
+            backend.send_timeout,
+        );
         let _ = backend.reconnect_tx.try_send(ReconnectCommand::Trigger);
 
         Ok(backend)
@@ -502,6 +535,11 @@ impl QuicBackend {
             .map_err(|_| TransportError::Connection("reconnect worker stopped".into()))
     }
 
+    /// Returns the address selected by the QUIC endpoint.
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        self.endpoint.local_addr()
+    }
+
     /// 現在のトランスポートメトリクスを取得する。
     pub fn metrics(&self) -> TransportMetricsSnapshot {
         TransportMetricsSnapshot {
@@ -562,6 +600,22 @@ impl QuicBackend {
         self.file_transfer_rx.lock().await.take().ok_or_else(|| {
             TransportError::Subscribe("file transfer streams already subscribed".into())
         })
+    }
+
+    /// Probes a retained peer and removes it when the QUIC connection is no
+    /// longer usable. The probe is an internal bidirectional control stream;
+    /// it does not alter Chirps wire envelopes or persisted data.
+    pub async fn health_check(&self, target: NodeId) -> Result<bool, TransportError> {
+        health_check_peer(
+            &self.connections,
+            &self.last_activity,
+            &self.peer_capabilities,
+            &self.metrics,
+            &self.raft_batch_streams,
+            target,
+            self.send_timeout,
+        )
+        .await
     }
 }
 
@@ -836,6 +890,37 @@ async fn handle_connection(
                     return Err(TransportError::Connection(err.to_string()));
                 }
             },
+            next = connection.accept_bi() => match next {
+                Ok((mut send, mut recv)) => {
+                    tokio::spawn(async move {
+                        let mut probe = vec![0; HEALTH_PROBE.len()];
+                        if recv.read_exact(&mut probe).await.is_ok()
+                            && probe == HEALTH_PROBE
+                            && send.write_all(HEALTH_PROBE).await.is_ok()
+                        {
+                            let _ = send.finish();
+                        }
+                    });
+                }
+                Err(err) => {
+                    let buffered = retransmit_buffer.read().await.stats(remote_id).buffered_count;
+                    remove_connection_if_current(
+                        &connections,
+                        &last_activity,
+                        &peer_capabilities,
+                        &metrics,
+                        remote_id,
+                        connection.stable_id(),
+                    )
+                    .await;
+                    emit_event(TransportEvent::PeerDisconnected {
+                        node_id: peer_label.clone(),
+                        reason: err.to_string(),
+                        buffered_messages: buffered,
+                    });
+                    return Err(TransportError::Connection(err.to_string()));
+                }
+            },
         }
     }
 
@@ -924,6 +1009,96 @@ fn connection_limit_reached(current: usize, is_new_peer: bool, limit: usize) -> 
 
 fn is_idle_expired(now: Instant, last_activity: Instant, timeout: Duration) -> bool {
     now.duration_since(last_activity) >= timeout
+}
+
+async fn health_check_peer(
+    connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: &Arc<RwLock<HashMap<NodeId, Instant>>>,
+    peer_capabilities: &Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    metrics: &Arc<TransportCounters>,
+    raft_batch_streams: &Arc<Mutex<HashMap<NodeId, BatchStream>>>,
+    target: NodeId,
+    timeout: Duration,
+) -> Result<bool, TransportError> {
+    let Some(connection) = connections.read().await.get(&target).cloned() else {
+        return Ok(false);
+    };
+    let healthy = if connection.close_reason().is_some() {
+        false
+    } else {
+        match time::timeout(timeout, connection.open_bi()).await {
+            Ok(Ok((mut send, mut recv))) => {
+                let probe = async {
+                    send.write_all(HEALTH_PROBE)
+                        .await
+                        .map_err(|err| err.to_string())?;
+                    send.finish().map_err(|err| err.to_string())?;
+                    let mut response = vec![0; HEALTH_PROBE.len()];
+                    recv.read_exact(&mut response)
+                        .await
+                        .map_err(|err| err.to_string())?;
+                    Ok::<bool, String>(response == HEALTH_PROBE)
+                };
+                time::timeout(timeout, probe)
+                    .await
+                    .unwrap_or(Ok(false))
+                    .unwrap_or(false)
+            }
+            _ => false,
+        }
+    };
+    if healthy {
+        return Ok(true);
+    }
+    if remove_connection_if_current(
+        connections,
+        last_activity,
+        peer_capabilities,
+        metrics,
+        target,
+        connection.stable_id(),
+    )
+    .await
+    {
+        raft_batch_streams.lock().await.remove(&target);
+        connection.close(VarInt::from_u32(4), b"chirps health check failed");
+    }
+    Ok(false)
+}
+
+fn spawn_health_check_loop(
+    connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
+    last_activity: Arc<RwLock<HashMap<NodeId, Instant>>>,
+    peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
+    metrics: Arc<TransportCounters>,
+    raft_batch_streams: Arc<Mutex<HashMap<NodeId, BatchStream>>>,
+    shutdown: broadcast::Sender<()>,
+    interval: Duration,
+    timeout: Duration,
+) {
+    tokio::spawn(async move {
+        let mut ticker = time::interval(interval);
+        let mut shutdown_rx = shutdown.subscribe();
+        loop {
+            select! {
+                _ = shutdown_rx.recv() => break,
+                _ = ticker.tick() => {
+                    let peers: Vec<NodeId> = connections.read().await.keys().copied().collect();
+                    for peer in peers {
+                        let _ = health_check_peer(
+                            &connections,
+                            &last_activity,
+                            &peer_capabilities,
+                            &metrics,
+                            &raft_batch_streams,
+                            peer,
+                            timeout,
+                        ).await;
+                    }
+                }
+            }
+        }
+    });
 }
 
 async fn send_handshake(
@@ -1468,6 +1643,23 @@ async fn send_to_peer(
             .cloned()
             .ok_or_else(|| TransportError::Connection(format!("peer {target:?} not connected")))?
     };
+    if conn.close_reason().is_some() {
+        if remove_connection_if_current(
+            connections,
+            last_activity,
+            peer_capabilities,
+            metrics,
+            target,
+            conn.stable_id(),
+        )
+        .await
+        {
+            raft_batch_streams.lock().await.remove(&target);
+        }
+        return Err(TransportError::Connection(format!(
+            "peer {target:?} connection is closed"
+        )));
+    }
     last_activity.write().await.insert(target, Instant::now());
     let kind = stream_kind_for_frame(&frame);
     let caps = {
@@ -1580,39 +1772,46 @@ fn build_tls_configs(
     // calls are harmless when another test has already installed a provider.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let (cert_der, key_der) = if let (Some(cert_path), Some(key_path)) =
+    let (cert_der, key_der, roots) = if let (Some(cert_path), Some(key_path)) =
         (config.cert_path.as_ref(), config.key_path.as_ref())
     {
-        (fs::read(cert_path)?, fs::read(key_path)?)
+        let material =
+            load_cached_certificate_material(cert_path, key_path, &config.trusted_cert_paths)?;
+        (
+            material.cert_der.clone(),
+            material.key_der.clone(),
+            material.roots.clone(),
+        )
     } else {
         let cert = generate_simple_self_signed([DEFAULT_SERVER_NAME.to_string()])?;
-        (cert.serialize_der()?, cert.serialize_private_key_der())
+        let cert_der = cert.serialize_der()?;
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(CertificateDer::from(cert_der.clone()))
+            .map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
+        (cert_der, cert.serialize_private_key_der(), Arc::new(roots))
     };
 
     let cert_chain = vec![CertificateDer::from(cert_der.clone())];
-    let priv_key = PrivatePkcs8KeyDer::from(key_der).into();
-    let mut server_crypto = rustls::ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(cert_chain, priv_key)?;
+    let priv_key = PrivatePkcs8KeyDer::from(key_der.clone()).into();
+    let client_verifier =
+        rustls::server::WebPkiClientVerifier::builder(Arc::clone(&roots)).build()?;
+    let mut server_crypto =
+        rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_client_cert_verifier(client_verifier)
+            .with_single_cert(cert_chain, priv_key)?;
     server_crypto.alpn_protocols = vec![b"alopex".to_vec()];
     let mut server_config =
         ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
     server_config.transport_config(Arc::clone(&transport_config));
 
-    let mut roots = RootCertStore::empty();
-    roots
-        .add(CertificateDer::from(cert_der))
-        .map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
-    for cert_path in &config.trusted_cert_paths {
-        let trusted_cert = fs::read(cert_path)?;
-        roots
-            .add(CertificateDer::from(trusted_cert))
-            .map_err(|_| anyhow::anyhow!("failed to add trusted root cert"))?;
-    }
-
-    let mut client_crypto = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let mut client_crypto =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_root_certificates((*roots).clone())
+            .with_client_auth_cert(
+                vec![CertificateDer::from(cert_der)],
+                PrivatePkcs8KeyDer::from(key_der).into(),
+            )?;
     client_crypto.alpn_protocols = vec![b"alopex".to_vec()];
 
     let mut client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
@@ -1620,10 +1819,125 @@ fn build_tls_configs(
     Ok((server_config, client_config))
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CertificateCacheStats {
+    pub entries: usize,
+    pub hits: u64,
+    pub misses: u64,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct CertificateCacheKey {
+    cert_path: PathBuf,
+    key_path: PathBuf,
+    trusted_cert_paths: Vec<PathBuf>,
+    fingerprints: Vec<FileFingerprint>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct FileFingerprint {
+    length: u64,
+    modified_nanos: u128,
+}
+
+struct CachedCertificateMaterial {
+    cert_der: Vec<u8>,
+    key_der: Vec<u8>,
+    roots: Arc<RootCertStore>,
+}
+
+#[derive(Default)]
+struct CertificateCacheState {
+    entries: HashMap<CertificateCacheKey, Arc<CachedCertificateMaterial>>,
+    hits: u64,
+    misses: u64,
+}
+
+static CERTIFICATE_CACHE: OnceLock<StdMutex<CertificateCacheState>> = OnceLock::new();
+
+pub fn certificate_cache_stats() -> CertificateCacheStats {
+    let cache = CERTIFICATE_CACHE
+        .get_or_init(|| StdMutex::new(CertificateCacheState::default()))
+        .lock()
+        .expect("certificate cache lock poisoned");
+    CertificateCacheStats {
+        entries: cache.entries.len(),
+        hits: cache.hits,
+        misses: cache.misses,
+    }
+}
+
+fn load_cached_certificate_material(
+    cert_path: &Path,
+    key_path: &Path,
+    trusted_cert_paths: &[PathBuf],
+) -> anyhow::Result<Arc<CachedCertificateMaterial>> {
+    let mut paths = Vec::with_capacity(trusted_cert_paths.len() + 2);
+    paths.push(cert_path.to_path_buf());
+    paths.push(key_path.to_path_buf());
+    paths.extend(trusted_cert_paths.iter().cloned());
+    let fingerprints = paths
+        .iter()
+        .map(|path| file_fingerprint(path))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let key = CertificateCacheKey {
+        cert_path: cert_path.to_path_buf(),
+        key_path: key_path.to_path_buf(),
+        trusted_cert_paths: trusted_cert_paths.to_vec(),
+        fingerprints,
+    };
+    let cache = CERTIFICATE_CACHE.get_or_init(|| StdMutex::new(CertificateCacheState::default()));
+    let mut cache = cache.lock().expect("certificate cache lock poisoned");
+    if let Some(material) = cache.entries.get(&key).cloned() {
+        cache.hits += 1;
+        return Ok(material);
+    }
+
+    let cert_der = fs::read(cert_path)?;
+    let key_der = fs::read(key_path)?;
+    let mut roots = RootCertStore::empty();
+    roots
+        .add(CertificateDer::from(cert_der.clone()))
+        .map_err(|_| anyhow::anyhow!("failed to add root cert"))?;
+    for trusted_cert_path in trusted_cert_paths {
+        roots
+            .add(CertificateDer::from(fs::read(trusted_cert_path)?))
+            .map_err(|_| anyhow::anyhow!("failed to add trusted root cert"))?;
+    }
+    let material = Arc::new(CachedCertificateMaterial {
+        cert_der,
+        key_der,
+        roots: Arc::new(roots),
+    });
+    cache.entries.insert(key, Arc::clone(&material));
+    cache.misses += 1;
+    Ok(material)
+}
+
+fn file_fingerprint(path: &Path) -> anyhow::Result<FileFingerprint> {
+    let metadata = fs::metadata(path)?;
+    let modified_nanos = metadata
+        .modified()
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    Ok(FileFingerprint {
+        length: metadata.len(),
+        modified_nanos,
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{connection_limit_reached, is_idle_expired};
+    use super::{
+        build_tls_configs, certificate_cache_stats, connection_limit_reached, is_idle_expired,
+    };
+    use alopex_chirps_core::config::NodeConfig;
+    use rcgen::generate_simple_self_signed;
+    use std::fs;
     use std::time::Duration;
+    use tempfile::TempDir;
     use tokio::time::Instant;
 
     #[test]
@@ -1643,5 +1957,28 @@ mod tests {
             timeout
         ));
         assert!(is_idle_expired(last + timeout, last, timeout));
+    }
+
+    #[test]
+    fn repeated_tls_configuration_uses_the_certificate_cache() {
+        let dir = TempDir::new().expect("certificate directory");
+        let cert = generate_simple_self_signed(["alopex.local".to_owned()]).expect("certificate");
+        let cert_path = dir.path().join("node.crt");
+        let key_path = dir.path().join("node.key");
+        fs::write(&cert_path, cert.serialize_der().expect("certificate der")).expect("cert");
+        fs::write(&key_path, cert.serialize_private_key_der()).expect("key");
+        let config = NodeConfig {
+            cert_path: Some(cert_path.clone()),
+            key_path: Some(key_path),
+            trusted_cert_paths: vec![cert_path],
+            ..NodeConfig::default()
+        };
+        let transport = std::sync::Arc::new(quinn::TransportConfig::default());
+        let before = certificate_cache_stats();
+        build_tls_configs(&config, std::sync::Arc::clone(&transport)).expect("first TLS config");
+        build_tls_configs(&config, transport).expect("second TLS config");
+        let after = certificate_cache_stats();
+        assert!(after.misses > before.misses);
+        assert!(after.hits > before.hits);
     }
 }

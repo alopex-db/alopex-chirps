@@ -1,5 +1,33 @@
 # Chirps リリースノート
 
+## [0.6.3] - 2026-08-11
+
+### 破壊的変更
+
+- 相互 TLS（mTLS）を必須化した。`chirps-v0-5-requirements.md:247` が v0.5
+  から要求していた相互 TLS 認証が未実装だったため、v0.6.3 で server 側の
+  client certificate 検証を必須化した。
+
+### 追加・変更
+
+- profile 別受信 buffer と staged backpressure、node-wide memory budget、
+  `get_memory_stats()` / `resize_memory_budget()` / `trigger_gc()`、統合 cache
+  manager を追加した。
+- Raft log cache の LRU eviction、QUIC connection health check、証明書・trust
+  anchor cache、Multi-Raft / TSO の公開 mesh 経路を追加した。
+- StateMachine / RaftStorage の v0.6 storage-v2 移行 Rustdoc と File Transfer
+  histogram の設計記録を現行実装へ揃えた。
+
+### アップグレード手順
+
+1. 全ノードを v0.6.3 へ切り替える前に、各ノードの
+   `NodeConfig::trusted_cert_paths` にクラスタ CA 証明書、または許可する全
+   peer 証明書を設定し、ファイルが全ノードから読めることを確認する。
+2. その後、各ノードへ client certificate と対応する private key を設定して
+   起動する。server は `WebPkiClientVerifier` で client certificate を検証する。
+3. client certificate を提示しない旧版ノードは handshake に失敗するため、
+   trusted paths と証明書を揃える前に混在クラスタへ投入しない。
+
 ## [0.6.2] - 2026-08-11
 
 ### 追加・変更
