@@ -348,6 +348,15 @@ fn every_v061_crate_source_file_remains_byte_for_byte_compatible() {
                 "chirps-core must contain exactly one reviewed additive durable module"
             );
             current.replacen("pub mod durable;\n", "", 1).into_bytes()
+        } else if path == "crates/alopex-chirps/src/lib.rs" {
+            let current = String::from_utf8(current).expect("alopex-chirps lib.rs must be UTF-8");
+            let additive_reexport = "#[cfg(feature = \"durable-iggy\")]\npub use alopex_chirps_backend_iggy as durable_iggy;\n";
+            assert_eq!(
+                current.matches(additive_reexport).count(),
+                1,
+                "alopex-chirps must contain exactly one reviewed additive durable-iggy re-export"
+            );
+            current.replacen(additive_reexport, "", 1).into_bytes()
         } else {
             current
         };
