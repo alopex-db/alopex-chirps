@@ -1,5 +1,7 @@
 //! Crash-consistent canonical local state for Durable subscriptions.
 
+pub(crate) mod capacity;
+pub(crate) mod compaction;
 pub(crate) mod creation;
 pub(crate) mod identity;
 pub(crate) mod journal;
@@ -28,6 +30,11 @@ pub(crate) enum StateRecordKind {
     JournalHeader = 3,
     IdentityMutation = 4,
     CheckpointCommit = 5,
+    CompactionBase = 6,
+    CompactionSuffix = 7,
+    CompactionRoot = 8,
+    CompactionSuffixHeader = 9,
+    CompactionMutation = 10,
 }
 
 impl StateRecordKind {
@@ -38,6 +45,11 @@ impl StateRecordKind {
             3 => Some(Self::JournalHeader),
             4 => Some(Self::IdentityMutation),
             5 => Some(Self::CheckpointCommit),
+            6 => Some(Self::CompactionBase),
+            7 => Some(Self::CompactionSuffix),
+            8 => Some(Self::CompactionRoot),
+            9 => Some(Self::CompactionSuffixHeader),
+            10 => Some(Self::CompactionMutation),
             _ => None,
         }
     }
