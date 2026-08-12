@@ -7,11 +7,16 @@
 
 use crate::protocol::{
     APPEND_ONE_SYNCED_CODE, CAPABILITY_BIND_CODE, CHECKED_POLL_CODE, LEASE_RENEW_CODE,
-    PrivateCommand, PrivateRequest,
+    PrivateCommand, PrivateRequest, ResourceLocation,
 };
+use alopex_chirps_core::durable::DurableMessageId;
 use bytes::{Bytes, BytesMut};
-use iggy_binary_protocol::RequestFrame;
-use iggy_binary_protocol::codes::{LOGIN_USER_CODE, LOGIN_WITH_PERSONAL_ACCESS_TOKEN_CODE};
+use iggy_binary_protocol::codes::{
+    GET_TOPIC_CODE, LOGIN_USER_CODE, LOGIN_WITH_PERSONAL_ACCESS_TOKEN_CODE, SEND_MESSAGES_CODE,
+};
+use iggy_binary_protocol::requests::messages::{RawMessage, SendMessagesEncoder};
+use iggy_binary_protocol::requests::topics::GetTopicRequest;
+use iggy_binary_protocol::{RequestFrame, WireEncode, WireIdentifier, WirePartitioning};
 use rustls::ClientConfig;
 use rustls::pki_types::ServerName;
 use std::io;
@@ -86,7 +91,7 @@ pub enum TransportRequestClass {
     Login,
     /// Private CapabilityBind or LeaseRenew on the authenticated connection.
     SessionControl,
-    /// Private AppendOneSynced or CheckedPoll data-plane command.
+    /// Standard count-one append or a private Durable data-plane command.
     DataPlane,
 }
 
@@ -217,6 +222,40 @@ impl SessionControlRequestFrame {
     }
 }
 
+/// One official authenticated `GetTopic` request used only to verify the
+/// development profile before any append attempt can start.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DevelopmentProfileReadbackFrame {
+    bytes: Bytes,
+}
+
+impl std::fmt::Debug for DevelopmentProfileReadbackFrame {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DevelopmentProfileReadbackFrame")
+            .field("encoded_len", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl DevelopmentProfileReadbackFrame {
+    /// Encodes an exact numeric stream/topic resource readback request.
+    pub fn for_location(location: ResourceLocation) -> Result<Self, TransportError> {
+        let request = GetTopicRequest {
+            stream_id: WireIdentifier::numeric(location.stream_id()),
+            topic_id: WireIdentifier::numeric(location.topic_id()),
+        };
+        let payload = request.to_bytes();
+        let mut frame = BytesMut::with_capacity(payload.len().saturating_add(8));
+        RequestFrame::encode(GET_TOPIC_CODE, &payload, &mut frame)
+            .map_err(|_| TransportError::InvalidRequestFrame)?;
+        let bytes = frame.freeze();
+        let code = decode_one_official_request(&bytes)?;
+        debug_assert_eq!(code, GET_TOPIC_CODE);
+        Ok(Self { bytes })
+    }
+}
+
 /// One canonical private AppendOneSynced or CheckedPoll request frame.
 ///
 /// There is intentionally no arbitrary-byte constructor. The future official
@@ -237,6 +276,46 @@ impl std::fmt::Debug for DataPlaneRequestFrame {
 }
 
 impl DataPlaneRequestFrame {
+    /// Encodes one official 0.10.0 `SendMessages` command with a numeric
+    /// stream/topic, explicit partition, count one, and exactly one immutable
+    /// canonical envelope. No high-level producer, batching, or dedup policy is
+    /// involved.
+    pub fn from_standard_append(
+        location: ResourceLocation,
+        message_id: DurableMessageId,
+        canonical_envelope: &[u8],
+    ) -> Result<Self, TransportError> {
+        if canonical_envelope.is_empty() {
+            return Err(TransportError::InvalidRequestFrame);
+        }
+        let stream_id = WireIdentifier::numeric(location.stream_id());
+        let topic_id = WireIdentifier::numeric(location.topic_id());
+        let partitioning = WirePartitioning::PartitionId(location.partition_id());
+        let messages = [RawMessage {
+            id: u128::from_be_bytes(*message_id.as_bytes()),
+            origin_timestamp: 0,
+            headers: None,
+            payload: canonical_envelope,
+        }];
+        let payload_len =
+            SendMessagesEncoder::encoded_size(&stream_id, &topic_id, &partitioning, &messages);
+        let mut payload = BytesMut::with_capacity(payload_len);
+        SendMessagesEncoder::encode(
+            &mut payload,
+            &stream_id,
+            &topic_id,
+            &partitioning,
+            &messages,
+        );
+        let mut frame = BytesMut::with_capacity(payload.len().saturating_add(8));
+        RequestFrame::encode(SEND_MESSAGES_CODE, &payload, &mut frame)
+            .map_err(|_| TransportError::InvalidRequestFrame)?;
+        let bytes = frame.freeze();
+        let code = decode_one_official_request(&bytes)?;
+        debug_assert_eq!(code, SEND_MESSAGES_CODE);
+        Ok(Self { bytes })
+    }
+
     /// Encodes one approved private data-plane request.
     pub fn from_private(request: &PrivateRequest) -> Result<Self, TransportError> {
         if !matches!(
@@ -495,19 +574,82 @@ impl OwnedTransport {
             .await
     }
 
+    /// Performs one authenticated official metadata readback without counting
+    /// it as an append/data-plane invocation.
+    pub async fn development_profile_readback(
+        &self,
+        request: DevelopmentProfileReadbackFrame,
+    ) -> Result<Bytes, TransportError> {
+        self.limits.validate_frame(&request.bytes)?;
+        if self.close.is_closed() {
+            return Err(TransportError::Closed);
+        }
+        self.exchange(ExchangeKind::SessionControl, request.bytes)
+            .await
+    }
+
     /// Invokes exactly one data-plane frame. There is no retry, replay,
     /// reconnect, batching, or automatic login. Once queued, every failure is
     /// indeterminate because no valid response was confirmed.
     pub async fn invoke(&self, request: DataPlaneRequestFrame) -> Result<Bytes, InvocationError> {
+        self.invoke_with_admission(request, || {}).await
+    }
+
+    /// Invokes one data-plane frame and calls `on_admitted` exactly after the
+    /// request has entered the owned coordinator queue. Cancellation before
+    /// that callback proves that no future automatic append remains queued.
+    pub async fn invoke_with_admission<F>(
+        &self,
+        request: DataPlaneRequestFrame,
+        on_admitted: F,
+    ) -> Result<Bytes, InvocationError>
+    where
+        F: FnOnce() + Send,
+    {
         self.limits
             .validate_frame(&request.bytes)
             .map_err(InvocationError::NotInvoked)?;
         if self.close.is_closed() {
             return Err(InvocationError::NotInvoked(TransportError::Closed));
         }
-        self.exchange(ExchangeKind::DataPlane, request.bytes)
+        self.exchange_with_admission(ExchangeKind::DataPlane, request.bytes, on_admitted)
             .await
             .map_err(InvocationError::Indeterminate)
+    }
+
+    async fn exchange_with_admission<F>(
+        &self,
+        kind: ExchangeKind,
+        request: Bytes,
+        on_admitted: F,
+    ) -> Result<Bytes, TransportError>
+    where
+        F: FnOnce() + Send,
+    {
+        let Some(exchange_tx) = &self.exchange_tx else {
+            return Err(TransportError::Closed);
+        };
+        let (reply, response) = oneshot::channel();
+        let job = ExchangeJob {
+            kind,
+            request,
+            reply,
+        };
+        let mut close_rx = self.close.close_tx.subscribe();
+        tokio::select! {
+            biased;
+            () = wait_until_closed(&mut close_rx) => return Err(TransportError::Closed),
+            result = exchange_tx.send(job) => {
+                result.map_err(|_| TransportError::WorkerStopped(TransportWorker::Coordinator))?;
+            }
+        }
+        on_admitted();
+        tokio::select! {
+            biased;
+            result = response => result
+                .map_err(|_| TransportError::WorkerStopped(TransportWorker::Coordinator))?,
+            () = wait_until_closed(&mut close_rx) => Err(TransportError::Closed),
+        }
     }
 
     async fn exchange(&self, kind: ExchangeKind, request: Bytes) -> Result<Bytes, TransportError> {
@@ -807,10 +949,16 @@ mod tests {
         SessionControlRequestFrame, TransportError, TransportLimits, TransportRequestClass,
         TransportStage,
     };
-    use crate::protocol::{CAPABILITY_BIND_CODE, CapabilityBindRequest, PrivateRequest};
+    use crate::protocol::{
+        CAPABILITY_BIND_CODE, CapabilityBindRequest, PrivateRequest, ResourceLocation,
+    };
+    use alopex_chirps_core::durable::{DurableMessageId, ResourceId};
     use bytes::{Bytes, BytesMut};
-    use iggy_binary_protocol::codes::LOGIN_USER_CODE;
-    use iggy_binary_protocol::{RequestFrame, ResponseFrame};
+    use iggy_binary_protocol::codes::{LOGIN_USER_CODE, SEND_MESSAGES_CODE};
+    use iggy_binary_protocol::requests::messages::SendMessagesHeader;
+    use iggy_binary_protocol::{
+        RequestFrame, ResponseFrame, WireDecode, WireIdentifier, WirePartitioning,
+    };
     use std::io;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -850,6 +998,50 @@ mod tests {
         let request =
             PrivateRequest::CapabilityBind(CapabilityBindRequest::new(1, 2, 0, 30_000).unwrap());
         SessionControlRequestFrame::from_private(&request).unwrap()
+    }
+
+    #[test]
+    fn v07_task_3_7_standard_append_frame_is_count_one_and_explicit_partition() {
+        let mut resource_id = [0x17; 16];
+        resource_id[6] = 0x47;
+        resource_id[8] = 0x97;
+        let location =
+            ResourceLocation::new(ResourceId::from_bytes(resource_id), 3, 11, 22, 4).unwrap();
+        let message_id = DurableMessageId::generate().unwrap();
+        let canonical = b"one canonical envelope";
+
+        let request =
+            DataPlaneRequestFrame::from_standard_append(location, message_id, canonical).unwrap();
+        let (frame, consumed) = RequestFrame::decode(&request.bytes).unwrap();
+
+        assert_eq!(consumed, request.bytes.len());
+        assert_eq!(frame.code, SEND_MESSAGES_CODE);
+        let metadata_len = u32::from_le_bytes(frame.payload[..4].try_into().unwrap()) as usize;
+        let (header, header_len) =
+            SendMessagesHeader::decode(&frame.payload[4..4 + metadata_len]).unwrap();
+        assert_eq!(header_len, metadata_len);
+        assert_eq!(header.stream_id, WireIdentifier::numeric(11));
+        assert_eq!(header.topic_id, WireIdentifier::numeric(22));
+        assert_eq!(header.partitioning, WirePartitioning::PartitionId(4));
+        assert_eq!(header.messages_count, 1);
+
+        let message_start = 4 + metadata_len + 16;
+        let wire_id = u128::from_le_bytes(
+            frame.payload[message_start + 8..message_start + 24]
+                .try_into()
+                .unwrap(),
+        );
+        let payload_len = u32::from_le_bytes(
+            frame.payload[message_start + 52..message_start + 56]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        assert_eq!(wire_id, u128::from_be_bytes(*message_id.as_bytes()));
+        assert_eq!(payload_len, canonical.len());
+        assert_eq!(
+            &frame.payload[message_start + 64..message_start + 64 + payload_len],
+            canonical
+        );
     }
 
     async fn read_request(stream: &mut TcpStream) -> io::Result<(u32, Vec<u8>)> {
@@ -1081,6 +1273,61 @@ mod tests {
         assert!(report.all_workers_joined());
         assert_eq!(report.forced_abort_count(), 0);
         assert!(write_polls.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[tokio::test]
+    async fn v07_task_3_7_transport_admission_fires_once_only_after_queue_acceptance() {
+        let write_polls = Arc::new(AtomicUsize::new(0));
+        let write_started = Arc::new(Notify::new());
+        let admissions = Arc::new(AtomicUsize::new(0));
+        let transport = OwnedTransport::from_io(
+            BlockedWriteIo {
+                write_polls: Arc::clone(&write_polls),
+                write_started: Arc::clone(&write_started),
+            },
+            TransportLimits::new(64).unwrap(),
+        );
+
+        let rejected_admissions = Arc::clone(&admissions);
+        assert!(matches!(
+            transport
+                .invoke_with_admission(
+                    DataPlaneRequestFrame {
+                        bytes: Bytes::from(vec![0; 65]),
+                    },
+                    move || {
+                        rejected_admissions.fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+                .await,
+            Err(InvocationError::NotInvoked(
+                TransportError::FrameTooLarge { .. }
+            ))
+        ));
+        assert_eq!(admissions.load(Ordering::SeqCst), 0);
+
+        let accepted_admissions = Arc::clone(&admissions);
+        let mut invocation = Box::pin(transport.invoke_with_admission(
+            data_request(b"one-admitted-append"),
+            move || {
+                accepted_admissions.fetch_add(1, Ordering::SeqCst);
+            },
+        ));
+        tokio::select! {
+            () = write_started.notified() => {},
+            result = &mut invocation => panic!("write unexpectedly completed: {result:?}"),
+        }
+        assert_eq!(admissions.load(Ordering::SeqCst), 1);
+        transport.close_handle().close();
+        assert!(matches!(
+            invocation.await,
+            Err(InvocationError::Indeterminate(TransportError::Closed))
+        ));
+        let report = transport
+            .shutdown(Instant::now() + Duration::from_secs(1))
+            .await;
+        assert_eq!(report.data_plane_invocations(), 1);
+        assert_eq!(admissions.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

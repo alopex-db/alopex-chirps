@@ -262,7 +262,11 @@ trait SessionIo: Send + Sync {
         request: SessionControlRequestFrame,
     ) -> Result<Bytes, TransportError>;
 
-    async fn invoke(&self, request: DataPlaneRequestFrame) -> Result<Bytes, InvocationError>;
+    async fn invoke_with_admission(
+        &self,
+        request: DataPlaneRequestFrame,
+        on_admitted: Box<dyn FnOnce() + Send>,
+    ) -> Result<Bytes, InvocationError>;
 
     fn close(&self);
 
@@ -284,8 +288,12 @@ impl SessionIo for OwnedSessionIo {
         self.0.session_control(request).await
     }
 
-    async fn invoke(&self, request: DataPlaneRequestFrame) -> Result<Bytes, InvocationError> {
-        self.0.invoke(request).await
+    async fn invoke_with_admission(
+        &self,
+        request: DataPlaneRequestFrame,
+        on_admitted: Box<dyn FnOnce() + Send>,
+    ) -> Result<Bytes, InvocationError> {
+        self.0.invoke_with_admission(request, on_admitted).await
     }
 
     fn close(&self) {
@@ -623,6 +631,29 @@ impl BoundSession {
         envelope_digest: EnvelopeDigest,
         canonical_envelope: Vec<u8>,
     ) -> Result<VerifiedAppendOneSyncedResponse, SessionInvocationError> {
+        self.append_one_synced_with_admission(
+            attempt_id,
+            message_id,
+            envelope_digest,
+            canonical_envelope,
+            || {},
+        )
+        .await
+    }
+
+    /// Constructs one strong append and fires `on_admitted` only after the
+    /// owned transport has accepted the exact data-plane job into its queue.
+    pub async fn append_one_synced_with_admission<F>(
+        &self,
+        attempt_id: [u8; 16],
+        message_id: [u8; 16],
+        envelope_digest: EnvelopeDigest,
+        canonical_envelope: Vec<u8>,
+        on_admitted: F,
+    ) -> Result<VerifiedAppendOneSyncedResponse, SessionInvocationError>
+    where
+        F: FnOnce() + Send + 'static,
+    {
         let request = PrivateRequest::AppendOneSynced(
             AppendOneSyncedRequest::new(
                 self.binding,
@@ -634,7 +665,10 @@ impl BoundSession {
             )
             .map_err(|_| SessionInvocationError::InvalidRequest)?,
         );
-        match self.invoke_private(request).await? {
+        match self
+            .invoke_private_with_admission(request, Box::new(on_admitted))
+            .await?
+        {
             VerifiedPrivateResponse::AppendOneSynced(response) => Ok(response),
             _ => {
                 self.fence(SessionFenceReason::ResponseMismatch);
@@ -693,11 +727,20 @@ impl BoundSession {
         &self,
         request: PrivateRequest,
     ) -> Result<VerifiedPrivateResponse, SessionInvocationError> {
+        self.invoke_private_with_admission(request, Box::new(|| {}))
+            .await
+    }
+
+    async fn invoke_private_with_admission(
+        &self,
+        request: PrivateRequest,
+        on_admitted: Box<dyn FnOnce() + Send>,
+    ) -> Result<VerifiedPrivateResponse, SessionInvocationError> {
         self.ensure_active()
             .map_err(SessionInvocationError::Session)?;
         let frame = DataPlaneRequestFrame::from_private(&request)
             .map_err(|_| SessionInvocationError::InvalidRequest)?;
-        let response = match self.io.invoke(frame).await {
+        let response = match self.io.invoke_with_admission(frame, on_admitted).await {
             Ok(response) => response,
             Err(error) => {
                 if self.io.is_closed() {
@@ -803,6 +846,7 @@ mod tests {
         CapabilityBindResponse, CapabilityReport, CheckedPollResponse, ChecksumMode,
         LeaseRenewResponse, PrivateResponse, ResourceLocation, SessionBinding,
     };
+    use crate::routing::{PartitionRouter, ROUTING_MAP_VERSION, ValidatedRoutingConfiguration};
     use crate::transport::{
         DataPlaneRequestFrame, InvocationError, SessionControlRequestFrame, TransportCloseHandle,
         TransportError, TransportShutdownReport, TransportStage,
@@ -810,6 +854,7 @@ mod tests {
     use alopex_chirps_core::durable::{
         Readiness, ResourceId, SessionFingerprint, UnavailableReason,
     };
+    use alopex_chirps_wire::node_id::NodeId;
     use async_trait::async_trait;
     use bytes::{Bytes, BytesMut};
     use iggy_binary_protocol::ResponseFrame;
@@ -856,6 +901,7 @@ mod tests {
         control_responses: Mutex<VecDeque<Result<Bytes, TransportError>>>,
         control_calls: AtomicUsize,
         invocation_calls: AtomicUsize,
+        fail_before_admission: AtomicBool,
         closed: AtomicBool,
     }
 
@@ -865,6 +911,7 @@ mod tests {
                 control_responses: Mutex::new(responses.into()),
                 control_calls: AtomicUsize::new(0),
                 invocation_calls: AtomicUsize::new(0),
+                fail_before_admission: AtomicBool::new(false),
                 closed: AtomicBool::new(false),
             }
         }
@@ -884,7 +931,15 @@ mod tests {
                 .expect("one configured control response")
         }
 
-        async fn invoke(&self, _request: DataPlaneRequestFrame) -> Result<Bytes, InvocationError> {
+        async fn invoke_with_admission(
+            &self,
+            _request: DataPlaneRequestFrame,
+            on_admitted: Box<dyn FnOnce() + Send>,
+        ) -> Result<Bytes, InvocationError> {
+            if self.fail_before_admission.load(Ordering::SeqCst) {
+                return Err(InvocationError::NotInvoked(TransportError::Closed));
+            }
+            on_admitted();
             self.invocation_calls.fetch_add(1, Ordering::SeqCst);
             Ok(poll_response(
                 binding(SESSION_ID, BOOT_ID, FINGERPRINT),
@@ -1063,6 +1118,82 @@ mod tests {
         assert_eq!(observation.end_exclusive(), 1);
         assert_eq!(io.control_calls.load(Ordering::SeqCst), 1);
         assert_eq!(io.invocation_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn v07_task_3_7_strong_append_does_not_admit_before_transport_queue() {
+        let router = PartitionRouter::from_validated_configuration(ValidatedRoutingConfiguration {
+            source: NodeId::new(),
+            generation: 7,
+            partition_count: 1,
+            mapping_version: ROUTING_MAP_VERSION,
+        })
+        .unwrap();
+        let prepared = crate::producer::prepare(
+            &router,
+            NodeId::new(),
+            b"admission".to_vec(),
+            b"canonical envelope",
+        )
+        .unwrap();
+        let exact_report = report(
+            BUILD_SHA,
+            BOOT_ID,
+            location(prepared.partition()),
+            1_000_000,
+            10_000,
+            ChecksumMode::Enabled,
+            CONFIGURATION_DIGEST,
+            SECURITY_DIGEST,
+            CAPABILITY_DIGEST,
+        );
+        let exact_expected = ExpectedCapability::new(
+            BUILD_SHA,
+            location(prepared.partition()),
+            1_000_000,
+            10_000,
+            ChecksumMode::Enabled,
+            CONFIGURATION_DIGEST,
+            SECURITY_DIGEST,
+            CAPABILITY_DIGEST,
+            100,
+        )
+        .unwrap();
+        let clock = Arc::new(ManualClock::new());
+        let (connection, io) = fake_connection(
+            vec![Ok(bind_response(
+                exact_report,
+                SESSION_ID,
+                FINGERPRINT,
+                1_000,
+            ))],
+            Arc::clone(&clock),
+        );
+        let session = connection.bind(exact_expected).await.unwrap();
+        io.fail_before_admission.store(true, Ordering::SeqCst);
+        let admissions = Arc::new(AtomicUsize::new(0));
+        let observed_admissions = Arc::clone(&admissions);
+
+        let result = session
+            .append_one_synced_with_admission(
+                uuid_v4(0x91),
+                *prepared.message_id().as_bytes(),
+                prepared.envelope_digest(),
+                prepared.canonical_bytes().to_vec(),
+                move || {
+                    observed_admissions.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(SessionInvocationError::Invocation(
+                InvocationError::NotInvoked(TransportError::Closed)
+            ))
+        ));
+        assert_eq!(admissions.load(Ordering::SeqCst), 0);
+        assert_eq!(io.invocation_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
