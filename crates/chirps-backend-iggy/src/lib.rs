@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod codec;
+pub mod delivery;
 pub mod message_id;
 pub mod offset_mirror;
 pub mod poll;
@@ -17,4 +18,5 @@ pub mod routing;
 pub mod session;
 #[allow(dead_code)] // staged local-state internals are composed by later Phase 4 tasks
 pub(crate) mod state;
+pub mod subscriber;
 pub mod transport;

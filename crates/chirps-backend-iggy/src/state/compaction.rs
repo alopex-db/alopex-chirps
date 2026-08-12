@@ -100,15 +100,15 @@ impl CompactionIdentity {
             return Err(CompactionError::GcPlanMismatch);
         }
         let retry_not_before_unix_ms = u64::from_be_bytes(
-            encoded[101..109]
+            encoded[109..117]
                 .try_into()
                 .map_err(|_| CompactionError::InvalidBase)?,
         );
         let horizon = IdentityHorizon {
             checkpointed: record.is_checkpointed(),
-            original_offset: record.offset(),
+            original_offset: record.original_offset(),
             retry_not_before_unix_ms,
-            durable_clock_trusted: encoded[109] == ClockProvenance::Trusted as u8,
+            durable_clock_trusted: encoded[117] == ClockProvenance::Trusted as u8,
         };
         Ok(Self {
             message_id,
