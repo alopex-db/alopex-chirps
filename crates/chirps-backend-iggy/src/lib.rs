@@ -9,7 +9,9 @@
 
 pub mod codec;
 pub mod delivery;
+pub mod lifecycle;
 pub mod message_id;
+pub mod observability;
 pub mod offset_mirror;
 pub mod poll;
 pub mod producer;
