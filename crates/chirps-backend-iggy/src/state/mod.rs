@@ -1,6 +1,8 @@
 //! Crash-consistent canonical local state for Durable subscriptions.
 
 pub(crate) mod creation;
+pub(crate) mod identity;
+pub(crate) mod journal;
 pub(crate) mod owner;
 
 use sha2::{Digest, Sha256};
@@ -23,6 +25,9 @@ const FRAME_DIGEST_DOMAIN: &[u8] = b"chirps-v0.7-state-frame-sha256\0";
 pub(crate) enum StateRecordKind {
     CreationUnit = 1,
     OwnerRecord = 2,
+    JournalHeader = 3,
+    IdentityMutation = 4,
+    CheckpointCommit = 5,
 }
 
 impl StateRecordKind {
@@ -30,6 +35,9 @@ impl StateRecordKind {
         match value {
             1 => Some(Self::CreationUnit),
             2 => Some(Self::OwnerRecord),
+            3 => Some(Self::JournalHeader),
+            4 => Some(Self::IdentityMutation),
+            5 => Some(Self::CheckpointCommit),
             _ => None,
         }
     }
@@ -121,6 +129,38 @@ pub(crate) fn decode_state_frame(
         return Err(StateFrameError::ChecksumMismatch);
     }
     Ok(&bytes[FRAME_HEADER_LEN..checksum_start])
+}
+
+/// Returns the exact first-frame length or `None` for an incomplete tail.
+pub(crate) fn state_frame_encoded_len(bytes: &[u8]) -> Result<Option<usize>, StateFrameError> {
+    if bytes.len() < FRAME_HEADER_LEN {
+        return Ok(None);
+    }
+    if &bytes[..8] != FRAME_MAGIC {
+        return Err(StateFrameError::InvalidMagic);
+    }
+    if u16::from_be_bytes(bytes[8..10].try_into().expect("fixed frame slice")) != FRAME_VERSION {
+        return Err(StateFrameError::UnsupportedVersion);
+    }
+    if StateRecordKind::from_byte(bytes[10]).is_none() {
+        return Err(StateFrameError::InvalidKind);
+    }
+    if bytes[11] != 0 {
+        return Err(StateFrameError::InvalidBody);
+    }
+    let body_len =
+        u32::from_be_bytes(bytes[12..16].try_into().expect("fixed frame slice")) as usize;
+    let total = FRAME_HEADER_LEN
+        .checked_add(body_len)
+        .and_then(|value| value.checked_add(FRAME_CHECKSUM_LEN))
+        .ok_or(StateFrameError::InvalidLength)?;
+    if total > MAX_STATE_FRAME_LEN {
+        return Err(StateFrameError::TooLarge);
+    }
+    if bytes.len() < total {
+        return Ok(None);
+    }
+    Ok(Some(total))
 }
 
 pub(crate) fn read_state_file(path: &Path) -> Result<Vec<u8>, StateReadError> {
