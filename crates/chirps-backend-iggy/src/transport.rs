@@ -13,10 +13,14 @@ use alopex_chirps_core::durable::DurableMessageId;
 use bytes::{Bytes, BytesMut};
 use iggy_binary_protocol::codes::{
     GET_TOPIC_CODE, LOGIN_USER_CODE, LOGIN_WITH_PERSONAL_ACCESS_TOKEN_CODE, SEND_MESSAGES_CODE,
+    STORE_CONSUMER_OFFSET_CODE,
 };
+use iggy_binary_protocol::requests::consumer_offsets::StoreConsumerOffsetRequest;
 use iggy_binary_protocol::requests::messages::{RawMessage, SendMessagesEncoder};
 use iggy_binary_protocol::requests::topics::GetTopicRequest;
-use iggy_binary_protocol::{RequestFrame, WireEncode, WireIdentifier, WirePartitioning};
+use iggy_binary_protocol::{
+    RequestFrame, WireConsumer, WireEncode, WireIdentifier, WirePartitioning,
+};
 use rustls::ClientConfig;
 use rustls::pki_types::ServerName;
 use std::io;
@@ -256,7 +260,7 @@ impl DevelopmentProfileReadbackFrame {
     }
 }
 
-/// One canonical private AppendOneSynced or CheckedPoll request frame.
+/// One canonical official or private data-plane request frame.
 ///
 /// There is intentionally no arbitrary-byte constructor. The future official
 /// development append path must add its own count-one typed encoder rather
@@ -313,6 +317,32 @@ impl DataPlaneRequestFrame {
         let bytes = frame.freeze();
         let code = decode_one_official_request(&bytes)?;
         debug_assert_eq!(code, SEND_MESSAGES_CODE);
+        Ok(Self { bytes })
+    }
+
+    /// Encodes one official 0.10.0 `StoreConsumerOffset` command for an
+    /// ordinary numeric consumer, numeric stream/topic, explicit partition,
+    /// and one already committed inclusive offset. Consumer groups and an
+    /// absent partition cannot be constructed through this entrypoint.
+    pub fn from_standard_store_consumer_offset(
+        consumer_id: u32,
+        location: ResourceLocation,
+        committed_offset: u64,
+    ) -> Result<Self, TransportError> {
+        let request = StoreConsumerOffsetRequest {
+            consumer: WireConsumer::consumer(WireIdentifier::numeric(consumer_id)),
+            stream_id: WireIdentifier::numeric(location.stream_id()),
+            topic_id: WireIdentifier::numeric(location.topic_id()),
+            partition_id: Some(location.partition_id()),
+            offset: committed_offset,
+        };
+        let payload = request.to_bytes();
+        let mut frame = BytesMut::with_capacity(payload.len().saturating_add(8));
+        RequestFrame::encode(STORE_CONSUMER_OFFSET_CODE, &payload, &mut frame)
+            .map_err(|_| TransportError::InvalidRequestFrame)?;
+        let bytes = frame.freeze();
+        let code = decode_one_official_request(&bytes)?;
+        debug_assert_eq!(code, STORE_CONSUMER_OFFSET_CODE);
         Ok(Self { bytes })
     }
 
@@ -954,7 +984,10 @@ mod tests {
     };
     use alopex_chirps_core::durable::{DurableMessageId, ResourceId};
     use bytes::{Bytes, BytesMut};
-    use iggy_binary_protocol::codes::{LOGIN_USER_CODE, SEND_MESSAGES_CODE};
+    use iggy_binary_protocol::codes::{
+        LOGIN_USER_CODE, SEND_MESSAGES_CODE, STORE_CONSUMER_OFFSET_CODE,
+    };
+    use iggy_binary_protocol::requests::consumer_offsets::StoreConsumerOffsetRequest;
     use iggy_binary_protocol::requests::messages::SendMessagesHeader;
     use iggy_binary_protocol::{
         RequestFrame, ResponseFrame, WireDecode, WireIdentifier, WirePartitioning,
@@ -1042,6 +1075,30 @@ mod tests {
             &frame.payload[message_start + 64..message_start + 64 + payload_len],
             canonical
         );
+    }
+
+    #[test]
+    fn v07_task_3_8_offset_frame_is_regular_consumer_and_explicit_partition() {
+        let mut resource_id = [0x27; 16];
+        resource_id[6] = 0x47;
+        resource_id[8] = 0x97;
+        let location =
+            ResourceLocation::new(ResourceId::from_bytes(resource_id), 3, 11, 22, 4).unwrap();
+
+        let request =
+            DataPlaneRequestFrame::from_standard_store_consumer_offset(77, location, 123).unwrap();
+        let (frame, consumed) = RequestFrame::decode(&request.bytes).unwrap();
+        assert_eq!(consumed, request.bytes.len());
+        assert_eq!(frame.code, STORE_CONSUMER_OFFSET_CODE);
+        let (decoded, payload_consumed) =
+            StoreConsumerOffsetRequest::decode(frame.payload).unwrap();
+        assert_eq!(payload_consumed, frame.payload.len());
+        assert_eq!(decoded.consumer.kind, 1, "must be an ordinary consumer");
+        assert_eq!(decoded.consumer.id, WireIdentifier::numeric(77));
+        assert_eq!(decoded.stream_id, WireIdentifier::numeric(11));
+        assert_eq!(decoded.topic_id, WireIdentifier::numeric(22));
+        assert_eq!(decoded.partition_id, Some(4));
+        assert_eq!(decoded.offset, 123);
     }
 
     async fn read_request(stream: &mut TcpStream) -> io::Result<(u32, Vec<u8>)> {

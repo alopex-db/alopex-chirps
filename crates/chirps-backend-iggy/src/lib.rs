@@ -9,6 +9,8 @@
 
 pub mod codec;
 pub mod message_id;
+pub mod offset_mirror;
+pub mod poll;
 pub mod producer;
 pub mod protocol;
 pub mod routing;
