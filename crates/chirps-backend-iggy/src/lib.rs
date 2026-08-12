@@ -15,4 +15,6 @@ pub mod producer;
 pub mod protocol;
 pub mod routing;
 pub mod session;
+#[allow(dead_code)] // staged local-state internals are composed by later Phase 4 tasks
+pub(crate) mod state;
 pub mod transport;
