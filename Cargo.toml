@@ -11,6 +11,7 @@ members = [
     "crates/chirps-backend-iggy",
     "tests/e2e",
     "tools/chirps-deterministic-harness",
+    "tools/chirps-durable-harness",
     "tools/chirps-multi-raft-perf",
     "tools/chirps-v06-demo",
 ]
