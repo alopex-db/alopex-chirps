@@ -4,14 +4,14 @@
 //! workspace activation and lockfile resolution.
 
 /// Identifies the staged verification harness without exposing it as a package.
-pub const HARNESS_NAME: &str = "chirps-durable-harness";
+pub const HARNESS_NAME: &str = "chirps-fault-oracle";
 
 #[cfg(test)]
 mod tests {
     use super::HARNESS_NAME;
 
     #[test]
-    fn identifies_the_staged_harness() {
-        assert_eq!(HARNESS_NAME, "chirps-durable-harness");
+    fn identifies_the_fault_oracle() {
+        assert_eq!(HARNESS_NAME, "chirps-fault-oracle");
     }
 }

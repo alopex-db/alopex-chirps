@@ -787,14 +787,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "chirps-durable-harness"
-version = "0.6.1"
-dependencies = [
- "alopex-chirps-core",
- "serde",
-]
-
-[[package]]
 name = "chirps-e2e"
 version = "0.6.1"
 dependencies = [
@@ -807,6 +799,14 @@ dependencies = [
  "rcgen 0.12.1",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "chirps-fault-oracle"
+version = "0.6.1"
+dependencies = [
+ "alopex-chirps-core",
+ "serde",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 [package]
-name = "chirps-durable-harness"
+name = "chirps-fault-oracle"
 version.workspace = true
 edition = "2024"
 publish = false
@@ -7,4 +7,3 @@ publish = false
 [dependencies]
 alopex-chirps-core.workspace = true
 serde.workspace = true
-
