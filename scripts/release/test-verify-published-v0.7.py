@@ -69,6 +69,24 @@ class PublishedVerificationTests(unittest.TestCase):
     def verify(self, remote):
         return v.verify_remote(remote.bundle, remote.object, remote)
 
+    def test_draft_promotion_reads_all_asset_pages_and_rejects_extra_page(self):
+        remote = FixtureRemote()
+        remote.release["draft"] = True
+        remote.release["published_at"] = None
+        v.verify_promotion_assets(remote.bundle, remote)
+        originals = [{"id": i + 1, "name": f"asset-{i}", "state": "uploaded", "size": 1} for i in range(100)]
+        remote.bundle["github_assets"] = [{"name": item["name"], "size": 1, "sha256": v.sha256(b"x")} for item in originals]
+        remote.asset_bytes = {item["id"]: b"x" for item in originals}
+        def pages(path):
+            if "/tags/" in path:
+                return remote.release
+            if path.endswith("&page=1"):
+                return originals
+            return [{"id": 101, "name": "unapproved-second-page", "state": "uploaded", "size": 1}]
+        remote.github = pages
+        with self.assertRaisesRegex(v.VerificationError, "inventory"):
+            v.verify_promotion_assets(remote.bundle, remote)
+
     def test_exact_bundle_reads_all_nine_archives_and_assets(self):
         r = FixtureRemote()
         self.assertEqual(self.verify(r)["result"], "pass")

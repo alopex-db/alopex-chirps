@@ -5,6 +5,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scratch="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/chirps-v07-publication-test.XXXXXX")"
 fixture_repo="$scratch/repo"
 publisher="$fixture_repo/scripts/release/publish-v0.7-bundle.sh"
+source_commit="$(git -C "$repo_root" rev-parse HEAD)"
+export CHIRPS_SOURCE_ROOT="$repo_root"
+export CHIRPS_RELEASE_TOOLS_COMMIT="$source_commit"
+export CHIRPS_PERF_VERIFIER="$scratch/trusted-tool/chirps-durable-perf"
 server_pid=""
 
 cleanup() {
@@ -24,6 +28,12 @@ cp "$repo_root/scripts/release/verify-v0.7-evidence.py" \
   "$fixture_repo/scripts/release/verify-v0.7-evidence.py"
 cp "$repo_root/scripts/release/v07_e2e_evidence.py" \
   "$repo_root/scripts/release/test-v07-e2e-evidence.py" \
+  "$repo_root/scripts/release/v07_consumer_evidence.py" \
+  "$repo_root/scripts/release/v07_api_evidence.py" \
+  "$repo_root/scripts/release/v07_perf_verifier.py" \
+  "$repo_root/scripts/release/test-v07-consumer-evidence.py" \
+  "$repo_root/scripts/release/test-v07-api-evidence.py" \
+  "$repo_root/scripts/release/test-v07-perf-verifier.py" \
   "$repo_root/scripts/release/oci_artifact.py" "$fixture_repo/scripts/release/"
 cp "$repo_root/docs/release/v0.7.0-evidence-schema.json" \
   "$fixture_repo/docs/release/v0.7.0-evidence-schema.json"
@@ -38,6 +48,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import sys
 import tarfile
 from pathlib import Path
@@ -49,7 +60,14 @@ fixture_script = schema_path.parents[2] / "scripts/release/test-v07-e2e-evidence
 fixture_spec = importlib.util.spec_from_file_location("e2e_fixtures", fixture_script)
 fixture_module = importlib.util.module_from_spec(fixture_spec)
 fixture_spec.loader.exec_module(fixture_module)
-source_commit = "1" * 40
+sys.path.insert(0, str(fixture_script.parent))
+source_commit = os.environ["CHIRPS_RELEASE_TOOLS_COMMIT"]
+def load_fixture(name):
+    spec = importlib.util.spec_from_file_location(name, fixture_script.with_name(f"test-v07-{name}.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+load_fixture("perf-verifier").write_tool_fixture(Path(os.environ["CHIRPS_PERF_VERIFIER"]).parent, source_commit)
 production_server = b"fixture-production-server\n"
 test_server = b"fixture-publish-disabled-test-server\n"
 required_kinds = {
@@ -211,6 +229,37 @@ for kind, lane in (("process", "production"), ("fault", "fault")):
     lane_path = fixture_module.write_lane_fixture(root / "runtime" / lane, lane, source_commit, "2" * 40)
     evidence_files[kind] = {"path": lane_path.relative_to(root).as_posix(), "sha256": hashlib.sha256(lane_path.read_bytes()).hexdigest()}
 
+packages = []
+for index, name in enumerate(package_names):
+    path = root / "packages" / f"{name}-0.7.0.crate"
+    path.parent.mkdir(exist_ok=True)
+    load_fixture("consumer-evidence").archive(path, name, source_commit=source_commit)
+    stored = write(path, path.read_bytes())
+    packages.append(
+        {
+            "name": name,
+            "version": "0.7.0",
+            **stored,
+            "registry_metadata": {
+                "name": name,
+                "vers": "0.7.0",
+                "deps": [],
+                "features": {},
+                "authors": [],
+                "description": "publication fixture",
+            },
+        }
+    )
+
+catalog = root / "package-set.json"
+catalog.write_text(json.dumps({"source_commit": source_commit, "packages": packages}))
+consumer = load_fixture("consumer-evidence").write_consumer_fixture(root / "consumer", source_commit, catalog)
+api = load_fixture("api-evidence").write_api_fixture(root / "api", Path(os.environ["CHIRPS_SOURCE_ROOT"]), source_commit)
+performance = root / "performance/paired/paired.json"
+write(performance, b'{"synthetic_fixture":true}\n')
+for kind, path in (("package", consumer), ("compatibility", api), ("performance", performance)):
+    evidence_files[kind] = {"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
 candidate = {
     "schema": "chirps.v0.7.candidate/v1",
     "release_version": "0.7.0",
@@ -229,27 +278,6 @@ candidate = {
 candidate_path = root / "candidate.json"
 candidate_path.write_text(json.dumps(candidate, sort_keys=True) + "\n", encoding="utf-8")
 
-packages = []
-for index, name in enumerate(package_names):
-    stored = write(
-        root / "packages" / f"{name}-0.7.0.crate",
-        f"stored-crate-{index}-{name}\n".encode(),
-    )
-    packages.append(
-        {
-            "name": name,
-            "version": "0.7.0",
-            **stored,
-            "registry_metadata": {
-                "name": name,
-                "vers": "0.7.0",
-                "deps": [],
-                "features": {},
-                "authors": [],
-                "description": "publication fixture",
-            },
-        }
-    )
 
 asset = write(root / "assets" / "v0.7.0-evidence.json", b'{"fixture":"evidence"}\n')
 bundle = {
@@ -308,7 +336,7 @@ def write_evidence(index_name: str, bundle_name: str, release_name: str) -> None
         )
         entries.append(
             {
-                "id": "release-bundle" if kind == "process" else f"fixture-{kind}",
+                "id": "release-bundle" if kind == "process" else "public-api" if kind == "compatibility" else f"fixture-{kind}",
                 "kind": kind,
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,
@@ -435,9 +463,54 @@ bundle="$scratch/bundle/release-bundle.json"
 candidate="$scratch/bundle/candidate.json"
 evidence="$scratch/bundle/evidence.json"
 mkdir -p "$scratch/bin"
-printf '#!/usr/bin/env bash\nexit 97\n' > "$scratch/bin/cargo"
-printf '#!/usr/bin/env bash\nexit 98\n' > "$scratch/bin/git"
-chmod 755 "$scratch/bin/cargo" "$scratch/bin/git"
+# This shim emits explicitly synthetic Cargo records; it cannot build release evidence.
+export CHIRPS_FIXTURE_BUNDLE="$bundle"
+export CHIRPS_FIXTURE_HELPERS="$fixture_repo/scripts/release"
+export CHIRPS_FIXTURE_CALLS="$scratch/cargo-calls.log"
+cat > "$scratch/bin/cargo" <<'PY_CARGO'
+#!/usr/bin/env python3
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sys
+sys.path.insert(0, os.environ["CHIRPS_FIXTURE_HELPERS"])
+import v07_consumer_evidence as consumer
+spec = importlib.util.spec_from_file_location("fixtures", Path(os.environ["CHIRPS_FIXTURE_HELPERS"]) / "test-v07-consumer-evidence.py")
+fixtures = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fixtures)
+with Path(os.environ["CHIRPS_FIXTURE_CALLS"]).open("a") as log:
+    log.write(" ".join(sys.argv[1:]) + "\n")
+if Path("FIXTURE_FAIL_PATH").exists():
+    raise SystemExit(71)
+if sys.argv[1] == "metadata":
+    metadata, lock, checksums = fixtures.graph("--features" in sys.argv)
+    bundle, archives = consumer.archives(Path(os.environ["CHIRPS_FIXTURE_BUNDLE"]))
+    for item in lock["package"]:
+        if item["name"] in archives:
+            item["checksum"] = archives[item["name"]][1]
+    Path("Cargo.lock").write_text("\n".join("[[package]]\n" + "\n".join(f"{key} = {json.dumps(value)}" for key, value in item.items() if value is not None) for item in lock["package"]))
+    print(json.dumps(metadata))
+elif sys.argv[1] == "build":
+    binary = Path.cwd() / "synthetic-consumer"
+    binary.write_text("synthetic fixture; not release evidence\n")
+    print(json.dumps({"reason":"compiler-artifact", "target":{"name":"chirps-v07-exact-consumer"}, "executable":str(binary)}))
+    print(json.dumps({"reason":"build-finished", "success":True}))
+else:
+    raise SystemExit("unexpected Cargo command")
+PY_CARGO
+python3 - "$scratch/bin/cargo" "$fixture_repo/scripts/release" "$bundle" "$CHIRPS_FIXTURE_CALLS" "$scratch/cargo-fail" <<'PY_PIN_SHIM'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+value = path.read_text()
+for name, content in zip(("CHIRPS_FIXTURE_HELPERS", "CHIRPS_FIXTURE_BUNDLE", "CHIRPS_FIXTURE_CALLS"), sys.argv[2:5]):
+    value = value.replace(f'os.environ["{name}"]', json.dumps(content))
+value = value.replace('"FIXTURE_FAIL_PATH"', json.dumps(sys.argv[5]))
+path.write_text(value)
+PY_PIN_SHIM
+chmod 755 "$scratch/bin/cargo"
 fixture_path="$scratch/bin:$PATH"
 common=(
   --bundle "$bundle"
@@ -469,7 +542,7 @@ fi
 }
 
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" \
   --bundle "$scratch/bundle/test-release-bundle.json" \
   --candidate "$candidate" \
@@ -488,7 +561,7 @@ fi
 }
 
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" \
   --bundle "$bundle" \
   --candidate "$candidate" \
@@ -507,7 +580,7 @@ fi
 }
 
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" \
   --bundle "$scratch/bundle/hidden-release-bundle.json" \
   --candidate "$candidate" \
@@ -525,8 +598,30 @@ fi
   exit 1
 }
 
+# A failed post-upload consumer must stop before any image/GitHub write.
+touch "$scratch/cargo-fail"
+if PATH="$fixture_path" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
+  "$publisher" "${common[@]}" \
+  --fixture-registry "$endpoint/consumer-failure-registry" \
+  --fixture-image "$endpoint/consumer-failure-image" \
+  --fixture-github "$endpoint/consumer-failure-github" >/dev/null 2>&1; then
+  printf '%s\n' 'publisher accepted a failed post-upload consumer' >&2
+  exit 1
+fi
+python3 - "$scratch/server/requests.log" <<'PY_FAILED_CONSUMER'
+import sys
+from pathlib import Path
+log = Path(sys.argv[1])
+lines = log.read_text().splitlines()
+if len(lines) != 9 or any("/consumer-failure-registry/" not in line for line in lines):
+    raise SystemExit("failed consumer did not stop publication immediately after nine archives")
+log.unlink()
+PY_FAILED_CONSUMER
+rm "$scratch/cargo-fail"
+
 PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" "${common[@]}" \
   --fixture-registry "$endpoint/registry" \
   --fixture-image "$endpoint/image" \
@@ -553,14 +648,20 @@ if actual != expected:
 PY
 
 request_count="$(wc -l < "$scratch/server/requests.log")"
+cargo_call_count="$(wc -l < "$CHIRPS_FIXTURE_CALLS")"
 PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" "${common[@]}" \
   --fixture-registry "$endpoint/registry" \
   --fixture-image "$endpoint/image" \
   --fixture-github "$endpoint/github" >/dev/null
 [[ "$(wc -l < "$scratch/server/requests.log")" == "$request_count" ]] || {
   printf '%s\n' 'checksum-matched resume uploaded bytes again' >&2
+  exit 1
+}
+
+(( $(wc -l < "$CHIRPS_FIXTURE_CALLS") == cargo_call_count + 4 )) || {
+  printf '%s\n' 'resume skipped fresh feature-off/on registry consumer checks' >&2
   exit 1
 }
 
@@ -575,7 +676,7 @@ curl --fail --silent --request PUT --header "X-Chirps-SHA256: $wrong_sha" \
   --data-binary "@$wrong" "$endpoint/mismatch-registry/alopex-chirps-raft-storage/0.7.0" >/dev/null
 mismatch_count="$(wc -l < "$scratch/server/requests.log")"
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" "${common[@]}" \
   --fixture-registry "$endpoint/mismatch-registry" \
   --fixture-image "$endpoint/mismatch-image" \
@@ -597,7 +698,7 @@ test_common=(
   --resume-only-on-checksum-match
 )
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" "${test_common[@]}" \
   --fixture-registry "$endpoint/test-registry" \
   --fixture-image "$endpoint/test-image" \

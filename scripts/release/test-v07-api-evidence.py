@@ -17,7 +17,8 @@ COMMIT = "a" * 40
 def passing_log(check):
     package = check["package"]
     old, new = check["versions"]
-    return (f"    Building {package} v{new} (current)\n"
+    return ("synthetic fixture; not release evidence\n"
+            f"    Building {package} v{new} (current)\n"
             f"    Building {package} v{old} (baseline)\n"
             f"    Checking {package} v{old} -> v{new} (assume minor change)\n"
             "     Checked [   0.010s] 196 checks: 196 pass, 58 skip\n"
@@ -52,6 +53,36 @@ def fake_git(root, *args):
     return f'[package]\nname="{package}"\nversion.workspace=true\n{extra}'.encode()
 
 
+
+def write_api_fixture(output_dir, source_root, source_commit, contract=None):
+    """Write explicitly synthetic logs bound to actual Git source identities."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    contract = contract or api.source_contract(source_root, source_commit)
+    (output_dir / "logs").mkdir()
+    entries = []
+    for check in contract["checks"]:
+        name = f'logs/{check["package"]}--{check["mode"]}.log'
+        raw = passing_log(check)
+        (output_dir / name).write_bytes(raw)
+        entries.append({key: check[key] for key in ("package", "manifest", "mode", "flags")})
+        entries[-1].update({
+        "command": ["/tool/cargo-semver-checks", "semver-checks", "--manifest-path", "/candidate/" + check["manifest"],
+                "--package", check["package"], "--baseline-root", "/baseline/" + check["manifest"],
+                "--release-type", "minor", "--color", "never", *check["flags"]],
+        "exit_code": 0, "elapsed_seconds": 1.0, "log": name, "log_sha256": api.sha(raw),
+        })
+    report = {
+        "schema_version": 1, "baseline_commit": api.BASELINE, "candidate_commit": source_commit,
+        "tool": api.TOOL, "rustc": "rustc 1.96.0 (test)\nrelease: 1.96.0\nLLVM version: test",
+        "candidate_lock_sha256": contract["lock"], "baseline_archive_sha256": contract["archive"],
+        "target_dir": "/target", "expected_checks": len(entries), "status": "pass",
+        "checks": entries, "candidate_unchanged": True,
+    }
+
+    report_path = output_dir / "report.json"
+    report_path.write_text(json.dumps(report))
+    return report_path
+
 class ApiEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -60,26 +91,9 @@ class ApiEvidenceTests(unittest.TestCase):
         self.report_path = self.root / "report.json"
         with patch.object(api, "git_bytes", side_effect=fake_git):
             self.contract = api.source_contract(self.root, COMMIT)
-        (self.root / "logs").mkdir()
-        entries = []
-        for check in self.contract["checks"]:
-            name = f'logs/{check["package"]}--{check["mode"]}.log'
-            raw = passing_log(check)
-            (self.root / name).write_bytes(raw)
-            entries.append({key: check[key] for key in ("package", "manifest", "mode", "flags")})
-            entries[-1].update({
-                "command": ["/tool/cargo-semver-checks", "semver-checks", "--manifest-path", "/candidate/" + check["manifest"],
-                            "--package", check["package"], "--baseline-root", "/baseline/" + check["manifest"],
-                            "--release-type", "minor", "--color", "never", *check["flags"]],
-                "exit_code": 0, "elapsed_seconds": 1.0, "log": name, "log_sha256": api.sha(raw),
-            })
-        self.report = {
-            "schema_version": 1, "baseline_commit": api.BASELINE, "candidate_commit": COMMIT,
-            "tool": api.TOOL, "rustc": "rustc 1.96.0 (test)\nrelease: 1.96.0\nLLVM version: test",
-            "candidate_lock_sha256": self.contract["lock"], "baseline_archive_sha256": self.contract["archive"],
-            "target_dir": "/target", "expected_checks": len(entries), "status": "pass",
-            "checks": entries, "candidate_unchanged": True,
-        }
+        with patch.object(api, "git_bytes", side_effect=fake_git):
+            self.report_path = write_api_fixture(self.root, self.root, COMMIT, self.contract)
+        self.report = json.loads(self.report_path.read_text())
 
     def verify(self):
         return api.verify_report(self.report, self.report_path, COMMIT, self.contract)

@@ -123,6 +123,37 @@ def release_assets(remote: Remote, repository: str, release_id: int) -> list:
     raise VerificationError("GitHub asset pagination exceeded the verification limit")
 
 
+def verify_promotion_assets(bundle: dict, remote: Remote) -> None:
+    """Read every asset page and exact bytes while the new release is still draft."""
+    repository, tag = bundle["github_repository"], bundle["tag"]
+    release = remote.github(f"repos/{repository}/releases/tags/{tag}")
+    require(isinstance(release, dict) and release.get("tag_name") == tag
+            and type(release.get("draft")) is bool and release.get("prerelease") is False,
+            "GitHub promotion release identity differs")
+    release_id = release.get("id")
+    require(type(release_id) is int and release_id > 0, "invalid GitHub release ID")
+    assets = release_assets(remote, repository, release_id)
+    require(all(isinstance(item, dict) for item in assets), "invalid GitHub asset entry")
+    expected = {item["name"]: item for item in bundle["github_assets"]}
+    names = [item.get("name") for item in assets]
+    require(all(isinstance(name, str) for name in names) and len(names) == len(set(names)) and set(names) == set(expected),
+            "GitHub promotion asset inventory differs")
+    ids = set()
+    for item in assets:
+        identifier = item.get("id")
+        require(type(identifier) is int and identifier > 0 and identifier not in ids, "invalid GitHub asset ID")
+        ids.add(identifier)
+        stored = expected[item["name"]]
+        require(item.get("state") == "uploaded" and item.get("size") == stored["size"], "GitHub promotion asset metadata differs")
+        require(remote.asset(repository, identifier, stored["size"]) == (stored["size"], stored["sha256"]),
+                "GitHub promotion asset bytes differ")
+    final = remote.github(f"repos/{repository}/releases/tags/{tag}")
+    require(isinstance(final, dict) and all(final.get(key) == release.get(key) for key in ("id", "tag_name", "draft", "prerelease", "published_at")), "GitHub release changed before promotion")
+    identities = lambda values: sorted(json.dumps({key: item.get(key) for key in ("id", "name", "state", "size", "digest")}, sort_keys=True) for item in values)
+    after = release_assets(remote, repository, release_id)
+    require(all(isinstance(item, dict) for item in after) and identities(after) == identities(assets), "GitHub assets changed before promotion")
+
+
 def verify_remote(bundle: dict, tag_object: str, remote: Remote) -> dict:
     """The caller first validates the local bundle with the publication validator."""
     repository, tag = bundle["github_repository"], bundle["tag"]

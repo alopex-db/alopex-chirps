@@ -15,7 +15,8 @@ Production mode uploads the exact stored .crate archives to crates.io, copies
 the stored production OCI archive, and attaches the exact stored GitHub assets.
 The evidence index must bind the supplied manifest as the release-bundle artifact.
 Fixture endpoints replace all external services for the executable self-test.
-The command never invokes Cargo, packages source, or selects an implicit HEAD.
+Only isolated downstream consumers are compiled after registry upload.
+The command never rebuilds production packages/OCI bytes or selects an implicit HEAD.
 USAGE
 }
 
@@ -74,6 +75,20 @@ trap cleanup EXIT
 python3 "$repo_root/scripts/release/verify-v0.7-evidence.py" \
   --schema "$repo_root/docs/release/v0.7.0-evidence-schema.json" \
   "$evidence" >/dev/null
+
+python3 - "$repo_root/scripts/release" "$bundle" "$evidence" <<'PY_CONSUMER'
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from v07_consumer_evidence import verify_report
+bundle = Path(sys.argv[2]).resolve()
+evidence = Path(sys.argv[3]).resolve()
+entries = [entry for entry in json.loads(evidence.read_text())["evidence"] if entry["kind"] == "package"]
+if len(entries) != 1:
+    raise SystemExit("one stored archive consumer report is required")
+verify_report(bundle, evidence.parent / entries[0]["path"], "stored-archives")
+PY_CONSUMER
 
 python3 - "$bundle" "$candidate" "$evidence" "$test_server_manifest" "$scratch" <<'PY'
 from __future__ import annotations
@@ -534,9 +549,32 @@ PY
   return 1
 }
 
+if [[ "$fixture_count" == 0 && -z "${CHIRPS_POSTPUBLISH_EVIDENCE_DIR:-}" ]]; then
+  printf '%s\n' 'CHIRPS_POSTPUBLISH_EVIDENCE_DIR is required before uploading archives' >&2
+  exit 1
+fi
+
 while IFS=$'\t' read -r package_name package_path package_sha256 metadata_base64; do
   publish_registry_archive "$package_name" "$package_path" "$package_sha256" "$metadata_base64"
 done < "$scratch/packages.tsv"
+
+# Publication is incomplete until a fresh consumer resolves the exact uploaded bytes.
+# Failure here leaves resumable crate uploads and prevents image/Release promotion.
+consumer_phase=registry
+consumer_output="${CHIRPS_POSTPUBLISH_EVIDENCE_DIR:-$scratch/registry-consumer}"
+if [[ "$fixture_count" == 0 && -z "${CHIRPS_POSTPUBLISH_EVIDENCE_DIR:-}" ]]; then
+  printf '%s\n' 'CHIRPS_POSTPUBLISH_EVIDENCE_DIR is required to retain registry verification evidence' >&2
+  exit 1
+fi
+consumer_args=()
+if [[ "$fixture_count" == 3 ]]; then
+  consumer_phase=fixture-registry
+  consumer_args=(--fixture-registry "$fixture_registry")
+fi
+python3 "$repo_root/scripts/release/v07_consumer_evidence.py" \
+  --bundle "$bundle" --phase "$consumer_phase" --output "$consumer_output" "${consumer_args[@]}"
+python3 "$repo_root/scripts/release/v07_consumer_evidence.py" \
+  --bundle "$bundle" --phase "$consumer_phase" --verify-report "$consumer_output/report.json"
 
 if [[ "$fixture_count" == 3 ]]; then
   fixture_transfer "$fixture_image" "production/0.7.0" \
@@ -573,7 +611,7 @@ if [[ "$fixture_count" == 0 ]]; then
   [[ -n "${GH_TOKEN:-}" ]] || { printf '%s\n' 'GH_TOKEN is required for GitHub assets' >&2; exit 1; }
   if ! gh release view "$release_tag" --repo "$github_repository" >/dev/null 2>&1; then
     gh release create "$release_tag" --repo "$github_repository" \
-      --verify-tag --title "Alopex Chirps $release_tag" --generate-notes
+      --verify-tag --draft --title "Alopex Chirps $release_tag" --generate-notes
   fi
 fi
 
@@ -599,5 +637,20 @@ while IFS=$'\t' read -r asset_name asset_path asset_sha256; do
       --repo "$github_repository"
   fi
 done < "$scratch/assets.tsv"
+
+if [[ "$fixture_count" == 0 ]]; then
+  # Read the dedicated paginated API and download IDs from that exact snapshot.
+  python3 - "$repo_root/scripts/release/verify-published-v0.7.py" "$bundle" <<'PY_PROMOTION'
+import importlib.util
+import json
+import sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("published", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.verify_promotion_assets(json.loads(Path(sys.argv[2]).read_bytes()), module.Remote())
+PY_PROMOTION
+  gh release edit "$release_tag" --repo "$github_repository" --draft=false
+fi
 
 printf 'v0.7 exact-byte bundle publication completed for %s\n' "$source_commit"

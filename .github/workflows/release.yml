@@ -47,6 +47,10 @@ jobs:
   # Run CI checks before release
   ci-gate:
     name: CI Gate
+    env:
+      CHIRPS_SOURCE_ROOT: ${{ github.workspace }}/source
+      CHIRPS_PERF_VERIFIER: ${{ runner.temp }}/chirps-perf-verifier/chirps-durable-perf
+      CHIRPS_RELEASE_TOOLS_COMMIT: ${{ github.sha }}
     defaults:
       run:
         working-directory: source
@@ -71,9 +75,6 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           path: release-tools
-          sparse-checkout: |
-            scripts
-            docs/release
       - name: Verify publish confirmation, tag candidate, commit, and version
         id: release_metadata
         run: |
@@ -154,6 +155,20 @@ jobs:
           scripts/run-v0.7-release-gate.sh --structure-only
           scripts/release/test-publish-v0.7-bundle.sh
           scripts/verify-release-contract.sh --publication-workflow
+      - name: Build trusted read-only PERF verifier from workflow source
+        if: steps.release_metadata.outputs.version == '0.7.0'
+        run: |
+          python3 "$GITHUB_WORKSPACE/release-tools/scripts/release/v07_perf_verifier.py" build \
+            --source-root "$GITHUB_WORKSPACE/release-tools" \
+            --source-commit "${{ github.sha }}" \
+            --output "${RUNNER_TEMP}/chirps-perf-verifier"
+      - name: Store same-run trusted PERF verifier
+        if: steps.release_metadata.outputs.version == '0.7.0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chirps-v07-perf-verifier-${{ github.run_id }}
+          path: ${{ runner.temp }}/chirps-perf-verifier
+          if-no-files-found: error
       - name: Download frozen v0.7 candidate, evidence, and release bytes
         if: steps.release_metadata.outputs.version == '0.7.0'
         uses: actions/download-artifact@v4
@@ -360,6 +375,10 @@ jobs:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
       GH_TOKEN: ${{ github.token }}
       CHIRPS_RELEASE_ENVIRONMENT_APPROVAL: release:${{ inputs.commit }}
+      CHIRPS_POSTPUBLISH_EVIDENCE_DIR: ${{ runner.temp }}/chirps-v07-registry-consumer
+      CHIRPS_SOURCE_ROOT: ${{ github.workspace }}
+      CHIRPS_PERF_VERIFIER: ${{ runner.temp }}/chirps-perf-verifier/chirps-durable-perf
+      CHIRPS_RELEASE_TOOLS_COMMIT: ${{ github.sha }}
     steps:
       - name: Reject stale release run
         run: |
@@ -389,6 +408,11 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: release-tools
       - name: Verify exact checkout identity
         run: |
           [[ "$(git rev-parse HEAD)" == "${RELEASE_COMMIT}" ]] || {
@@ -402,6 +426,14 @@ jobs:
           path: ${{ runner.temp }}/chirps-v0.7-release-bundle
           github-token: ${{ github.token }}
           run-id: ${{ inputs.v07_artifact_run_id }}
+      - name: Download trusted PERF verifier from this workflow run
+        uses: actions/download-artifact@v4
+        with:
+          name: chirps-v07-perf-verifier-${{ github.run_id }}
+          path: ${{ runner.temp }}/chirps-perf-verifier
+      - name: Restore verifier executable mode
+        run: chmod 755 "$CHIRPS_PERF_VERIFIER"
+      - uses: dtolnay/rust-toolchain@stable
       - name: Authenticate production image destination
         uses: docker/login-action@v3
         with:
@@ -415,12 +447,20 @@ jobs:
       - name: Publish nine archives, production image, and GitHub assets from stored bytes
         run: |
           root="${RUNNER_TEMP}/chirps-v0.7-release-bundle"
-          scripts/release/publish-v0.7-bundle.sh \
+          "$GITHUB_WORKSPACE/release-tools/scripts/release/publish-v0.7-bundle.sh" \
             --bundle "${root}/release-bundle.json" \
             --candidate "${root}/candidate.json" \
             --evidence "${root}/evidence.json" \
             --require-environment-approval \
             --resume-only-on-checksum-match
+      - name: Preserve post-upload registry consumer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chirps-v07-registry-consumer-${{ github.run_id }}
+          path: ${{ runner.temp }}/chirps-v07-registry-consumer
+          if-no-files-found: warn
+
 
   create-release:
     name: Create GitHub Release

@@ -8,6 +8,8 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
+import subprocess
 import re
 import sys
 import tempfile
@@ -16,6 +18,9 @@ from typing import Callable
 
 sys.dont_write_bytecode = True
 from v07_e2e_evidence import verify_lane
+from v07_consumer_evidence import verify_report as verify_consumer_report
+from v07_api_evidence import verify_api_report
+from v07_perf_verifier import verify as verify_performance
 
 VERSION = "0.7.0"
 SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
@@ -393,6 +398,30 @@ def verify(evidence_path: Path, schema_path: Path) -> None:
         if evidence_digests != {candidate[candidate_field]}:
             fail(f"candidate.{candidate_field} differs from {kind} evidence")
     verify_e2e_categories(root, entries, candidate)
+    verify_release_categories(root, entries, candidate, candidate_path)
+
+
+def verify_release_categories(root: Path, entries: list[dict], candidate: dict, candidate_path: Path) -> None:
+    """Replay package, API, and PERF evidence from raw results and trusted tools."""
+    def one(kind, identifier=None):
+        found = [entry for entry in entries if entry["kind"] == kind and (identifier is None or entry["id"] == identifier)]
+        if len(found) != 1:
+            fail(f"{kind} requires exactly one {identifier or 'complete'} semantic report")
+        return safe_file(root, found[0]["path"], kind)
+    try:
+        package = one("package")
+        report = verify_consumer_report(package.parent / "package-set.json", package, "stored-archives")
+        if report["source_commit"] != candidate["source_commit"]:
+            fail("consumer evidence source differs from candidate")
+        api = one("compatibility", "public-api")
+        source_root = Path(os.environ.get("CHIRPS_SOURCE_ROOT", Path(__file__).resolve().parents[2]))
+        verify_api_report(source_root, api, candidate["source_commit"])
+        performance = one("performance")
+        if performance.name != "paired.json" or performance.parent.name != "paired":
+            fail("performance entry must identify the replayed paired/paired.json")
+        verify_performance(candidate_path, performance.parent.parent)
+    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        fail(f"semantic release evidence rejected: {error}")
 
 
 def verify_e2e_categories(root: Path, entries: list[dict], candidate: dict) -> None:
@@ -423,8 +452,12 @@ def self_test(schema_path: Path) -> None:
     schema_path = schema_path.resolve()
     schema = load_object(schema_path)
     validate_schema_contract(schema)
-    with tempfile.TemporaryDirectory(prefix="chirps-v07-evidence-self-test.") as directory:
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory(prefix="chirps-v07-evidence-self-test.") as directory, patch.dict(os.environ):
         root = Path(directory)
+        source_root = Path(__file__).resolve().parents[2]
+        source_commit = subprocess.check_output(["git", "-C", str(source_root), "rev-parse", "HEAD"], text=True).strip()
+        os.environ["CHIRPS_SOURCE_ROOT"] = str(source_root)
         artifact_digests: dict[str, str] = {}
         for kind in sorted(REQUIRED_KINDS):
             path = root / "artifacts" / f"{kind}.json"
@@ -437,13 +470,28 @@ def self_test(schema_path: Path) -> None:
         fixture_spec.loader.exec_module(fixture_module)
         runtime_paths = {}
         for kind, lane in (("process", "production"), ("fault", "fault")):
-            path = fixture_module.write_lane_fixture(root / "runtime" / lane, lane, "1" * 40, "2" * 40)
+            path = fixture_module.write_lane_fixture(root / "runtime" / lane, lane, source_commit, "2" * 40)
+            runtime_paths[kind] = path.relative_to(root).as_posix()
+            artifact_digests[kind] = sha256_file(path)
+        def fixture_module(name):
+            spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(f"test-v07-{name}.py"))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+        package = fixture_module("consumer-evidence").write_consumer_fixture(root / "consumer", source_commit)
+        api = fixture_module("api-evidence").write_api_fixture(root / "api", source_root, source_commit)
+        tool = fixture_module("perf-verifier").write_tool_fixture(root / "trusted-tool", source_commit)
+        os.environ["CHIRPS_PERF_VERIFIER"] = str(tool)
+        os.environ["CHIRPS_RELEASE_TOOLS_COMMIT"] = source_commit
+        performance = root / "performance/paired/paired.json"
+        write_json(performance, {"synthetic_fixture": True})
+        for kind, path in (("package", package), ("compatibility", api), ("performance", performance)):
             runtime_paths[kind] = path.relative_to(root).as_posix()
             artifact_digests[kind] = sha256_file(path)
         candidate = {
             "schema": CANDIDATE_SCHEMA,
             "release_version": VERSION,
-            "source_commit": "1" * 40,
+            "source_commit": source_commit,
             "iggy_commit": "2" * 40,
             "source_sha256": artifact_digests["source"],
             "specification_sha256": artifact_digests["specification"],
@@ -464,7 +512,7 @@ def self_test(schema_path: Path) -> None:
         candidate_sha256 = sha256_file(candidate_path)
         entries = [
             {
-                "id": f"self-test-{kind}",
+                "id": "public-api" if kind == "compatibility" else f"self-test-{kind}",
                 "kind": kind,
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,
@@ -474,6 +522,7 @@ def self_test(schema_path: Path) -> None:
             }
             for kind in sorted(REQUIRED_KINDS)
         ]
+        entries.sort(key=lambda entry: entry["id"])
         bundle = {
             "schema": BUNDLE_SCHEMA,
             "release_version": VERSION,
