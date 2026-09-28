@@ -3,12 +3,14 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE' >&2
-Usage: run-v0.7-release-gate.sh --structure-only
+Usage: run-v0.7-release-gate.sh --public-structure-only
        run-v0.7-release-gate.sh --candidate FILE --evidence FILE --bundle FILE
                                   [--schema FILE]
 
-Structure-only mode validates the pre-publication lane graph and self-contained
-schema fixtures. Full mode additionally requires one external candidate,
+Public structure mode validates the lane graph, actual public source inventory,
+and schema fixtures. --structure-only is its transitional alias; neither proves
+complete RELEASE-STRUCTURE (private task input/verification remains separate).
+Evidence mode additionally requires one external candidate,
 evidence index, and bundle. This command never publishes or creates evidence.
 USAGE
 }
@@ -22,7 +24,7 @@ schema="$repo_root/docs/release/v0.7.0-evidence-schema.json"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --structure-only) structure_only=true; shift ;;
+    --public-structure-only|--structure-only) structure_only=true; shift ;;
     --candidate) candidate="${2:?missing value for --candidate}"; shift 2 ;;
     --evidence) evidence="${2:?missing value for --evidence}"; shift 2 ;;
     --bundle) bundle="${2:?missing value for --bundle}"; shift 2 ;;
@@ -167,6 +169,8 @@ print(
 )
 PY
 
+python3 "$repo_root/scripts/release/v07_public_structure.py" --source-root "$repo_root"
+
 if [[ "$structure_only" == true ]]; then
   [[ -z "$candidate" && -z "$evidence" && -z "$bundle" ]] || {
     printf '%s\n' '--structure-only does not accept future evidence paths' >&2
@@ -175,10 +179,10 @@ if [[ "$structure_only" == true ]]; then
   "$repo_root/scripts/verify-release-contract.sh" \
     --version 0.7.0 --structure-only --schema "$schema"
   "$repo_root/scripts/release/verify-published-v0.7.sh" --self-test
-  for check in consumer-evidence perf-verifier api-evidence semantic-hooks publication-workflow; do
+  for check in public-structure consumer-evidence perf-verifier api-evidence semantic-hooks publication-workflow; do
     python3 "$repo_root/scripts/release/test-v07-${check}.py"
   done
-  printf '%s\n' 'v0.7 release gate structure validated'
+  printf '%s\n' 'v0.7 public structure subset validated; complete RELEASE-STRUCTURE not established'
   exit 0
 fi
 

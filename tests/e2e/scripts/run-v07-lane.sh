@@ -90,6 +90,10 @@ readonly e2e_root="${repository_root}/tests/e2e"
 readonly production_manifest="${repository_root}/server/iggy-compatible/manifest.toml"
 readonly fault_manifest="${repository_root}/server/iggy-compatible/test-manifest.toml"
 cd "${repository_root}"
+# Validate source reachability before requesting artifact/corpus inputs.
+selection="$(rtk python3 "${repository_root}/scripts/release/v07_public_structure.py" \
+    --source-root "$repository_root" --lane "$lane" --mode "$mode" --target "$selected_target")"
+mapfile -t targets <<< "$selection"
 : "${CHIRPS_SERVER_MANIFEST:?CHIRPS_SERVER_MANIFEST is required}"
 : "${CHIRPS_ARTIFACT_KIND:?CHIRPS_ARTIFACT_KIND is required}"
 : "${CHIRPS_REQUIRE_OUTPUT_DIGEST:?CHIRPS_REQUIRE_OUTPUT_DIGEST is required}"
@@ -242,88 +246,6 @@ export CHIRPS_SERVER_SOURCE_COMMIT="${verified[2]}"
 export CHIRPS_SERVER_SOURCE_TREE="${verified[3]}"
 export CHIRPS_E2E_LANE="${lane}"
 
-readonly -a production_targets=(
-    durable_session durable_send durable_shutdown durable_creation durable_checkpoint
-    durable_poll durable_delivery durable_compaction durable_diagnostics durable_observability
-)
-readonly -a fault_targets=(
-    durable_session durable_send durable_diagnostics durable_metadata_recovery
-)
-readonly -a production_companions=(
-    durable_server_faults durable_retention_window durable_owner durable_checkpoint_recovery
-    durable_retention durable_redelivery durable_capacity durable_bootstrap_security
-)
-readonly -a fault_companions=(durable_server_faults)
-
-if [[ "$lane" == "production" ]]; then
-    targets=("${production_targets[@]}")
-    companions=("${production_companions[@]}")
-else
-    targets=("${fault_targets[@]}")
-    companions=("${fault_companions[@]}")
-fi
-
-contains() {
-    local needle="$1"
-    shift
-    local value
-    for value in "$@"; do
-        [[ "$value" == "$needle" ]] && return 0
-    done
-    return 1
-}
-
-declared_test() {
-    rtk python3 - "${e2e_root}/Cargo.toml" "$1" <<'PY'
-import pathlib
-import sys
-import tomllib
-with open(sys.argv[1], "rb") as handle:
-    manifest = tomllib.load(handle)
-name = sys.argv[2]
-expected = f"tests/{name}.rs"
-raise SystemExit(0 if any(item.get("name") == name and item.get("path") == expected for item in manifest.get("test", [])) else 1)
-PY
-}
-
-validate_source_reachability() {
-    local source stem owner
-    shopt -s nullglob
-    for source in "${e2e_root}"/tests/durable_*.rs; do
-        stem="$(rtk basename "${source}" .rs)"
-        if ! contains "$stem" "${production_targets[@]}" "${production_companions[@]}" "${fault_targets[@]}" "${fault_companions[@]}"; then
-            rtk echo "unreachable v0.7 E2E source: ${source}" >&2
-            return 1
-        fi
-        if contains "$stem" "${production_companions[@]}" "${fault_companions[@]}"; then
-            case "$stem" in
-                durable_server_faults) owner="durable_send" ;;
-                durable_retention_window) owner="durable_shutdown" ;;
-                durable_owner) owner="durable_creation" ;;
-                durable_checkpoint_recovery) owner="durable_checkpoint" ;;
-                durable_retention) owner="durable_poll" ;;
-                durable_poll_concurrency) owner="durable_poll" ;;
-                durable_replay) owner="durable_delivery" ;;
-                durable_redelivery) owner="durable_delivery" ;;
-                durable_recreation) owner="durable_compaction" ;;
-                durable_capacity) owner="durable_compaction" ;;
-                durable_bootstrap_security) owner="durable_diagnostics" ;;
-                durable_diagnostic_faults) owner="durable_diagnostics" ;;
-                durable_metadata_corruption) owner="durable_metadata_recovery" ;;
-                *) return 1 ;;
-            esac
-            [[ -f "${e2e_root}/tests/${owner}.rs" ]] || {
-                rtk echo "companion ${stem} has no materialized primary ${owner}" >&2
-                return 1
-            }
-            rtk grep -Eq "^[[:space:]]*(pub[[:space:]]+)?mod[[:space:]]+${stem}[[:space:]]*;[[:space:]]*$" "${e2e_root}/tests/${owner}.rs" || {
-                rtk echo "companion ${stem} is not imported by ${owner}" >&2
-                return 1
-            }
-        fi
-    done
-}
-
 owned_server_pids() {
     local environment pid
     shopt -s nullglob
@@ -359,18 +281,6 @@ trap cleanup_owned_servers EXIT
 
 run_target() {
     local target="$1"
-    contains "$target" "${targets[@]}" || {
-        rtk echo "target ${target} is unknown or belongs to the other lane" >&2
-        return 1
-    }
-    [[ -f "${e2e_root}/tests/${target}.rs" ]] || {
-        rtk echo "target source is not materialized: ${target}" >&2
-        return 1
-    }
-    declared_test "$target" || {
-        rtk echo "target is not explicitly declared in Cargo.toml: ${target}" >&2
-        return 1
-    }
     if [[ -n "$evidence_dir" ]]; then
         CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk proxy python3 \
             "${repository_root}/scripts/release/v07_e2e_evidence.py" \
@@ -381,7 +291,6 @@ run_target() {
     fi
 }
 
-validate_source_reachability
 case "$mode" in
     perf-fixture)
         CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk cargo run --locked \
@@ -404,22 +313,6 @@ case "$mode" in
         }
         ;;
     strict)
-        for target in "${targets[@]}"; do
-            [[ -f "${e2e_root}/tests/${target}.rs" ]] || {
-                rtk echo "strict lane is missing primary target: ${target}" >&2
-                exit 1
-            }
-            declared_test "$target" || {
-                rtk echo "strict lane has an undeclared primary target: ${target}" >&2
-                exit 1
-            }
-        done
-        for companion in "${companions[@]}"; do
-            [[ -f "${e2e_root}/tests/${companion}.rs" ]] || {
-                rtk echo "strict lane is missing companion source: ${companion}" >&2
-                exit 1
-            }
-        done
         for target in "${targets[@]}"; do
             run_target "$target"
         done

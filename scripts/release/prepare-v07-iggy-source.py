@@ -37,6 +37,11 @@ def source_contract(root,commit,iggy_commit):
         size=int(git(root,'cat-file','-s',commit+':'+path))
         if size>MAX_INPUT:raise ValueError('source manifest size limit exceeded')
         return git(root,'show',commit+':'+path)
+    return validate_source_contract(read,iggy_commit)
+
+def validate_source_contract(read,iggy_commit):
+    """Validate the existing manifest contract through an explicit read-only reader."""
+    if not isinstance(iggy_commit,str) or not re.fullmatch('[0-9a-f]{40}',iggy_commit):raise ValueError('full immutable Iggy commit required')
     production_raw=read(MANIFEST);test_raw=read(TEST_MANIFEST)
     production=tomllib.loads(production_raw.decode());test=tomllib.loads(test_raw.decode())
     series_doc=tomllib.loads(read(SERIES).decode());require(series_doc.get('schema_version'),1,'series schema')
