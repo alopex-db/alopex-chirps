@@ -154,7 +154,8 @@ def main() -> int:
             result = subprocess.run(argv, cwd=root, env=env, stdout=stream, stderr=subprocess.STDOUT)
         entry = {**check, "command": argv, "exit_code": result.returncode,
                  "elapsed_seconds": round(time.monotonic() - start, 3),
-                 "log": str(log), "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest()}
+                 "log": log.relative_to(output.parent).as_posix(),
+                 "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest()}
         report["checks"].append(entry)
         output.write_text(json.dumps(report, indent=2) + "\n")
         if result.returncode:
