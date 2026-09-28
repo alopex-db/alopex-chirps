@@ -21,6 +21,7 @@ from v07_e2e_evidence import verify_lane
 from v07_consumer_evidence import verify_report as verify_consumer_report
 from v07_compatibility_matrix import verify as verify_compatibility
 from v07_perf_verifier import verify as verify_performance
+from v07_formal_release import verify_release_models
 
 VERSION = "0.7.0"
 SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
@@ -398,7 +399,25 @@ def verify(evidence_path: Path, schema_path: Path) -> None:
         if evidence_digests != {candidate[candidate_field]}:
             fail(f"candidate.{candidate_field} differs from {kind} evidence")
     verify_e2e_categories(root, entries, candidate)
+    verify_model_category(root, entries, candidate)
     verify_release_categories(root, entries, candidate, candidate_path)
+
+
+def verify_model_category(root: Path, entries: list[dict], candidate: dict) -> None:
+    """Require full160, catalog11 and both immutable refinement source trees."""
+    reports = [entry for entry in entries if entry["kind"] == "model"]
+    if len(reports) != 1 or reports[0]["id"] != "formal-models":
+        fail("model requires exactly one formal-models composite report")
+    iggy_root = os.environ.get("CHIRPS_IGGY_SOURCE_ROOT")
+    if not iggy_root:
+        fail("model requires trusted CHIRPS_IGGY_SOURCE_ROOT Git objects")
+    source_root = Path(os.environ.get("CHIRPS_SOURCE_ROOT", Path(__file__).resolve().parents[2]))
+    try:
+        verify_release_models(source_root, Path(iggy_root),
+                              safe_file(root, reports[0]["path"], "model composite"),
+                              candidate["source_commit"], candidate["iggy_commit"])
+    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        fail(f"model evidence rejected: {error}")
 
 
 def verify_release_categories(root: Path, entries: list[dict], candidate: dict, candidate_path: Path) -> None:
@@ -453,11 +472,15 @@ def self_test(schema_path: Path) -> None:
     schema = load_object(schema_path)
     validate_schema_contract(schema)
     from unittest.mock import patch
-    with tempfile.TemporaryDirectory(prefix="chirps-v07-evidence-self-test.") as directory, patch.dict(os.environ):
+    # This schema/wiring self-test explicitly mocks model execution. The strict
+    # model modules have separate protocol tests and actual raw-run validation;
+    # synthetic artifacts produced here are never release model evidence.
+    with tempfile.TemporaryDirectory(prefix="chirps-v07-evidence-self-test.") as directory, patch.dict(os.environ), patch.dict(globals(), {"verify_release_models": lambda *args: {"synthetic_unit_mock": True}}):
         root = Path(directory)
         source_root = Path(__file__).resolve().parents[2]
         source_commit = subprocess.check_output(["git", "-C", str(source_root), "rev-parse", "HEAD"], text=True).strip()
         os.environ["CHIRPS_SOURCE_ROOT"] = str(source_root)
+        os.environ["CHIRPS_IGGY_SOURCE_ROOT"] = str(root / "synthetic-foreign-source")
         artifact_digests: dict[str, str] = {}
         for kind in sorted(REQUIRED_KINDS):
             path = root / "artifacts" / f"{kind}.json"
@@ -518,7 +541,7 @@ def self_test(schema_path: Path) -> None:
         candidate_sha256 = sha256_file(candidate_path)
         entries = [
             {
-                "id": "compatibility-matrix" if kind == "compatibility" else f"self-test-{kind}",
+                "id": "formal-models" if kind == "model" else "compatibility-matrix" if kind == "compatibility" else f"self-test-{kind}",
                 "kind": kind,
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,

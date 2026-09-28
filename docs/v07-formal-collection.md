@@ -121,3 +121,66 @@ Before loading raw contents, both verifiers total all referenced artifact sizes
 and reject totals above the collector's 1 GiB budget. Reports are limited to
 16 MiB and all parsed JSON rejects duplicate keys. Exit codes and trace indices
 require actual integers; JSON booleans are not accepted as integer zero or one.
+
+## Full model category and foreign Git source in CI
+
+The central v0.7 evidence verifier requires exactly one `model` entry with ID
+`formal-models`. Its payload is `chirps.formal-release/v1`, with exact
+`source_commit` and `iggy_commit` plus three `{path, sha256}` references named
+`raw`, `catalog`, and `refinements`. The central verifier replays all 160 raw
+jobs, all 11 catalog observations, and all production/test references against
+both immutable Git trees. Missing foreign objects are an error. Development
+subsets cannot be selected by the composite report.
+
+`CHIRPS_SOURCE_ROOT` and `CHIRPS_IGGY_SOURCE_ROOT` are trusted caller inputs;
+evidence files cannot choose either path. The latter can be a bare repository.
+Prepare it from the candidate's source manifests and hash-bound bundle:
+
+```sh
+python3 -B "$RELEASE_TOOLS/scripts/release/prepare-v07-iggy-source.py" \
+  --source-root "$CHIRPS_SOURCE_ROOT" --source-commit "$RELEASE_COMMIT" \
+  --iggy-commit "$IGGY_COMMIT" --output "$RUNNER_TEMP/chirps-v07-iggy-source.git"
+export CHIRPS_IGGY_SOURCE_ROOT="$RUNNER_TEMP/chirps-v07-iggy-source.git"
+```
+
+Use Python 3.11+ and PyYAML in the trusted verifier runtime. `IGGY_COMMIT` is the
+candidate JSON's exact commit, which the helper must match to the candidate Git
+manifest. The helper permits only the Apache Iggy upstream, fetches its exact
+baseline at depth 1, imports the bundle into a new bare repository, and checks
+commit, parent, tree, commit count, both manifests, bundle SHA, complete diff,
+Cargo.lock, toolchain hash, and Git object integrity. It never builds source or
+modifies an existing repository. An offline operator may supply
+`--baseline-repository "$READ_ONLY_LOCAL_IGGY_REPOSITORY"`; this also uses depth
+1 and does not copy the full history. Failed outputs are left for diagnosis and
+must not be reused.
+
+In the release workflow, run preparation in **both** `ci-gate` and publication
+jobs after downloading the candidate and before their first frozen-evidence
+verification. Set `RELEASE_TOOLS` to the workflow revision's `release-tools`
+checkout, not to a path supplied by the artifact. In GitHub Actions persist the
+foreign root for subsequent steps with:
+
+```sh
+printf 'CHIRPS_IGGY_SOURCE_ROOT=%s\n' "$RUNNER_TEMP/chirps-v07-iggy-source.git" >> "$GITHUB_ENV"
+```
+
+After collecting the final candidate, write the strict refinement report and
+assemble the composite only when every component passes:
+
+```sh
+python3 -B "$RELEASE_TOOLS/scripts/release/v07_formal_refinements.py" \
+  --chirps-root "$CHIRPS_SOURCE_ROOT" --chirps-commit "$RELEASE_COMMIT" \
+  --iggy-root "$CHIRPS_IGGY_SOURCE_ROOT" --iggy-commit "$IGGY_COMMIT" \
+  --output "$FORMAL_ROOT/refinements.json"
+python3 -B "$RELEASE_TOOLS/scripts/release/v07_formal_release.py" \
+  --source-root "$CHIRPS_SOURCE_ROOT" --source-commit "$RELEASE_COMMIT" \
+  --iggy-root "$CHIRPS_IGGY_SOURCE_ROOT" --iggy-commit "$IGGY_COMMIT" \
+  --raw "$FORMAL_ROOT/raw/report.json" --catalog "$FORMAL_ROOT/catalog/report.json" \
+  --refinements "$FORMAL_ROOT/refinements.json" --output "$FORMAL_ROOT/formal-models.json"
+```
+
+The schema unit self-test and isolated publisher protocol fixture explicitly
+mock model execution; their synthetic bytes are not model evidence. Production
+has no environment variable or CLI switch to bypass the composite gate. The
+strict model modules, Git reconstruction fixtures, and authentic raw runs are
+verified separately.

@@ -7,6 +7,7 @@ fixture_repo="$scratch/repo"
 publisher="$fixture_repo/scripts/release/publish-v0.7-bundle.sh"
 source_commit="$(git -C "$repo_root" rev-parse HEAD)"
 export CHIRPS_SOURCE_ROOT="$repo_root"
+export CHIRPS_IGGY_SOURCE_ROOT="$scratch/synthetic-foreign-source"
 export CHIRPS_RELEASE_TOOLS_COMMIT="$source_commit"
 export CHIRPS_PERF_VERIFIER="$scratch/trusted-tool/chirps-durable-perf"
 server_pid=""
@@ -43,6 +44,16 @@ cp "$repo_root/scripts/release/v07_e2e_evidence.py" \
   "$repo_root/scripts/release/test-v07-api-evidence.py" \
   "$repo_root/scripts/release/test-v07-perf-verifier.py" \
   "$repo_root/scripts/release/oci_artifact.py" "$fixture_repo/scripts/release/"
+# This temporary publisher repository uses an explicit unit mock for model
+# execution. Its synthetic bytes are not release model evidence. Production
+# v07_formal_release.py has no mock switch; strict verifier tests run separately.
+cat > "$fixture_repo/scripts/release/v07_formal_release.py" <<'PY'
+"""Publication protocol fixture only; never install as a release verifier."""
+def verify_release_models(source_root, iggy_root, report_path, source_commit, iggy_commit):
+    if report_path.read_bytes() != b"fixture-model\n":
+        raise ValueError("unexpected synthetic publication model fixture")
+    return {"synthetic_unit_mock": True}
+PY
 cp "$repo_root/docs/release/v0.7.0-evidence-schema.json" \
   "$fixture_repo/docs/release/v0.7.0-evidence-schema.json"
 test_server_sha256="$(printf '%s\n' 'fixture-publish-disabled-test-server' | sha256sum | awk '{print $1}')"
@@ -350,7 +361,7 @@ def write_evidence(index_name: str, bundle_name: str, release_name: str) -> None
         )
         entries.append(
             {
-                "id": "release-bundle" if kind == "process" else "compatibility-matrix" if kind == "compatibility" else f"fixture-{kind}",
+                "id": "release-bundle" if kind == "process" else "formal-models" if kind == "model" else "compatibility-matrix" if kind == "compatibility" else f"fixture-{kind}",
                 "kind": kind,
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,
@@ -728,13 +739,15 @@ fi
 printf '%s\n' 'v0.7 publication structure passed: approval, exact order, resume, mismatch, and test-artifact controls'
 
 # Exercise the actual wrapper -> Python -> local publisher validation chain.
-# Only the test interpreter substitutes read-only remotes; production has no
-# fixture endpoint switch that could be mistaken for publication evidence.
+# The test interpreter substitutes read-only remotes and remains inside the
+# scoped fixture repository (including its explicit synthetic model mock).
+# Production has no fixture switch that could be mistaken for release evidence.
 cp "$repo_root/scripts/release/verify-published-v0.7.sh" "$fixture_repo/scripts/release/"
 cp "$repo_root/scripts/release/verify-published-v0.7.py" "$fixture_repo/scripts/release/"
+cp "$repo_root/scripts/release/test-verify-published-v0.7.py" "$fixture_repo/scripts/release/"
 mkdir -p "$scratch/readonly-bin"
 export CHIRPS_TEST_REAL_PYTHON="$(command -v python3)"
-export CHIRPS_TEST_VERIFY_TESTS="$repo_root/scripts/release/test-verify-published-v0.7.py"
+export CHIRPS_TEST_VERIFY_TESTS="$fixture_repo/scripts/release/test-verify-published-v0.7.py"
 cat > "$scratch/readonly-bin/python3" <<'PYTHON_SH'
 #!/usr/bin/env bash
 if [[ "${1##*/}" == "verify-published-v0.7.py" ]]; then
