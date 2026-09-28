@@ -74,6 +74,16 @@ class EvidenceContract(unittest.TestCase):
         data=json.loads(self.files['violation1.itf.json']);data['states'][1]['state']['ready']=False
         self.files['violation1.itf.json']=json.dumps(data);self.flush()
         with self.assertRaisesRegex(ValueError,'trace files differ'):self.check()
+    def test_aggregate_budget_precedes_artifact_reads(self):
+        with patch.object(e,'MAX_ARTIFACT_BYTES',64),patch.object(e,'artifact',side_effect=AssertionError('read before size check')):
+            with self.assertRaisesRegex(ValueError,'aggregate formal artifact'):self.check()
+    def test_report_size_precedes_json_allocation(self):
+        path=self.root/'report.json';path.write_text('{\"synthetic\":true}')
+        with patch.object(e,'MAX_REPORT_BYTES',4),patch.object(e,'unique_json',side_effect=AssertionError('parsed oversized report')):
+            with self.assertRaisesRegex(ValueError,'report size limit'):e.read_report(path)
+    def test_duplicate_json_keys_rejected(self):
+        for raw in ('{\"status\":\"fail\",\"status\":\"pass\"}','{\"state\":{\"ready\":false,\"ready\":true}}'):
+            with self.assertRaisesRegex(ValueError,'duplicate JSON key'):e.unique_json(raw)
     def test_path_escape(self):
         with self.assertRaisesRegex(ValueError,'unsafe'):e.artifact(self.root,'../escape','0'*64)
     def test_inventory_and_candidate_binding(self):

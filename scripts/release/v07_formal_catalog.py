@@ -33,7 +33,7 @@ def expected_logs(service):
     return {'none':(0,'\n'.join(lines)+'\n'),**{key:(code,message+'\n') for key,(code,message) in PROBES.items()}}
 
 def verify_catalog_report(source_root,report_path,source_commit):
-    report_path=Path(report_path).resolve();report=json.loads(report_path.read_text())
+    report_path=Path(report_path).resolve();report=e.read_report(report_path)
     inputs,_=e.trusted_contract(source_root,source_commit)
     raw=subprocess.check_output(['git','-C',str(source_root),'show',source_commit+':formal/chirps-durable/compose.yml'],timeout=30)
     service=yaml.safe_load(raw)['services']['suite'];command=service['command'][0].replace('$$','$')
@@ -43,9 +43,10 @@ def verify_catalog_report(source_root,report_path,source_commit):
     if report.get('status')!='collected-unverified':raise ValueError('catalog collection failed')
     expected=expected_logs(service);results=report.get('results',[])
     if [r.get('probe') for r in results]!=list(expected):raise ValueError('catalog probe inventory differs')
+    e.check_artifact_budget(report_path.parent,[{'artifacts':{result['log']:result['sha256'] for result in results}}])
     for result in results:
         code,log=expected[result['probe']]
-        if result.get('failure') is not None or result.get('exit_code')!=code:raise ValueError('catalog probe unexpected exit')
+        if result.get('failure') is not None or type(result.get('exit_code')) is not int or result['exit_code']!=code:raise ValueError('catalog probe unexpected exit')
         actual=e.artifact(report_path.parent,result['log'],result['sha256']).decode()
         if actual!=log:raise ValueError('catalog probe failed for wrong reason')
     return {'status':'pass','source_commit':source_commit,'probes':len(results)}

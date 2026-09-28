@@ -29,6 +29,9 @@ class TypeContract(unittest.TestCase):
         trace=self.fixture();self.assertEqual(t.verify_typeok(source,trace,'CONSTANT Limit = 2\n')['states'],1)
         trace['states'][0]['state']['count']={'#bigint':'3'}
         with self.assertRaisesRegex(ValueError,'TypeOK violation'):t.verify_typeok(source,trace,'CONSTANT Limit = 2\n')
+    def test_boolean_is_not_trace_index(self):
+        trace=self.fixture();trace['states'][0]['#meta']['index']=False
+        with self.assertRaisesRegex(ValueError,'trace indices'):t.verify_typeok('TypeOK == state.ready \\in BOOLEAN\n====',trace,'CONSTANT Limit = 2\n')
     def test_boolean_is_not_integer_member(self):
         self.assertFalse(t.member(True,frozenset((1,2))))
         self.assertFalse(t.member(1,t.BOOLEAN))

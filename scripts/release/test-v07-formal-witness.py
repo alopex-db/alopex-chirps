@@ -35,6 +35,9 @@ class WitnessContract(unittest.TestCase):
         self.assertFalse(w.evaluate(node,env))
     def test_typed_equality(self):
         with self.assertRaisesRegex(ValueError,'type mismatch'):w.evaluate(w.Parser('TRUE = 1').complete(),{})
+    def test_boolean_is_not_trace_index(self):
+        trace=self.fixture();trace['states'][0]['#meta']['index']=False
+        with self.assertRaisesRegex(ValueError,'non-contiguous'):w.verify_witness('Absent == ~state.ready\n====','Absent',trace,2)
     def test_bad_index_and_length(self):
         for change in ('index','length'):
             trace=self.fixture()

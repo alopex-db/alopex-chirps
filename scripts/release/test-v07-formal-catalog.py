@@ -35,6 +35,9 @@ class CatalogContract(unittest.TestCase):
     def test_pass_label_does_not_hide_missing_probe(self):
         self.report['results'].pop();self.report['status']='collected-unverified'
         with self.assertRaisesRegex(ValueError,'inventory differs'):self.check()
+    def test_boolean_is_not_exit_zero(self):
+        self.report['results'][0]['exit_code']=False
+        with self.assertRaisesRegex(ValueError,'unexpected exit'):self.check()
     def test_exit_zero_not_negative_success(self):
         self.report['results'][1]['exit_code']=0
         with self.assertRaisesRegex(ValueError,'unexpected exit'):self.check()

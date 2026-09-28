@@ -64,12 +64,43 @@ def trusted_contract(root,commit):
     if Counter(job['kind'] for job in jobs)!=dict(typecheck=4,normal=4,profile=125,witness=27):raise ValueError('wrong model phase counts')
     return {name:sha(raw) for name,raw in inputs.items()}, {job['id']:job for job in jobs}
 
-def artifact(root,name,digest):
+MAX_ARTIFACT_BYTES=1024**3
+MAX_REPORT_BYTES=16*1024**2
+
+def unique_json(raw):
+    def pairs(items):
+        result={}
+        for key,value in items:
+            if key in result:raise ValueError('duplicate JSON key')
+            result[key]=value
+        return result
+    return json.loads(raw,object_pairs_hook=pairs)
+
+def read_report(path):
+    if path.stat().st_size>MAX_REPORT_BYTES:raise ValueError('formal report size limit exceeded')
+    with path.open('rb') as stream:raw=stream.read(MAX_REPORT_BYTES+1)
+    if len(raw)>MAX_REPORT_BYTES:raise ValueError('formal report size limit exceeded')
+    return unique_json(raw)
+
+def artifact_path(root,name):
     path=Path(name)
     if path.is_absolute() or str(path)!=name or '..' in path.parts:raise ValueError('unsafe formal artifact path')
     if any(root.joinpath(*path.parts[:i]).is_symlink() for i in range(1,len(path.parts)+1)):raise ValueError('symlink formal artifact')
     file=root/path
-    if not file.is_file() or file.stat().st_size>1024**3:raise ValueError('missing or oversized formal artifact')
+    if not file.is_file():raise ValueError('missing formal artifact')
+    return file
+
+def check_artifact_budget(root,records):
+    names={name for record in records for name in record.get('artifacts',{})}
+    total=0
+    for name in names:
+        total+=artifact_path(root,name).stat().st_size
+        if total>MAX_ARTIFACT_BYTES:raise ValueError('aggregate formal artifact size limit exceeded')
+    return total
+
+def artifact(root,name,digest):
+    file=artifact_path(root,name)
+    if file.stat().st_size>MAX_ARTIFACT_BYTES:raise ValueError('oversized formal artifact')
     raw=file.read_bytes()
     if sha(raw)!=digest:raise ValueError('formal artifact digest differs')
     return raw
@@ -83,6 +114,7 @@ def verify_job(root,record,job):
     if record.get('command')!=command:raise ValueError('filtered or altered checker command')
     artifacts=record.get('artifacts',{})
     if not artifacts:raise ValueError('missing raw artifacts')
+    check_artifact_budget(root,[record])
     raw={name:artifact(root,name,digest) for name,digest in artifacts.items()}
     def unique(basename):
         matches=[data for name,data in raw.items() if Path(name).name==basename]
@@ -111,8 +143,8 @@ def verify_job(root,record,job):
     if not console.rstrip().endswith('EXITCODE: ERROR (12)') or 'The outcome is: Error' not in console or 'Found 1 error(s)' not in console:raise ValueError('expected counterexample absent')
     violations=re.findall(r'State (\d+): state invariant (\d+) violated\.',console)
     if len(violations)!=1:raise ValueError('ambiguous counterexample')
-    trace=json.loads(unique('violation.itf.json'))
-    numbered=json.loads(unique('violation1.itf.json'))
+    trace=unique_json(unique('violation.itf.json'))
+    numbered=unique_json(unique('violation1.itf.json'))
     for value in (trace,numbered):
         value.get('#meta',{}).pop('description',None)
     if trace!=numbered:raise ValueError('counterexample trace files differ')
@@ -128,7 +160,7 @@ def verify_job(root,record,job):
 
 def verify_formal_report(source_root,report_path,source_commit,require_complete=True):
     report_path=Path(report_path).resolve();root=report_path.parent
-    report=json.loads(report_path.read_text())
+    report=read_report(report_path)
     expected_inputs,jobs=trusted_contract(source_root,source_commit)
     if report.get('schema')!='chirps.formal-raw-collection/v1':raise ValueError('unknown formal report schema')
     if report.get('source')!={'source_commit':source_commit,'inputs':expected_inputs}:raise ValueError('formal report not bound to exact candidate')
@@ -138,6 +170,7 @@ def verify_formal_report(source_root,report_path,source_commit,require_complete=
     if len(set(actual))!=len(actual) or actual!=selected or not set(actual)<=set(jobs):raise ValueError('formal jobs missing, duplicate or unexpected')
     if require_complete and (report.get('mode')!='all' or set(actual)!=set(jobs)):raise ValueError('full 160-job model evidence required')
     if not actual:raise ValueError('empty formal evidence')
+    check_artifact_budget(root,report['jobs'])
     results=[verify_job(root,entry,jobs[entry['id']]) for entry in report['jobs']]
     return {'status':'pass' if require_complete else 'development-verified','source_commit':source_commit,'jobs':results,'complete':require_complete}
 

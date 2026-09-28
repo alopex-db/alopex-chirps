@@ -125,7 +125,7 @@ def verify_witness(tla,target,trace,bound):
     syntax=Parser(predicate_source(tla,target)).complete()
     results=[]
     for index,raw in enumerate(states):
-        if raw.get('#meta',{}).get('index')!=index:raise ValueError('non-contiguous witness trace')
+        if type(raw.get('#meta',{}).get('index')) is not int or raw['#meta']['index']!=index:raise ValueError('non-contiguous witness trace')
         environment={key:decode_itf(value) for key,value in raw.items() if key!='#meta'}
         results.append(boolean(evaluate(syntax,environment)))
     if results[-1] is not False:raise ValueError('witness terminal state does not reach target')

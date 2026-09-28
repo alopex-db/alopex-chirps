@@ -116,3 +116,8 @@ python3 -B scripts/release/v07_formal_catalog.py verify \
 
 The programmatic API is
 `verify_catalog_report(source_root, report_path, source_commit)`.
+
+Before loading raw contents, both verifiers total all referenced artifact sizes
+and reject totals above the collector's 1 GiB budget. Reports are limited to
+16 MiB and all parsed JSON rejects duplicate keys. Exit codes and trace indices
+require actual integers; JSON booleans are not accepted as integer zero or one.
