@@ -46,3 +46,8 @@ extraction and synthetic raw E2E report composition, missing/duplicate/replaced
 scenarios, rehashed credential leakage, disabled-scanner negative control,
 altered scan summary, and input-size rejection. Synthetic fixtures qualify
 the verifier's checks only. Actual server security qualification remains pending.
+
+The central release verifier also requires each referenced diagnostic report to
+have the same digest as the corresponding target in the complete production or
+fault E2E lane. A separately passing diagnostic run from another binary or
+configuration cannot be substituted into the candidate matrix.

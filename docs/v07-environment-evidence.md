@@ -46,10 +46,10 @@ verify_environment(
 )
 ```
 
-The central verifier should select exactly one `environment` entry, one production
+The central verifier selects exactly one `environment` entry, one production
 `process` lane (excluding the separate `release-bundle` inventory), one `fault`
-lane, and one `performance` entry. It already verifies their outer digest bindings;
-this call adds the inner observation bindings. Keep the existing semantic calls.
+lane, and one `performance` entry. It verifies their outer digest bindings and calls this hook after complete E2E
+and PERF semantic replay to check the inner observation bindings.
 
 JSON reads are bounded at 256 MiB per artifact before decoding. Digest references
 reject missing files, changed bytes, absolute/parent-traversing paths, and symlinks.

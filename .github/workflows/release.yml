@@ -148,6 +148,13 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        if: steps.release_metadata.outputs.version == '0.7.0'
+        with:
+          python-version: '3.11'
+      - name: Install pinned release verifier dependencies
+        if: steps.release_metadata.outputs.version == '0.7.0'
+        run: python3 -m pip install --disable-pip-version-check -r "$GITHUB_WORKSPACE/release-tools/scripts/release/requirements-verifier.txt"
       - name: Verify v0.7 release and publication structure
         if: steps.release_metadata.outputs.version == '0.7.0'
         run: |
@@ -179,6 +186,17 @@ jobs:
           path: ${{ runner.temp }}/chirps-v0.7-release-bundle
           github-token: ${{ github.token }}
           run-id: ${{ inputs.v07_artifact_run_id }}
+      - name: Prepare immutable Iggy objects for formal refinement replay
+        if: steps.release_metadata.outputs.version == '0.7.0'
+        run: |
+          root="${RUNNER_TEMP}/chirps-v0.7-release-bundle"
+          iggy_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["iggy_commit"])' "${root}/candidate.json")"
+          python3 -B "$GITHUB_WORKSPACE/release-tools/scripts/release/prepare-v07-iggy-source.py" \
+            --source-root "$CHIRPS_SOURCE_ROOT" \
+            --source-commit "$RELEASE_COMMIT" \
+            --iggy-commit "$iggy_commit" \
+            --output "${RUNNER_TEMP}/chirps-v07-iggy-source.git"
+          echo "CHIRPS_IGGY_SOURCE_ROOT=${RUNNER_TEMP}/chirps-v07-iggy-source.git" >> "$GITHUB_ENV"
       - name: Verify frozen v0.7 evidence without rebuilding
         if: steps.release_metadata.outputs.version == '0.7.0'
         run: |
@@ -426,6 +444,21 @@ jobs:
           path: ${{ runner.temp }}/chirps-v0.7-release-bundle
           github-token: ${{ github.token }}
           run-id: ${{ inputs.v07_artifact_run_id }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned release verifier dependencies
+        run: python3 -m pip install --disable-pip-version-check -r "$GITHUB_WORKSPACE/release-tools/scripts/release/requirements-verifier.txt"
+      - name: Prepare immutable Iggy objects for formal refinement replay
+        run: |
+          root="${RUNNER_TEMP}/chirps-v0.7-release-bundle"
+          iggy_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["iggy_commit"])' "${root}/candidate.json")"
+          python3 -B "$GITHUB_WORKSPACE/release-tools/scripts/release/prepare-v07-iggy-source.py" \
+            --source-root "$CHIRPS_SOURCE_ROOT" \
+            --source-commit "$RELEASE_COMMIT" \
+            --iggy-commit "$iggy_commit" \
+            --output "${RUNNER_TEMP}/chirps-v07-iggy-source.git"
+          echo "CHIRPS_IGGY_SOURCE_ROOT=${RUNNER_TEMP}/chirps-v07-iggy-source.git" >> "$GITHUB_ENV"
       - name: Set publication verification runtime paths
         run: |
           echo "CHIRPS_PERF_VERIFIER=${RUNNER_TEMP}/chirps-perf-verifier/chirps-durable-perf" >> "$GITHUB_ENV"

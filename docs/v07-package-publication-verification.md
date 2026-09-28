@@ -76,6 +76,21 @@ server lanes. Source tree/lock, corpus, and environment bindings are checked
 across the cells. API success alone or a lower-level official connection probe
 cannot qualify the matrix; see [compatibility evidence](v07-compatibility-evidence.md).
 
+## Formal, environment, and runtime security gates
+
+Both CI validation and protected publication prepare immutable Iggy Git objects
+from the candidate's pinned bundle using the trusted workflow helper. The formal
+model category requires the full checker inventory, catalog probes, and exact-Git
+refinement report; a source path supplied by evidence cannot replace this input.
+The jobs install Python 3.11 and the pinned verifier requirements before replay.
+
+The environment manifest binds every E2E target and every PERF observation phase
+to the frozen candidate while leaving OS-specific API/wire runs independent.
+Runtime security replay requires the exact credential/diagnostic scenarios,
+recomputes canary scans and negative controls, and uses the same diagnostic report
+digests as the complete E2E lanes. This scoped runtime scan is not a general
+archive secret scan. All these checks run before publication changes remote state.
+
 ## Development fixtures
 
 Synthetic Cargo/tool/API fixtures are explicitly labeled and exercise parser,

@@ -392,6 +392,21 @@ for job_name, job in (("ci-gate", ci_gate), ("publish-v07-bundle", publication))
     environment = mapping(job.get("env"), f"{job_name}.env")
     if environment.get("CHIRPS_RELEASE_TOOLS_COMMIT") != "${{ github.sha }}" or not any('echo "CHIRPS_PERF_VERIFIER=${RUNNER_TEMP}/chirps-perf-verifier/chirps-durable-perf" >> "$GITHUB_ENV"' in item.get("run", "") for item in steps(job, job_name)):
         fail("trusted PERF verifier path/source binding drifted")
+expected_foreign_source = ["python3", "-B", "$GITHUB_WORKSPACE/release-tools/scripts/release/prepare-v07-iggy-source.py", "--source-root", "$CHIRPS_SOURCE_ROOT", "--source-commit", "$RELEASE_COMMIT", "--iggy-commit", "$iggy_commit", "--output", "${RUNNER_TEMP}/chirps-v07-iggy-source.git"]
+expected_dependencies = ["python3", "-m", "pip", "install", "--disable-pip-version-check", "-r", "$GITHUB_WORKSPACE/release-tools/scripts/release/requirements-verifier.txt"]
+for job_name, job in (("ci-gate", ci_gate), ("publish-v07-bundle", publication)):
+    job_steps = steps(job, job_name)
+    prepare = [i for i, item in enumerate(job_steps) if expected_foreign_source in command_argv(item.get("run", ""), job_name)]
+    install = [i for i, item in enumerate(job_steps) if expected_dependencies in command_argv(item.get("run", ""), job_name)]
+    setup = [i for i, item in enumerate(job_steps) if item.get("uses") == "actions/setup-python@v5" and item.get("with", {}).get("python-version") == "3.11"]
+    downloads = [i for i, item in enumerate(job_steps) if item.get("uses") == "actions/download-artifact@v4" and item.get("with", {}).get("name") == "${{ inputs.v07_artifact_name }}"]
+    verifications = [i for i, item in enumerate(job_steps) if "--evidence" in item.get("run", "")]
+    if len(prepare) != 1 or len(install) != 1 or len(setup) != 1 or len(downloads) != 1 or not verifications:
+        fail("formal verification source/runtime preparation is incomplete")
+    if not (setup[0] < install[0] < prepare[0] and downloads[0] < prepare[0] < min(verifications)):
+        fail("formal source preparation must follow frozen download and precede evidence replay")
+    if 'echo "CHIRPS_IGGY_SOURCE_ROOT=${RUNNER_TEMP}/chirps-v07-iggy-source.git" >> "$GITHUB_ENV"' not in job_steps[prepare[0]].get("run", ""):
+        fail("formal source root is not exported from the trusted preparation step")
 expected_tool_build = ["python3", "$GITHUB_WORKSPACE/release-tools/scripts/release/v07_perf_verifier.py", "build", "--source-root", "$GITHUB_WORKSPACE/release-tools", "--source-commit", "${{ github.sha }}", "--output", "${RUNNER_TEMP}/chirps-perf-verifier"]
 if expected_tool_build not in ci_commands:
     fail("CI must build the read-only verifier from exact workflow source")

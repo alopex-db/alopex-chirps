@@ -29,7 +29,12 @@ def axes_fixture():
 
 def write_environment_fixture(directory, source_commit, iggy_commit, axes, observed):
     """Reusable manifest fixture with no candidate/result digest cycle."""
-    environment = write(directory/'e2e-environment.json', observed)
+    environment = directory/'e2e-environment.json'
+    if isinstance(observed, Path):
+        directory.mkdir(parents=True, exist_ok=True)
+        environment.write_bytes(observed.read_bytes())
+    else:
+        write(environment, observed)
     return write(directory/'manifest.json', dict(schema=env.SCHEMA,
         source_commit=source_commit, iggy_commit=iggy_commit,
         e2e_environment=reference(environment, directory), performance_axes=axes))

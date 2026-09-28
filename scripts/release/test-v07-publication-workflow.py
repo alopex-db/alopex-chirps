@@ -28,6 +28,10 @@ class WorkflowTests(unittest.TestCase):
             ('--source-commit "${{ github.sha }}"', '--source-commit "${{ inputs.commit }}"'),
             ('CHIRPS_POSTPUBLISH_EVIDENCE_DIR=${RUNNER_TEMP}/chirps-v07-registry-consumer', 'CHIRPS_POSTPUBLISH_EVIDENCE_DIR=/tmp/discarded'),
             ('if: always()', 'if: success()'),
+            ('$GITHUB_WORKSPACE/release-tools/scripts/release/prepare-v07-iggy-source.py', '$CHIRPS_SOURCE_ROOT/scripts/release/prepare-v07-iggy-source.py'),
+            ('CHIRPS_IGGY_SOURCE_ROOT=${RUNNER_TEMP}/chirps-v07-iggy-source.git', 'CHIRPS_IGGY_SOURCE_ROOT=/unverified/source'),
+            ('requirements-verifier.txt', 'uncontrolled-requirements.txt'),
+            ("python-version: '3.11'", "python-version: '3.9'"),
         ]
         for old, new in changes:
             with self.subTest(change=old):

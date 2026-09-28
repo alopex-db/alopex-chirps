@@ -143,7 +143,9 @@ python3 -B "$RELEASE_TOOLS/scripts/release/prepare-v07-iggy-source.py" \
 export CHIRPS_IGGY_SOURCE_ROOT="$RUNNER_TEMP/chirps-v07-iggy-source.git"
 ```
 
-Use Python 3.11+ and PyYAML in the trusted verifier runtime. `IGGY_COMMIT` is the
+The release workflow supplies Python 3.11 and the pinned
+`scripts/release/requirements-verifier.txt` dependency set (PyYAML 6.0.2) in both
+trusted verifier jobs. Local verification also requires Python 3.11+ and PyYAML. `IGGY_COMMIT` is the
 candidate JSON's exact commit, which the helper must match to the candidate Git
 manifest. The helper permits only the Apache Iggy upstream, fetches its exact
 baseline at depth 1, imports the bundle into a new bare repository, and checks

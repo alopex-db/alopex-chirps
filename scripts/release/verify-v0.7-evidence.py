@@ -22,6 +22,8 @@ from v07_consumer_evidence import verify_report as verify_consumer_report
 from v07_compatibility_matrix import verify as verify_compatibility
 from v07_perf_verifier import verify as verify_performance
 from v07_formal_release import verify_release_models
+from v07_environment_evidence import verify_environment
+from v07_security_evidence import verify as verify_security
 
 VERSION = "0.7.0"
 SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
@@ -439,6 +441,18 @@ def verify_release_categories(root: Path, entries: list[dict], candidate: dict, 
         if performance.name != "paired.json" or performance.parent.name != "paired":
             fail("performance entry must identify the replayed paired/paired.json")
         verify_performance(candidate_path, performance.parent.parent)
+        production = [entry for entry in entries
+                      if entry["kind"] == "process" and entry["id"] != "release-bundle"]
+        if len(production) != 1:
+            fail("environment binding requires exactly one production lane")
+        production_path = safe_file(root, production[0]["path"], "environment production lane")
+        fault_path = one("fault")
+        verify_environment(candidate_path, one("environment"), production_path, fault_path, performance)
+        security = verify_security(source_root, one("security"), candidate["source_commit"], candidate["iggy_commit"])
+        for lane, path in (("production", production_path), ("fault", fault_path)):
+            expected = load_object(path)["targets"]["durable_diagnostics"]["sha256"]
+            if security[lane]["sha256"] != expected:
+                fail("security diagnostics differ from the complete E2E lane")
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
         fail(f"semantic release evidence rejected: {error}")
 
@@ -472,10 +486,10 @@ def self_test(schema_path: Path) -> None:
     schema = load_object(schema_path)
     validate_schema_contract(schema)
     from unittest.mock import patch
-    # This schema/wiring self-test explicitly mocks model execution. The strict
-    # model modules have separate protocol tests and actual raw-run validation;
-    # synthetic artifacts produced here are never release model evidence.
-    with tempfile.TemporaryDirectory(prefix="chirps-v07-evidence-self-test.") as directory, patch.dict(os.environ), patch.dict(globals(), {"verify_release_models": lambda *args: {"synthetic_unit_mock": True}}):
+    # This schema/wiring self-test explicitly mocks model and security execution.
+    # Their strict modules have separate raw-protocol tests; synthetic artifacts
+    # produced here are never model or security release evidence.
+    with tempfile.TemporaryDirectory(prefix="chirps-v07-evidence-self-test.") as directory, patch.dict(os.environ), patch.dict(globals(), {"verify_release_models": lambda *args: {"synthetic_unit_mock": True}, "verify_security": lambda root, path, *args: load_object(path)}):
         root = Path(directory)
         source_root = Path(__file__).resolve().parents[2]
         source_commit = subprocess.check_output(["git", "-C", str(source_root), "rev-parse", "HEAD"], text=True).strip()
@@ -509,9 +523,25 @@ def self_test(schema_path: Path) -> None:
         )
         for kind in ("process", "fault"):
             artifact_digests[kind] = sha256_file(root / runtime_paths[kind])
+        security = {"synthetic_unit_mock": True}
+        for kind, lane in (("process", "production"), ("fault", "fault")):
+            security[lane] = load_object(root / runtime_paths[kind])["targets"]["durable_diagnostics"]
+        write_json(root / "artifacts/security.json", security)
+        artifact_digests["security"] = sha256_file(root / "artifacts/security.json")
         tool = fixture_module("perf-verifier").write_tool_fixture(root / "trusted-tool", source_commit)
         os.environ["CHIRPS_PERF_VERIFIER"] = str(tool)
         os.environ["CHIRPS_RELEASE_TOOLS_COMMIT"] = source_commit
+        environment_fixture = fixture_module("environment-evidence")
+        axes = environment_fixture.axes_fixture()
+        # Preserve exact raw bytes from the existing synthetic E2E collector.
+        first_lane = root / runtime_paths["process"]
+        from v07_e2e_evidence import resolve_reference, TARGETS
+        first_target = resolve_reference(first_lane.parent, load_object(first_lane)["targets"][TARGETS["production"][0]])
+        observed_environment = resolve_reference(first_target.parent, load_object(first_target)["environment"])
+        environment = environment_fixture.write_environment_fixture(
+            root / "environment", source_commit, "2" * 40, axes, observed_environment)
+        runtime_paths["environment"] = environment.relative_to(root).as_posix()
+        artifact_digests["environment"] = sha256_file(environment)
         performance = root / "performance/paired/paired.json"
         write_json(performance, {"synthetic_fixture": True})
         for kind, path in (("package", package), ("compatibility", compatibility), ("performance", performance)):
@@ -531,6 +561,7 @@ def self_test(schema_path: Path) -> None:
             "server_sha256": artifact_digests["server"],
             "package_graph_sha256": artifact_digests["package"],
             "performance": {
+                "axes": axes,
                 "self_test": True,
                 "secret_scan_sha256": "6" * 64,
                 "resource_identity": "synthetic-self-test",
@@ -539,6 +570,8 @@ def self_test(schema_path: Path) -> None:
         candidate_path = root / "candidate.json"
         write_json(candidate_path, candidate)
         candidate_sha256 = sha256_file(candidate_path)
+        environment_fixture.write_perf_identity_fixture(root / "performance", candidate_path)
+        artifact_digests["performance"] = sha256_file(performance)
         entries = [
             {
                 "id": "formal-models" if kind == "model" else "compatibility-matrix" if kind == "compatibility" else f"self-test-{kind}",

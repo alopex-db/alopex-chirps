@@ -40,6 +40,8 @@ cp "$repo_root/scripts/release/v07_e2e_evidence.py" \
   "$repo_root/scripts/release/test-v07-official-run.py" \
   "$repo_root/scripts/release/test-v07-wire-evidence.py" \
   "$repo_root/scripts/release/v07_perf_verifier.py" \
+  "$repo_root/scripts/release/v07_environment_evidence.py" \
+  "$repo_root/scripts/release/test-v07-environment-evidence.py" \
   "$repo_root/scripts/release/test-v07-consumer-evidence.py" \
   "$repo_root/scripts/release/test-v07-api-evidence.py" \
   "$repo_root/scripts/release/test-v07-perf-verifier.py" \
@@ -54,6 +56,16 @@ def verify_release_models(source_root, iggy_root, report_path, source_commit, ig
         raise ValueError("unexpected synthetic publication model fixture")
     return {"synthetic_unit_mock": True}
 PY
+# Explicit security unit mock: actual diagnostic/canary tests run separately.
+cat > "$fixture_repo/scripts/release/v07_security_evidence.py" <<'PYSECURITY'
+"""Publication protocol fixture only; not production security evidence."""
+def verify(source_root, report_path, source_commit, iggy_commit):
+    import json
+    value = json.loads(report_path.read_bytes())
+    if value.get("synthetic_unit_mock") is not True:
+        raise ValueError("unexpected synthetic publication security fixture")
+    return value
+PYSECURITY
 cp "$repo_root/docs/release/v0.7.0-evidence-schema.json" \
   "$fixture_repo/docs/release/v0.7.0-evidence-schema.json"
 test_server_sha256="$(printf '%s\n' 'fixture-publish-disabled-test-server' | sha256sum | awk '{print $1}')"
@@ -280,6 +292,20 @@ compatibility = load_fixture("compatibility-matrix").write_matrix_fixture(
 )
 for kind in ("process", "fault"):
     evidence_files[kind]["sha256"] = hashlib.sha256((root / evidence_files[kind]["path"]).read_bytes()).hexdigest()
+environment_fixture = load_fixture("environment-evidence")
+axes = environment_fixture.axes_fixture()
+from v07_e2e_evidence import resolve_reference, TARGETS
+first_lane = root / evidence_files["process"]["path"]
+first_target = resolve_reference(first_lane.parent, json.loads(first_lane.read_bytes())["targets"][TARGETS["production"][0]])
+observed_environment = resolve_reference(first_target.parent, json.loads(first_target.read_bytes())["environment"])
+environment = environment_fixture.write_environment_fixture(root / "environment", source_commit, "2" * 40, axes, observed_environment)
+evidence_files["environment"] = {"path":environment.relative_to(root).as_posix(),"sha256":hashlib.sha256(environment.read_bytes()).hexdigest()}
+security = {"synthetic_unit_mock": True}
+for kind,lane in (("process","production"),("fault","fault")):
+    security[lane] = json.loads((root / evidence_files[kind]["path"]).read_bytes())["targets"]["durable_diagnostics"]
+security_path = root / "artifacts/security.json"
+write(security_path, (json.dumps(security,sort_keys=True)+'\n').encode())
+evidence_files["security"] = {"path":security_path.relative_to(root).as_posix(),"sha256":hashlib.sha256(security_path.read_bytes()).hexdigest()}
 performance = root / "performance/paired/paired.json"
 write(performance, b'{"synthetic_fixture":true}\n')
 for kind, path in (("package", consumer), ("compatibility", compatibility), ("performance", performance)):
@@ -298,10 +324,12 @@ candidate = {
     "environment_sha256": evidence_files["environment"]["sha256"],
     "server_sha256": production_image["server_sha256"],
     "package_graph_sha256": evidence_files["package"]["sha256"],
-    "performance": {"fixture": True},
+    "performance": {"fixture": True, "axes": axes},
 }
 candidate_path = root / "candidate.json"
 candidate_path.write_text(json.dumps(candidate, sort_keys=True) + "\n", encoding="utf-8")
+environment_fixture.write_perf_identity_fixture(root / "performance", candidate_path)
+evidence_files["performance"]["sha256"] = hashlib.sha256(performance.read_bytes()).hexdigest()
 
 
 asset = write(root / "assets" / "v0.7.0-evidence.json", b'{"fixture":"evidence"}\n')
