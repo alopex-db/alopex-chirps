@@ -302,18 +302,23 @@ impl CreationUnit {
 #[derive(Debug)]
 pub(crate) struct ActiveSubscription {
     directory: PathBuf,
-    lock: File,
+    _lock: OwnedDirectoryLock,
     creation: CreationUnit,
     owner: OwnerRecord,
     binding: SubscriptionBinding,
 }
 
 impl ActiveSubscription {
-    fn new(directory: PathBuf, lock: File, creation: CreationUnit, owner: OwnerRecord) -> Self {
+    fn new(
+        directory: PathBuf,
+        lock: OwnedDirectoryLock,
+        creation: CreationUnit,
+        owner: OwnerRecord,
+    ) -> Self {
         let binding = creation.binding(owner.owner_epoch());
         Self {
             directory,
-            lock,
+            _lock: lock,
             creation,
             owner,
             binding,
@@ -337,9 +342,14 @@ impl ActiveSubscription {
     }
 }
 
-impl Drop for ActiveSubscription {
+/// Release on every operation exit, even when another descriptor temporarily
+/// shares the open file description (for example during a concurrent spawn).
+#[derive(Debug)]
+struct OwnedDirectoryLock(File);
+
+impl Drop for OwnedDirectoryLock {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.lock);
+        let _ = FileExt::unlock(&self.0);
     }
 }
 
@@ -508,7 +518,7 @@ impl CreationStore {
 
 fn install_owner(
     directory: &Path,
-    lock: File,
+    lock: OwnedDirectoryLock,
     creation: CreationUnit,
     fault: InstallFault,
 ) -> Result<CreationStoreResult, CreationStoreError> {
@@ -555,13 +565,13 @@ fn map_read_error(error: StateReadError) -> CreationStoreError {
 }
 
 enum DirectoryLock {
-    Held(File),
+    Held(OwnedDirectoryLock),
     Unavailable,
 }
 
 fn acquire_operation_lock(
     directory: &Path,
-) -> Result<Result<File, CreationFailureKind>, CreationStoreError> {
+) -> Result<Result<OwnedDirectoryLock, CreationFailureKind>, CreationStoreError> {
     match acquire_directory_lock(directory) {
         Ok(DirectoryLock::Held(lock)) => Ok(Ok(lock)),
         Ok(DirectoryLock::Unavailable) => Ok(Err(CreationFailureKind::OwnerLockUnavailable)),
@@ -588,7 +598,7 @@ fn complete_directory_lock(
     result: io::Result<()>,
 ) -> Result<DirectoryLock, CreationStoreError> {
     match result {
-        Ok(()) => Ok(DirectoryLock::Held(lock)),
+        Ok(()) => Ok(DirectoryLock::Held(OwnedDirectoryLock(lock))),
         Err(error) if is_lock_contention(&error) => Ok(DirectoryLock::Unavailable),
         Err(error) => Err(CreationStoreError::Io(error.kind())),
     }
@@ -1156,7 +1166,7 @@ mod tests {
 
     fn created(result: CreationStoreResult) -> super::ActiveSubscription {
         let CreationStoreResult::Created(active) = result else {
-            panic!("expected active creation")
+            panic!("expected active creation, got {result:?}")
         };
         *active
     }
@@ -1434,6 +1444,54 @@ mod tests {
                     .unwrap(),
             );
             assert_eq!(active.binding().owner_epoch(), 3);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_owner_install_releases_lock_with_a_duplicated_descriptor() {
+        // A concurrent process spawn can temporarily inherit the open file
+        // description before CLOEXEC closes its descriptor. Closing our File
+        // alone must not keep an unsuccessful operation's flock alive.
+        for fault in [
+            InstallFault::AfterWrite,
+            InstallFault::AfterFileSync,
+            InstallFault::AfterRename,
+            InstallFault::AfterDirectorySync,
+        ] {
+            let root = tempdir().unwrap();
+            let directory = root.path().join("duplicated-lock");
+            drop(created(
+                CreationStore
+                    .create(
+                        &directory,
+                        CreationRequest::new(namespace(), InitialPosition::EarliestRetained),
+                        &observation(4, 10),
+                    )
+                    .unwrap(),
+            ));
+            let lock = super::acquire_operation_lock(&directory).unwrap().unwrap();
+            let inherited = lock.0.try_clone().unwrap();
+            assert!(matches!(
+                CreationStore
+                    .open(&directory, namespace(), resource_epoch())
+                    .unwrap(),
+                CreationStoreResult::NotCommitted(CreationFailureKind::OwnerLockUnavailable)
+            ));
+            let creation = super::load_creation(&directory).unwrap();
+            let failed = super::install_owner(&directory, lock, creation, fault).unwrap();
+            assert!(matches!(
+                failed,
+                CreationStoreResult::NotCommitted(_) | CreationStoreResult::Unknown(_)
+            ));
+            let reopened = CreationStore
+                .open(&directory, namespace(), resource_epoch())
+                .unwrap();
+            assert!(
+                matches!(reopened, CreationStoreResult::Created(_)),
+                "{reopened:?}"
+            );
+            drop(inherited);
         }
     }
 
