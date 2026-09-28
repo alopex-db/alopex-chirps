@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Explicit synthetic protocol fixtures, never release evidence."""
-import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -59,6 +58,9 @@ class EvidenceContract(unittest.TestCase):
     def test_rehashed_failure_log(self):
         self.files['console.log']=self.files['console.log'].replace('EXITCODE: ERROR (12)','EXITCODE: ERROR (1)');self.flush()
         with self.assertRaisesRegex(ValueError,'counterexample absent'):self.check()
+    def test_failure_cannot_be_hidden_by_appended_success(self):
+        self.files['console.log']='EXITCODE: ERROR (1)\n'+self.files['console.log'];self.flush()
+        with self.assertRaisesRegex(ValueError,'multiple or missing'):self.check()
     def test_missing_raw_log(self):
         self.record['artifacts'].pop('console.log')
         with self.assertRaisesRegex(ValueError,'missing/duplicate'):self.check()

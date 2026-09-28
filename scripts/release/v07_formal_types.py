@@ -108,10 +108,10 @@ def verify_typeok(tla,trace,config):
         elif re.fullmatch('[0-9]+',raw):value=int(raw)
         else:raise ValueError('unsupported configuration constant')
         constants[name]=value
-    if set(trace.get('params',[]))!=set(constants):raise ValueError('ITF constants differ from CFG')
+    if len(trace.get('params',[]))!=len(constants) or set(trace.get('params',[]))!=set(constants):raise ValueError('ITF constants differ from CFG')
     if trace.get('vars')!=['state'] or not trace.get('states'):raise ValueError('invalid TypeOK trace')
     for index,raw in enumerate(trace['states']):
-        if raw.get('#meta',{}).get('index')!=index:raise ValueError('invalid TypeOK trace indices')
+        if type(raw.get('#meta',{}).get('index')) is not int or raw['#meta']['index']!=index:raise ValueError('invalid TypeOK trace indices')
         if set(raw)!={'#meta','state',*constants}:raise ValueError('unexpected ITF state variables')
         environment={key:w.decode_itf(value) for key,value in raw.items() if key!='#meta'}
         for key,value in constants.items():

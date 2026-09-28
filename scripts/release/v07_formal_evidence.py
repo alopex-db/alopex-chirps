@@ -89,7 +89,8 @@ def verify_job(root,record,job):
         if len(matches)!=1:raise ValueError('missing/duplicate '+basename)
         return matches[0]
     console=unique('console.log').decode();detail=unique('detailed.log').decode()
-    if '\x1b' in console or '# APALACHE version: 0.58.3 | build: v0.58.3' not in console:raise ValueError('checker version absent/different')
+    if '\x1b' in console or console.count('# APALACHE version: 0.58.3 | build: v0.58.3')!=1:raise ValueError('checker version absent/different/repeated')
+    if len(re.findall(r'^EXITCODE:',console,re.M))!=1:raise ValueError('multiple or missing checker outcomes')
     if 'All expressions are typed' not in console:raise ValueError('typecheck did not complete')
     if Counter(shlex.split(unique('run.txt').decode()))!=Counter(command):raise ValueError('actual checker invocation differs')
     if job['kind']=='typecheck':
