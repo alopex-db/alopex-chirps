@@ -19,7 +19,7 @@ readonly EXPECTED_FAULT_SHA256="b2a4b7bbe7423269aaf972a5824936c12da5805696af590d
 readonly e2e_run_token="chirps-v07-e2e-${BASHPID}-${RANDOM}"
 
 usage() {
-    rtk echo "usage: $0 --lane production|fault (--target NAME|--materialized-all|--strict-all) [--evidence-dir DIR]" >&2
+    rtk echo "usage: $0 --lane production|fault (--target NAME|--materialized-all|--strict-all|--perf-fixture-dir DIR) [--evidence-dir DIR] [--fixture-lifetime-seconds N]" >&2
     exit 64
 }
 
@@ -27,8 +27,22 @@ lane=""
 mode=""
 selected_target=""
 evidence_dir=""
+fixture_dir=""
+fixture_lifetime="7200"
 while (($#)); do
     case "$1" in
+        --perf-fixture-dir)
+            (($# >= 2)) || usage
+            [[ -z "$mode" ]] || usage
+            mode="perf-fixture"
+            fixture_dir="$2"
+            shift 2
+            ;;
+        --fixture-lifetime-seconds)
+            (($# >= 2)) || usage
+            fixture_lifetime="$2"
+            shift 2
+            ;;
         --evidence-dir)
             (($# >= 2)) || usage
             [[ -z "$evidence_dir" ]] || usage
@@ -62,6 +76,13 @@ while (($#)); do
 done
 [[ "$lane" == "production" || "$lane" == "fault" ]] || usage
 [[ -n "$mode" ]] || usage
+if [[ "$mode" == "perf-fixture" ]]; then
+    [[ "$lane" == "production" && -z "$evidence_dir" ]] || usage
+    [[ "$fixture_lifetime" =~ ^[1-9][0-9]{0,3}$ ]] || usage
+    ((fixture_lifetime <= 7200)) || usage
+elif [[ "$fixture_lifetime" != "7200" ]]; then
+    usage
+fi
 
 readonly script_dir="$(cd "$(rtk dirname "${BASH_SOURCE[0]}")" && rtk pwd)"
 readonly repository_root="$(cd "${script_dir}/../../.." && rtk pwd)"
@@ -362,6 +383,11 @@ run_target() {
 
 validate_source_reachability
 case "$mode" in
+    perf-fixture)
+        CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk cargo run --locked \
+            --manifest-path "${repository_root}/Cargo.toml" -p chirps-e2e \
+            --example durable_perf_fixture -- "$fixture_dir" "$fixture_lifetime"
+        ;;
     target)
         run_target "$selected_target"
         ;;
