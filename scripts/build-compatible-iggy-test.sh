@@ -28,6 +28,7 @@ readonly CARGO_BIN RUSTC_BIN CARGO_HOME_VALUE
 
 ROOT="$(cd "$(rtk dirname "${BASH_SOURCE[0]}")/.." && rtk pwd)"
 readonly ROOT
+source "${ROOT}/scripts/release/owned-target.sh"
 readonly MANIFEST="${ROOT}/server/iggy-compatible/test-manifest.toml"
 readonly PRODUCTION_MANIFEST="${ROOT}/server/iggy-compatible/manifest.toml"
 readonly DOCKERFILE="${ROOT}/server/iggy-compatible/Dockerfile.test"
@@ -48,14 +49,10 @@ require_equal() {
 cleanup() {
     local status="$1" cleanup_failed=0
     trap - EXIT HUP INT TERM
-    if ! rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
+    if ! chirps_target_clean "${TASK_TARGET}" rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
         "${CARGO_BIN}" clean --manifest-path "${SOURCE_REPOSITORY}/Cargo.toml" \
             --target-dir "${TASK_TARGET}" >/dev/null 2>&1; then
         rtk echo "build-compatible-iggy-test: task target cleanup command failed" >&2
-        cleanup_failed=1
-    fi
-    if [[ -e "${TASK_TARGET}" ]] && ! rtk rm -rf -- "${TASK_TARGET}"; then
-        rtk echo "build-compatible-iggy-test: task target directory cleanup failed" >&2
         cleanup_failed=1
     fi
     if [[ -e "${TASK_TARGET}" ]]; then
@@ -474,7 +471,7 @@ verify_stages() {
     STAGING="$(rtk mktemp -d /tmp/chirps-v07-task-5_18-source.XXXXXX)"
     rtk mkdir -p "${STAGING}/source"
     rtk proxy git -C "${SOURCE_REPOSITORY}" archive "${EXPECTED_SOURCE_COMMIT}" | rtk proxy tar -x -C "${STAGING}/source"
-    rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
+    chirps_target_clean "${TASK_TARGET}" rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
         "${CARGO_BIN}" clean --manifest-path "${SOURCE_REPOSITORY}/Cargo.toml" \
             --target-dir "${TASK_TARGET}" >/dev/null
     [[ ! -e "${TASK_TARGET}" ]] || die "pre-build target clean was incomplete"

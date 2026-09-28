@@ -30,6 +30,7 @@ readonly CARGO_BIN RUSTC_BIN CARGO_HOME_VALUE
 
 ROOT="$(cd "$(rtk dirname "${BASH_SOURCE[0]}")/.." && rtk pwd)"
 readonly ROOT
+source "${ROOT}/scripts/release/owned-target.sh"
 readonly MANIFEST="${ROOT}/server/iggy-compatible/manifest.toml"
 readonly DOCKERFILE="${ROOT}/server/iggy-compatible/Dockerfile"
 STAGING=""
@@ -49,14 +50,10 @@ cleanup() {
     local status="$1" cleanup_failed=0
     trap - EXIT HUP INT TERM
     if [[ -n "${TASK_TARGET}" ]]; then
-        if ! rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
+        if ! chirps_target_clean "${TASK_TARGET}" rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
             "${CARGO_BIN}" clean --manifest-path "${SOURCE_REPOSITORY}/Cargo.toml" \
                 --target-dir "${TASK_TARGET}" >/dev/null; then
             rtk echo "build-compatible-iggy: cargo cleanup failed" >&2
-            cleanup_failed=1
-        fi
-        if [[ -d "${TASK_TARGET}" ]] && ! rtk rmdir "${TASK_TARGET}"; then
-            rtk echo "build-compatible-iggy: task target remains non-empty" >&2
             cleanup_failed=1
         fi
         if [[ -e "${TASK_TARGET}" ]]; then
@@ -269,7 +266,7 @@ verify_reproducible() {
     build_once "${STAGING}/source" "${STAGING}/first.sha256"
     first_digest="$(<"${STAGING}/first.sha256")"
     rtk cp --no-dereference "${TASK_TARGET}/release/iggy-server" "${STAGING}/iggy-server.first"
-    rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
+    chirps_target_clean "${TASK_TARGET}" rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
         "${CARGO_BIN}" clean --manifest-path "${SOURCE_REPOSITORY}/Cargo.toml" \
             --target-dir "${TASK_TARGET}" >/dev/null
     [[ ! -e "${TASK_TARGET}" ]] || die "full target clean did not remove the first build"
