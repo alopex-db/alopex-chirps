@@ -159,6 +159,9 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Retain dependency builds while platform-specific test failures are repaired.
+          cache-on-failure: true
 
       - name: Run tests
         run: cargo test --all-features --workspace -- --test-threads=1
