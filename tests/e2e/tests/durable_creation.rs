@@ -47,7 +47,7 @@ async fn creation_corpus_replays_in_fresh_processes() -> Result<()> {
     let Some(case_name) = std::env::var_os("CHIRPS_CREATION_CASE") else {
         let executable = std::env::current_exe()?;
         for case_name in CASES {
-            let status = Command::new(&executable)
+            let output = Command::new(&executable)
                 .args([
                     "--exact",
                     "creation_corpus_replays_in_fresh_processes",
@@ -55,9 +55,15 @@ async fn creation_corpus_replays_in_fresh_processes() -> Result<()> {
                     "--nocapture",
                 ])
                 .env("CHIRPS_CREATION_CASE", case_name)
-                .status()
+                // Child libtest output must not enter the parent harness's
+                // result stream. Scenario evidence is persisted separately.
+                .output()
                 .with_context(|| format!("launch fresh creation process for {case_name}"))?;
-            ensure!(status.success(), "creation child failed for {case_name}");
+            ensure!(
+                output.status.success(),
+                "creation child failed for {case_name}: {}",
+                output.status
+            );
         }
         return Ok(());
     };

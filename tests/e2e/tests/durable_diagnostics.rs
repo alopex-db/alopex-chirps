@@ -132,10 +132,16 @@ fn run_process(case: &str, artifact: Option<&VerifiedArtifact>) -> Result<()> {
             command.env("CHIRPS_SERVER_SHA256", "0".repeat(64));
         }
     }
-    let status = command
-        .status()
+    // The parent harness owns test result output. Child scenario records are
+    // independently retained by EvidenceSink in the shared JSONL file.
+    let output = command
+        .output()
         .with_context(|| format!("launch fresh diagnostics process for {case}"))?;
-    ensure!(status.success(), "fresh diagnostics process failed: {case}");
+    ensure!(
+        output.status.success(),
+        "fresh diagnostics process failed: {case}: {}",
+        output.status
+    );
     Ok(())
 }
 

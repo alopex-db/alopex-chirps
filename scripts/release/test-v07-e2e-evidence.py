@@ -6,6 +6,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -92,6 +94,47 @@ class EvidenceTests(unittest.TestCase):
     def test_complete_fixture_and_portable_references(self):
         path, _ = self.fixture()
         self.assertEqual(self.verify(path)["tests"], self.test_names)
+
+    @unittest.skipUnless(shutil.which("rustc"), "native rustc is required for the child harness regression")
+    def test_native_child_harness_output_must_be_captured(self):
+        # Reproduce the OS-level stdout inheritance that bypasses libtest's
+        # thread-local capture. No broker, credentials, or Cargo build is needed.
+        source = self.root / "nested.rs"
+        binary = self.root / ("nested.exe" if os.name == "nt" else "nested")
+        source.write_text(r'''
+#[test]
+#[ignore]
+fn parent() {
+    if std::env::var_os("CHIRPS_CAPTURE_CHILD").is_some() {
+        println!("child scenario observation");
+        assert!(std::env::var_os("CHIRPS_CAPTURE_FAIL").is_none());
+        return;
+    }
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command.args(["--exact", "parent", "--ignored", "--nocapture"])
+        .env("CHIRPS_CAPTURE_CHILD", "1");
+    let status = if std::env::var_os("CHIRPS_CAPTURE_INHERIT").is_some() {
+        command.status().unwrap()
+    } else {
+        command.output().unwrap().status
+    };
+    assert!(status.success(), "child failed");
+}
+''')
+        subprocess.run(["rustc", "--test", str(source), "-o", str(binary)], check=True, capture_output=True, timeout=60)
+        env = {key: value for key, value in os.environ.items() if not key.startswith("CHIRPS_CAPTURE_")}
+        command = [str(binary), *e2e.commands("durable_diagnostics")["run"][1:]]
+        inherited = subprocess.run(command, env={**env, "CHIRPS_CAPTURE_INHERIT": "1"}, capture_output=True, text=True, timeout=30)
+        self.assertEqual(inherited.returncode, 0)
+        with self.assertRaises(ValueError):
+            e2e.passed_tests(inherited.stdout, ["parent"])
+        captured = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(captured.returncode, 0)
+        self.assertEqual(e2e.passed_tests(captured.stdout, ["parent"]), ["parent"])
+        failed = subprocess.run(command, env={**env, "CHIRPS_CAPTURE_FAIL": "1"}, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(failed.returncode, 0)
+        with self.assertRaises(ValueError):
+            e2e.passed_tests(failed.stdout, ["parent"])
 
     def test_pass_label_does_not_hide_nonzero_or_missing_exit(self):
         path, report = self.fixture()
