@@ -122,6 +122,8 @@ The matrix is deliberately narrow. Both profiles require TCP/TLS server authenti
 
 The failpoint-enabled server is a distinct `publish-disabled-test` artifact. It is evidence tooling, not a deployable profile.
 
+Container runtimes must allow `io_uring_setup`, `io_uring_enter`, and `io_uring_register`. The tested Podman default seccomp profile rejects these calls with `ENOSYS`, including during `--version` startup. Startup verification passed with only these three calls added to that default profile, with networking disabled; it does not establish support for the unmodified default profile. Retain the default profile, the three-call delta, and their digests with deployment evidence.
+
 ## Point-to-point flow
 
 The following code uses only implemented public methods. Construction is omitted because deployments must supply their own attested projection, TLS roots, credential provider, lease, capacity, and checkpoint path. The umbrella crate requires the `durable-iggy` feature; provider-neutral result types come from `alopex-chirps-core`.
