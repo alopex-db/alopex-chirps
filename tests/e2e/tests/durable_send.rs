@@ -482,7 +482,10 @@ fn assert_stage_records(
     ensure!(
         records.len() == expected.len(),
         "server observation length differs from the actual pre-failure stages: expected={expected:?}, observed={:?}",
-        records.iter().map(|record| record.stage).collect::<Vec<_>>()
+        records
+            .iter()
+            .map(|record| record.stage)
+            .collect::<Vec<_>>()
     );
     let mut location = None;
     for (record, stage) in records.iter().zip(expected) {
