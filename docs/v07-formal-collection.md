@@ -19,7 +19,7 @@ access the network from a container, or modify the source checkout.
 
 ```sh
 python3 -B scripts/release/export-v07-formal.py "$TRUSTED_SOURCE_ROOT" "$FULL_COMMIT" "$NEW_SNAPSHOT"
-python3 -B scripts/release/v07_formal_collect.py "$NEW_SNAPSHOT" "$NEW_OUTPUT" --workers 2 --timeout 2700
+python3 -B scripts/release/v07_formal_collect.py "$NEW_SNAPSHOT" "$NEW_OUTPUT" --workers 2 --timeout 7200
 ```
 
 Both destinations must be new. Export reads only 14 public model inputs from
