@@ -87,3 +87,65 @@ high/critical issues; existing driver/evidence model coupling is retained so
 collection and replay use the same estimators. Runtime provenance remains a
 static-analysis blind spot. Kani and Miri are not applicable to this safe
 filesystem/serialization change.
+
+## Runtime audit boundaries
+
+The v2 audit subprocess receives the client PID and canonical checkpoint root,
+plus the observation identity and requested control. Its separately pinned
+configuration and program are passed as `--config`, `--config-sha256`, and
+`--chirps-audit-request-json`. Platform metrics are limited to measured peak
+RSS, disk growth, and a measured hard-limit violation. The driver owns operation
+errors/timeouts, admission-queue observations, and broker readback verification.
+
+Before each send, the driver records an expected logical sequence and the concrete
+attempt ID. Expected source, target, generation, partition, ordering key, and
+payload hash come from the candidate and original application payload. The
+independent official-SDK audit reader polls the actual broker bytes without
+committing consumer offsets. Full payloads pass the production canonical-envelope
+decoder, then match the independent expected fields. Multiple known attempts for
+the same logical sequence count as a duplicate. Unknown attempts, wrong identities,
+changed payloads, and invalid canonical digests cannot become successful audits.
+Raw readback bytes and their ledger are embedded in each observation; offline
+verification recomputes the audit and binds its expected fields to the candidate.
+
+Application bytes and broker payload bytes are distinct counters. Full broker
+payloads include the canonical envelope; Direct payloads are the application
+bytes. The additional envelope overhead is retained in the evidence. The driver
+uses the same broker-accepted confirmation boundary for both arms.
+
+The reported queue is the instrumented workload admission queue at the mutable
+public API mutex. Its safety control holds a real additional mutex admission
+until the drain observation, then cancels it without sending. It is not a claim
+about an unobserved SDK internal queue. The lag metric counts confirmed logical
+messages not yet verified by the audit reader; its control leaves one actual
+broker message unverified. Error and timeout controls alter the send operation,
+while identity, payload, and duplicate controls send actual altered messages or
+additional attempts. The hard-resource control is measured by the platform
+collector under its explicit control-only cap. No control sets an audit counter
+to a canned positive value.
+
+Full backend bounded-queue usage is additionally read from
+`DurableHandle::local_state_status()` and retained as
+`backend_queue_after_drain`. Offline replay requires this observation to be zero
+for Full. Direct records `null` for this supplementary backend field; it does not
+substitute zero for an unavailable SDK internal gauge.
+
+Runtime-audit development checks: 39 package tests and scoped all-target Clippy
+passed, including Direct pre-send UUID/payload binding, canonical byte controls,
+all truncated-envelope prefixes, independent candidate/ledger binding, actual
+mutex waiter observation/cancellation, and all-target identity-control proptest.
+The readback auditor caught all 37 scoped mutants. A second 22-mutant check of
+controls/admission/ledger binding found two surviving target-bit replacements
+and one timeout mutation. The survivors exposed a fixed-input test gap: OR/AND
+can fail to change particular target bytes. The new proptest covers arbitrary
+16-byte targets and retains its reduced regression seeds. The final focused
+16-mutant control/Direct-ID check caught all mutants, including those two
+replacements and the previously timing-out branch. No unresolved viable survivor
+remains in those selected functions.
+
+Coupling found four modules, no high/critical issues, and the two existing medium
+large-module warnings. The shared canonical decoder and evidence estimator are
+intentional dependencies; broker timing and process sampler behavior remain
+runtime blind spots. These checks do not qualify a release: Linux collector
+integration, actual broker polling, every live safety control, A/A calibration,
+and the frozen paired run still require execution on the final candidate.

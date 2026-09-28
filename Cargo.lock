@@ -796,9 +796,11 @@ name = "chirps-durable-perf"
 version = "0.7.0"
 dependencies = [
  "alopex-chirps",
+ "alopex-chirps-backend-iggy",
  "alopex-chirps-core",
  "anyhow",
  "iggy",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",

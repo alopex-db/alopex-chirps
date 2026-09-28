@@ -5,9 +5,19 @@ use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 use std::{fs, path::Path};
 
-pub fn verify(root: &Path, candidate: &str, axes: &ComparableAxes, samples: u64) -> Result<()> {
+pub fn verify(
+    root: &Path,
+    candidate: &str,
+    axes: &ComparableAxes,
+    samples: u64,
+    workload: &crate::Workload,
+) -> Result<()> {
     anyhow::ensure!(samples > 0, "sample count is zero");
     crate::validate_direct_boundary(axes.full_confirmation_profile)?;
+    anyhow::ensure!(
+        workload.payload_sha256 == axes.payload_digest,
+        "candidate payload bindings differ"
+    );
     let (aa, aa_hash): (AaArtifact, _) = read(root, "aa/aa.json")?;
     let (bounds, bounds_hash): (BoundsArtifact, _) = read(root, "aa/bounds.json")?;
     let (safety, safety_hash): (SafetyArtifact, _) = read(root, "safety/safety.json")?;
@@ -17,6 +27,16 @@ pub fn verify(root: &Path, candidate: &str, axes: &ComparableAxes, samples: u64)
         aa.schema == AA_SCHEMA && aa.candidate_sha256 == candidate && &aa.axes == axes,
         "A/A identity differs from candidate"
     );
+    for value in aa
+        .left
+        .iter()
+        .chain(&aa.right)
+        .chain(safety.controls.iter().map(|item| &item.observation))
+        .chain(&paired.direct)
+        .chain(&paired.full)
+    {
+        ledger_boundary(value, axes, workload)?;
+    }
     observations(&aa.left, axes, samples, "aa_left", Arm::Direct)?;
     observations(&aa.right, axes, samples, "aa_right", Arm::Direct)?;
     let rebuilt = build_bounds(
@@ -71,6 +91,52 @@ pub fn verify(root: &Path, candidate: &str, axes: &ComparableAxes, samples: u64)
     Ok(())
 }
 
+fn ledger_boundary(
+    value: &RawObservation,
+    axes: &ComparableAxes,
+    workload: &crate::Workload,
+) -> Result<()> {
+    let artifact = value
+        .readback
+        .as_ref()
+        .context("broker readback evidence is missing")?;
+    let warmup = exact_operation_count(axes.offered_load_per_second, axes.warmup_millis, "warmup")?;
+    let offered = exact_operation_count(
+        axes.offered_load_per_second,
+        axes.measure_millis,
+        "measurement",
+    )?;
+    let bound = warmup
+        .checked_add(offered)
+        .context("ledger sequence bound overflow")?;
+    let source = crate::decode_hex::<16>(&workload.source_node_id_hex, "source")?;
+    let target = crate::decode_hex::<16>(&workload.target_node_id_hex, "target")?;
+    let prefix = crate::decode_hex_bytes(&workload.ordering_key_hex, "ordering key")?;
+    let mut confirmed = 0_u64;
+    for expected in &artifact.expected {
+        let mut ordering_key = prefix.clone();
+        ordering_key.extend_from_slice(&expected.sequence.to_be_bytes());
+        anyhow::ensure!(
+            expected.source == source
+                && expected.target == target
+                && expected.generation == workload.inbox_generation
+                && expected.partition == workload.partition_id
+                && expected.ordering_key == ordering_key
+                && expected.sequence < bound,
+            "ledger identity differs from independent candidate boundary"
+        );
+        confirmed += u64::from(expected.confirmed);
+    }
+    anyhow::ensure!(
+        confirmed
+            == warmup
+                .checked_add(value.metrics.completed_operations)
+                .context("confirmed count overflow")?,
+        "confirmed ledger count differs from measured successes"
+    );
+    Ok(())
+}
+
 fn read<T: DeserializeOwned>(root: &Path, relative: &str) -> Result<(T, String)> {
     let bytes = fs::read(root.join(relative)).with_context(|| format!("read {relative}"))?;
     Ok((
@@ -116,7 +182,41 @@ fn observation(
             && value.observation_id == observation_id_for_axes(axes, phase, sample, arm, control)?,
         "observation identity differs"
     );
+    let readback = value
+        .readback
+        .as_ref()
+        .context("broker readback evidence is missing")?;
+    anyhow::ensure!(
+        readback.schema == "chirps.durable-perf-readback/v1" && readback.arm == arm,
+        "readback identity differs"
+    );
+    anyhow::ensure!(
+        match arm {
+            Arm::Direct => readback.backend_queue_after_drain.is_none(),
+            Arm::Full => readback.backend_queue_after_drain == Some(0),
+        },
+        "backend queue observation is missing or not drained"
+    );
+    let audited = crate::readback::audit(arm, &readback.expected, &readback.observed)?;
+    anyhow::ensure!(
+        audited == readback.metrics,
+        "readback metrics differ from broker bytes"
+    );
+    for expected in &readback.expected {
+        anyhow::ensure!(
+            expected.payload_sha256 == axes.payload_digest
+                && expected.payload_bytes == axes.payload_bytes,
+            "ledger payload differs from candidate"
+        );
+    }
     let metrics = &value.metrics;
+    anyhow::ensure!(
+        metrics.unexpected_duplicates == audited.unexpected_duplicates
+            && metrics.wrong_identities == audited.wrong_identities
+            && metrics.wrong_digests == audited.wrong_digests
+            && metrics.lag_after_drain == audited.confirmed_messages_not_observed,
+        "measurement audit counters differ from broker readback"
+    );
     let operations = exact_operation_count(
         axes.offered_load_per_second,
         axes.measure_millis,
@@ -169,6 +269,23 @@ mod tests {
     use serde_json::{Value, json};
     use std::path::PathBuf;
 
+    fn verify(root: &Path, candidate: &str, axes: &ComparableAxes, samples: u64) -> Result<()> {
+        super::verify(root, candidate, axes, samples, &workload())
+    }
+    fn workload() -> crate::Workload {
+        serde_json::from_value(json!({
+            "endpoint":"127.0.0.1:8090", "tls_server_name":"localhost", "tls_ca_pem_path":"/not-read", "tls_ca_pem_sha256":"unused",
+            "tls_root_der_path":"/not-read", "tls_root_der_sha256":"unused", "credential_reference":"NOT_READ",
+            "stream_id":1,"topic_id":1,"partition_id":0,"source_node_id_hex":"01010101010101010101010101010101",
+            "target_node_id_hex":"02020202020202020202020202020202","inbox_generation":1,"lifecycle_generation":1,
+            "checkpoint_root":"/not-read","lease_millis":1000,"renew_interval_millis":100,"max_frame_len":10000,
+            "resource_id_hex":"unused","resource_epoch":1,"build_sha_hex":"unused","retention_bytes":1000,
+            "retention_messages":100,"checksum_enabled":true,"configuration_digest_hex":"unused","security_digest_hex":"unused",
+            "capability_digest_hex":"unused","ordering_key_hex":"","payload_path":"/not-read","payload_sha256":sha256(&[1]),
+            "operation_timeout_millis":1000,"connect_timeout_millis":1000
+        })).unwrap()
+    }
+
     struct Fixture {
         root: PathBuf,
         axes: ComparableAxes,
@@ -198,6 +315,7 @@ mod tests {
             observation_id: observation_id_for_axes(axes, phase, sample, arm, control).unwrap(),
             arm,
             sample_index: sample,
+            readback: Some(crate::readback::synthetic_fixture(arm, control)),
             metrics: MetricVector {
                 elapsed_nanos: 1_000_000_000,
                 completed_operations: 4,
@@ -231,7 +349,7 @@ mod tests {
             server_image_digest: "image".into(),
             server_source_digest: "source".into(),
             server_config_digest: "config".into(),
-            payload_digest: "payload".into(),
+            payload_digest: sha256(&[1]),
             payload_bytes: 1,
             partition_set_digest: "partition".into(),
             full_confirmation_profile: FullConfirmationProfile::BrokerAccepted,
@@ -306,6 +424,30 @@ mod tests {
         .unwrap();
         write(&root, "paired/paired.json", &paired);
         Fixture { root, axes }
+    }
+
+    #[test]
+    fn independent_candidate_boundary_rejects_rebound_ledger_fields() {
+        let f = fixture();
+        let base = raw(&f.axes, "paired_direct", Arm::Direct, 0, None);
+        for field in 0..8 {
+            let mut value = base.clone();
+            let expected = &mut value.readback.as_mut().unwrap().expected[0];
+            match field {
+                0 => expected.source[0] ^= 1,
+                1 => expected.target[0] ^= 1,
+                2 => expected.generation += 1,
+                3 => expected.partition += 1,
+                4 => expected.ordering_key.push(1),
+                5 => expected.sequence = 4,
+                6 => expected.confirmed = false,
+                _ => value.metrics.completed_operations += 1,
+            }
+            assert!(
+                super::ledger_boundary(&value, &f.axes, &workload()).is_err(),
+                "accepted field {field}"
+            );
+        }
     }
 
     #[test]

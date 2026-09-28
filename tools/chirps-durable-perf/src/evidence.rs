@@ -64,6 +64,8 @@ pub struct RawObservation {
     pub arm: Arm,
     pub sample_index: u64,
     pub metrics: MetricVector,
+    #[serde(default)]
+    pub readback: Option<crate::readback::Artifact>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -826,6 +828,7 @@ mod tests {
             arm,
             sample_index: index,
             metrics: metrics(throughput),
+            readback: None,
         }
     }
 
