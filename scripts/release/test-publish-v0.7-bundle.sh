@@ -23,7 +23,8 @@ cp "$repo_root/scripts/release/publish-v0.7-bundle.sh" "$publisher"
 cp "$repo_root/scripts/release/verify-v0.7-evidence.py" \
   "$fixture_repo/scripts/release/verify-v0.7-evidence.py"
 cp "$repo_root/scripts/release/v07_e2e_evidence.py" \
-  "$repo_root/scripts/release/test-v07-e2e-evidence.py" "$fixture_repo/scripts/release/"
+  "$repo_root/scripts/release/test-v07-e2e-evidence.py" \
+  "$repo_root/scripts/release/oci_artifact.py" "$fixture_repo/scripts/release/"
 cp "$repo_root/docs/release/v0.7.0-evidence-schema.json" \
   "$fixture_repo/docs/release/v0.7.0-evidence-schema.json"
 test_server_sha256="$(printf '%s\n' 'fixture-publish-disabled-test-server' | sha256sum | awk '{print $1}')"
