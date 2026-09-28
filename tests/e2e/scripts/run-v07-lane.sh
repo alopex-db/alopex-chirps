@@ -19,15 +19,22 @@ readonly EXPECTED_FAULT_SHA256="2daa29a71b9d7ba4555ad84f2273c0f269744efe6091dd0d
 readonly e2e_run_token="chirps-v07-e2e-${BASHPID}-${RANDOM}"
 
 usage() {
-    rtk echo "usage: $0 --lane production|fault (--target NAME|--materialized-all|--strict-all)" >&2
+    rtk echo "usage: $0 --lane production|fault (--target NAME|--materialized-all|--strict-all) [--evidence-dir DIR]" >&2
     exit 64
 }
 
 lane=""
 mode=""
 selected_target=""
+evidence_dir=""
 while (($#)); do
     case "$1" in
+        --evidence-dir)
+            (($# >= 2)) || usage
+            [[ -z "$evidence_dir" ]] || usage
+            evidence_dir="$2"
+            shift 2
+            ;;
         --lane)
             (($# >= 2)) || usage
             lane="$2"
@@ -343,8 +350,14 @@ run_target() {
         rtk echo "target is not explicitly declared in Cargo.toml: ${target}" >&2
         return 1
     }
-    CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk cargo test --locked --manifest-path "${repository_root}/Cargo.toml" \
-        -p chirps-e2e --test "$target" -- --ignored --nocapture --test-threads=1
+    if [[ -n "$evidence_dir" ]]; then
+        CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk proxy python3 \
+            "${repository_root}/scripts/release/v07_e2e_evidence.py" \
+            --repo-root "$repository_root" --output "$evidence_dir" --lane "$lane" --target "$target"
+    else
+        CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk cargo test --locked --manifest-path "${repository_root}/Cargo.toml" \
+            -p chirps-e2e --test "$target" -- --ignored --nocapture --test-threads=1
+    fi
 }
 
 validate_source_reachability
@@ -384,5 +397,9 @@ case "$mode" in
         for target in "${targets[@]}"; do
             run_target "$target"
         done
+        if [[ -n "$evidence_dir" ]]; then
+            rtk proxy python3 "${repository_root}/scripts/release/v07_e2e_evidence.py" \
+                --repo-root "$repository_root" --output "$evidence_dir" --lane "$lane" --seal-lane
+        fi
         ;;
 esac
