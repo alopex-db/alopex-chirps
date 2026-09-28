@@ -69,10 +69,12 @@ broker readback, and paired results. It does not run the candidate's audit probe
 Both the CI gate and protected publisher keep candidate source identity separate
 from trusted release tooling, including during recovery of an older candidate.
 
-The `public-api` compatibility entry is checked against immutable candidate and
-v0.6.1 Git objects and all 34 raw semver comparisons. This is one compatibility
-component; `compatibility-matrix` is reserved for the wire and official/compatible
-server profile evidence. API success alone does not qualify those profiles.
+The mandatory `compatibility-matrix` entry replays all 34 API comparisons against
+immutable v0.6.1 Git objects, all eight legacy wire/runtime cells, the public
+facade against the unmodified official baseline, and both complete compatible
+server lanes. Source tree/lock, corpus, and environment bindings are checked
+across the cells. API success alone or a lower-level official connection probe
+cannot qualify the matrix; see [compatibility evidence](v07-compatibility-evidence.md).
 
 ## Development fixtures
 

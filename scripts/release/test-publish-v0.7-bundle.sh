@@ -30,6 +30,14 @@ cp "$repo_root/scripts/release/v07_e2e_evidence.py" \
   "$repo_root/scripts/release/test-v07-e2e-evidence.py" \
   "$repo_root/scripts/release/v07_consumer_evidence.py" \
   "$repo_root/scripts/release/v07_api_evidence.py" \
+  "$repo_root/scripts/release/v07_compatibility_matrix.py" \
+  "$repo_root/scripts/release/v07_official_evidence.py" \
+  "$repo_root/scripts/release/v07_official_run.py" \
+  "$repo_root/scripts/release/v07_wire_evidence.py" \
+  "$repo_root/scripts/release/test-v07-compatibility-matrix.py" \
+  "$repo_root/scripts/release/test-v07-official-evidence.py" \
+  "$repo_root/scripts/release/test-v07-official-run.py" \
+  "$repo_root/scripts/release/test-v07-wire-evidence.py" \
   "$repo_root/scripts/release/v07_perf_verifier.py" \
   "$repo_root/scripts/release/test-v07-consumer-evidence.py" \
   "$repo_root/scripts/release/test-v07-api-evidence.py" \
@@ -255,9 +263,15 @@ catalog = root / "package-set.json"
 catalog.write_text(json.dumps({"source_commit": source_commit, "packages": packages}))
 consumer = load_fixture("consumer-evidence").write_consumer_fixture(root / "consumer", source_commit, catalog)
 api = load_fixture("api-evidence").write_api_fixture(root / "api", Path(os.environ["CHIRPS_SOURCE_ROOT"]), source_commit)
+compatibility = load_fixture("compatibility-matrix").write_matrix_fixture(
+    root, Path(os.environ["CHIRPS_SOURCE_ROOT"]), source_commit, "2" * 40, api,
+    root / evidence_files["process"]["path"], root / evidence_files["fault"]["path"],
+)
+for kind in ("process", "fault"):
+    evidence_files[kind]["sha256"] = hashlib.sha256((root / evidence_files[kind]["path"]).read_bytes()).hexdigest()
 performance = root / "performance/paired/paired.json"
 write(performance, b'{"synthetic_fixture":true}\n')
-for kind, path in (("package", consumer), ("compatibility", api), ("performance", performance)):
+for kind, path in (("package", consumer), ("compatibility", compatibility), ("performance", performance)):
     evidence_files[kind] = {"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 candidate = {
@@ -336,7 +350,7 @@ def write_evidence(index_name: str, bundle_name: str, release_name: str) -> None
         )
         entries.append(
             {
-                "id": "release-bundle" if kind == "process" else "public-api" if kind == "compatibility" else f"fixture-{kind}",
+                "id": "release-bundle" if kind == "process" else "compatibility-matrix" if kind == "compatibility" else f"fixture-{kind}",
                 "kind": kind,
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,

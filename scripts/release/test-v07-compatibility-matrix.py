@@ -3,12 +3,65 @@
 import copy
 from contextlib import ExitStack
 import json
+import hashlib
+import importlib.util
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import v07_compatibility_matrix as matrix
+
+
+def write_matrix_fixture(root, source_root, source_commit, iggy_commit, api, production, fault):
+    """Build explicit synthetic raw reports for publisher/schema rejection tests."""
+    def module(name):
+        spec = importlib.util.spec_from_file_location(name,Path(__file__).with_name(f'test-v07-{name}.py'))
+        value = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(value)
+        return value
+    def write(path,value):
+        path.write_text(json.dumps(value))
+    source = dict(source_commit=source_commit,
+        source_tree=subprocess.check_output(['git','-C',str(source_root),'rev-parse',f'{source_commit}^{{tree}}'],text=True).strip(),
+        lock_sha256=hashlib.sha256(subprocess.check_output(['git','-C',str(source_root),'show',f'{source_commit}:Cargo.lock'])).hexdigest())
+    directory = root/'compatibility'
+    directory.mkdir()
+    module('wire-evidence').write_wire_fixture(directory/'wire',source_root,source_commit)
+    official_case = module('official-run').ExecutionTests()
+    official_case.setUp()
+    try:
+        official_case.probe['source_commit'] = source_commit
+        official_case.write_probe()
+        official_case.report['source'] = source
+        official_case.report['commands']['run'][2] = source_commit
+        official_case.report['probe'] = matrix.reference(official_case.probe_dir/'report.json',official_case.output)
+        official_case.path.write_text(json.dumps(official_case.report))
+        shutil.copytree(official_case.output,directory/'official')
+    finally:
+        official_case.doCleanups()
+    for lane,path in (('production',production),('fault',fault)):
+        index = matrix.load(path)
+        for target,ref in index['targets'].items():
+            report_path = matrix.resolve(path.parent,ref)
+            value = matrix.load(report_path)
+            value['source'] = source
+            value['server']['binary_sha256'] = ('8' if lane == 'production' else '9')*64
+            value['server']['manifest_sha256'] = ('6' if lane == 'production' else '7')*64
+            raw_path = matrix.resolve(report_path.parent,value['scenarios'])
+            scenario = matrix.load(raw_path)
+            scenario['artifact_sha256'] = value['server']['binary_sha256']
+            write(raw_path,scenario)
+            value['scenarios'] = matrix.reference(raw_path,report_path.parent)
+            write(report_path,value)
+            index['targets'][target] = matrix.reference(report_path,path.parent)
+        write(path,index)
+    output = root/'compatibility-matrix.json'
+    matrix.seal(source_root,output,source_commit,iggy_commit,
+        dict(api=api,wire=directory/'wire/report.json',official=directory/'official/execution.json',production=production,fault=fault))
+    return output
 
 
 class MatrixTests(unittest.TestCase):

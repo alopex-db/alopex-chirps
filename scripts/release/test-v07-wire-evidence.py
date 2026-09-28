@@ -13,6 +13,31 @@ sys.dont_write_bytecode = True
 import v07_wire_evidence as wire
 
 
+def write_wire_fixture(root, source_root, commit):
+    """Synthetic full-matrix logs for schema/publication rejection tests only."""
+    root.mkdir(parents=True, exist_ok=True)
+    lock = subprocess.check_output(["git", "show", f"{commit}:Cargo.lock"], cwd=source_root)
+    report = {"schema": wire.SCHEMA, "result": "pass", "rustc": "synthetic", "cargo": "synthetic",
+        "source": {"source_commit": commit,
+            "source_tree": wire.command_output(source_root, "git", "rev-parse", f"{commit}^{{tree}}"),
+            "lock_sha256": hashlib.sha256(lock).hexdigest()}, "jobs": {}}
+    for mode in wire.FEATURES:
+        for target, required in wire.TARGETS.items():
+            directory = root / mode / target
+            directory.mkdir(parents=True)
+            tests = sorted(required)
+            (directory / "build.log").write_text(json.dumps({"reason": "compiler-artifact", "target": {"name": target}, "profile": {"test": True}, "executable": "/synthetic/test"}) + '\n{"reason":"build-finished","success":true}\n')
+            (directory / "list.log").write_text("\n".join(f"{name}: test" for name in tests))
+            (directory / "run.log").write_text("\n".join(f"test {name} ... ok" for name in tests) + f"\ntest result: ok. {len(tests)} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n")
+            report["jobs"][f"{mode}/{target}"] = {"commands": wire.commands(mode, target),
+                "exit_codes": dict.fromkeys(("build", "list", "run"), 0), "tests": tests,
+                "binary_sha256": "a" * 64,
+                "logs": {stage: wire.reference(directory / f"{stage}.log", root) for stage in ("build", "list", "run")}}
+    path = root / "report.json"
+    path.write_text(json.dumps(report))
+    return path
+
+
 class WireTests(unittest.TestCase):
     def setUp(self):
         self.scratch = tempfile.TemporaryDirectory()
@@ -20,24 +45,8 @@ class WireTests(unittest.TestCase):
         self.root = Path(self.scratch.name)
         self.source_root = Path(__file__).resolve().parents[2]
         self.commit = wire.command_output(self.source_root, "git", "rev-parse", "HEAD")
-        lock = subprocess.check_output(["git", "show", f"{self.commit}:Cargo.lock"], cwd=self.source_root)
-        self.report = {"schema": wire.SCHEMA, "result": "pass", "rustc": "synthetic", "cargo": "synthetic",
-            "source": {"source_commit": self.commit,
-                "source_tree": wire.command_output(self.source_root, "git", "rev-parse", "HEAD^{tree}"),
-                "lock_sha256": hashlib.sha256(lock).hexdigest()}, "jobs": {}}
-        for mode in wire.FEATURES:
-            for target, required in wire.TARGETS.items():
-                directory = self.root / mode / target
-                directory.mkdir(parents=True)
-                tests = sorted(required)
-                (directory / "build.log").write_text(json.dumps({"reason": "compiler-artifact", "target": {"name": target}, "profile": {"test": True}, "executable": "/synthetic/test"}) + '\n{"reason":"build-finished","success":true}\n')
-                (directory / "list.log").write_text("\n".join(f"{name}: test" for name in tests))
-                (directory / "run.log").write_text("\n".join(f"test {name} ... ok" for name in tests) + f"\ntest result: ok. {len(tests)} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n")
-                self.report["jobs"][f"{mode}/{target}"] = {"commands": wire.commands(mode, target),
-                    "exit_codes": dict.fromkeys(("build", "list", "run"), 0), "tests": tests,
-                    "binary_sha256": "a" * 64,
-                    "logs": {stage: wire.reference(directory / f"{stage}.log", self.root) for stage in ("build", "list", "run")}}
-        self.path = self.root / "report.json"
+        self.path = write_wire_fixture(self.root,self.source_root,self.commit)
+        self.report = wire.load(self.path)
         self.identifier = "default/profile_compatibility"
 
     def verify(self, value=None):

@@ -19,7 +19,7 @@ from typing import Callable
 sys.dont_write_bytecode = True
 from v07_e2e_evidence import verify_lane
 from v07_consumer_evidence import verify_report as verify_consumer_report
-from v07_api_evidence import verify_api_report
+from v07_compatibility_matrix import verify as verify_compatibility
 from v07_perf_verifier import verify as verify_performance
 
 VERSION = "0.7.0"
@@ -402,7 +402,7 @@ def verify(evidence_path: Path, schema_path: Path) -> None:
 
 
 def verify_release_categories(root: Path, entries: list[dict], candidate: dict, candidate_path: Path) -> None:
-    """Replay package, API, and PERF evidence from raw results and trusted tools."""
+    """Replay package, complete compatibility, and PERF evidence from raw results."""
     def one(kind, identifier=None):
         found = [entry for entry in entries if entry["kind"] == kind and (identifier is None or entry["id"] == identifier)]
         if len(found) != 1:
@@ -413,9 +413,9 @@ def verify_release_categories(root: Path, entries: list[dict], candidate: dict, 
         report = verify_consumer_report(package.parent / "package-set.json", package, "stored-archives")
         if report["source_commit"] != candidate["source_commit"]:
             fail("consumer evidence source differs from candidate")
-        api = one("compatibility", "public-api")
+        compatibility = one("compatibility", "compatibility-matrix")
         source_root = Path(os.environ.get("CHIRPS_SOURCE_ROOT", Path(__file__).resolve().parents[2]))
-        verify_api_report(source_root, api, candidate["source_commit"])
+        verify_compatibility(source_root, compatibility, candidate["source_commit"], candidate["iggy_commit"])
         performance = one("performance")
         if performance.name != "paired.json" or performance.parent.name != "paired":
             fail("performance entry must identify the replayed paired/paired.json")
@@ -480,12 +480,18 @@ def self_test(schema_path: Path) -> None:
             return module
         package = fixture_module("consumer-evidence").write_consumer_fixture(root / "consumer", source_commit)
         api = fixture_module("api-evidence").write_api_fixture(root / "api", source_root, source_commit)
+        compatibility = fixture_module("compatibility-matrix").write_matrix_fixture(
+            root, source_root, source_commit, "2" * 40, api,
+            root / runtime_paths["process"], root / runtime_paths["fault"],
+        )
+        for kind in ("process", "fault"):
+            artifact_digests[kind] = sha256_file(root / runtime_paths[kind])
         tool = fixture_module("perf-verifier").write_tool_fixture(root / "trusted-tool", source_commit)
         os.environ["CHIRPS_PERF_VERIFIER"] = str(tool)
         os.environ["CHIRPS_RELEASE_TOOLS_COMMIT"] = source_commit
         performance = root / "performance/paired/paired.json"
         write_json(performance, {"synthetic_fixture": True})
-        for kind, path in (("package", package), ("compatibility", api), ("performance", performance)):
+        for kind, path in (("package", package), ("compatibility", compatibility), ("performance", performance)):
             runtime_paths[kind] = path.relative_to(root).as_posix()
             artifact_digests[kind] = sha256_file(path)
         candidate = {
@@ -512,7 +518,7 @@ def self_test(schema_path: Path) -> None:
         candidate_sha256 = sha256_file(candidate_path)
         entries = [
             {
-                "id": "public-api" if kind == "compatibility" else f"self-test-{kind}",
+                "id": "compatibility-matrix" if kind == "compatibility" else f"self-test-{kind}",
                 "kind": kind,
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,
