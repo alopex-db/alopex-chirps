@@ -67,3 +67,14 @@ arithmetic implementation was added, so Miri/Kani were not selected.
 
 The complete pinned semver comparison is a separate integration result and must
 be re-run with the independent transport compatibility repair.
+
+Raft transport callers can use
+`configure_snapshot_transfer_with_options(config, options)` to set the same
+additional deadline. Configuration and options are stored atomically together,
+validated before replacement, and copied by `fork_for_group`.
+`snapshot_transfer_options()` exposes the effective deadline. The legacy
+configuration method resets to the 60-second default. A real mock transport with
+an unresponsive peer verifies deadline propagation through the Raft snapshot
+path, fork inheritance, rejection without state change, and legacy reset.
+The snapshot target passes 10 tests; the new setter's scoped changed-line
+mutation is caught (1/1), and facade Clippy still passes.

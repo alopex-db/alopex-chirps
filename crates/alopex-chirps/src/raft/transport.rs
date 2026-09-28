@@ -25,7 +25,8 @@ use tokio::time;
 use crate::snapshot::{
     NoopSnapshotProgressObserver, RaftSnapshotBegin, RaftSnapshotRequest, RaftSnapshotResponse,
     RaftSnapshotStatus, SnapshotChunk, SnapshotChunkSink, SnapshotProgressObserver, SnapshotSender,
-    SnapshotTransferConfig, SnapshotTransferError, SnapshotTransferReceipt,
+    SnapshotTransferConfig, SnapshotTransferError, SnapshotTransferOptions,
+    SnapshotTransferReceipt,
 };
 #[cfg(feature = "snapshot")]
 use async_trait::async_trait;
@@ -101,7 +102,7 @@ pub struct ChirpsRaftTransport {
     node_ids: Arc<RwLock<HashMap<ChirpsNodeId, NodeId>>>,
     metrics_collector: Mutex<Option<Arc<RaftMetricsCollector>>>,
     #[cfg(feature = "snapshot")]
-    snapshot_config: RwLock<SnapshotTransferConfig>,
+    snapshot_config: RwLock<(SnapshotTransferConfig, SnapshotTransferOptions)>,
     #[cfg(feature = "snapshot")]
     snapshot_progress: RwLock<Arc<dyn SnapshotProgressObserver>>,
 }
@@ -122,7 +123,10 @@ impl ChirpsRaftTransport {
             node_ids: Arc::new(RwLock::new(HashMap::new())),
             metrics_collector: Mutex::new(None),
             #[cfg(feature = "snapshot")]
-            snapshot_config: RwLock::new(SnapshotTransferConfig::default()),
+            snapshot_config: RwLock::new((
+                SnapshotTransferConfig::default(),
+                SnapshotTransferOptions::default(),
+            )),
             #[cfg(feature = "snapshot")]
             snapshot_progress: RwLock::new(Arc::new(NoopSnapshotProgressObserver)),
         }
@@ -242,11 +246,31 @@ impl ChirpsRaftTransport {
         &self,
         config: SnapshotTransferConfig,
     ) -> Result<(), SnapshotTransferError> {
+        self.configure_snapshot_transfer_with_options(config, SnapshotTransferOptions::default())
+    }
+
+    /// Configures legacy chunk policy and additive deadline options together.
+    #[cfg(feature = "snapshot")]
+    pub fn configure_snapshot_transfer_with_options(
+        &self,
+        config: SnapshotTransferConfig,
+        options: SnapshotTransferOptions,
+    ) -> Result<(), SnapshotTransferError> {
         *self
             .snapshot_config
             .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = config.validate()?;
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            (config.validate()?, options.validate()?);
         Ok(())
+    }
+
+    /// Returns the current transfer deadline policy, also inherited by group forks.
+    #[cfg(feature = "snapshot")]
+    pub fn snapshot_transfer_options(&self) -> SnapshotTransferOptions {
+        self.snapshot_config
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .1
     }
 
     #[cfg(feature = "snapshot")]
@@ -791,7 +815,7 @@ impl RaftNetwork<ChirpsTypeConfig> for ChirpsRaftNetworkClient {
                 openraft::StorageError::from(storage)
             })?;
 
-        let config = *self
+        let (config, options) = *self
             .inner
             .snapshot_config
             .read()
@@ -819,8 +843,9 @@ impl RaftNetwork<ChirpsTypeConfig> for ChirpsRaftNetworkClient {
             vote: Mutex::new(vote),
             meta: snapshot.meta,
         });
-        let sender = SnapshotSender::new(config, self.inner.snapshot_progress_observer())
-            .map_err(|error| StreamingError::Network(NetworkError::new(&error)))?;
+        let sender =
+            SnapshotSender::with_options(config, self.inner.snapshot_progress_observer(), options)
+                .map_err(|error| StreamingError::Network(NetworkError::new(&error)))?;
         let transfer = sender.transfer(snapshot_id.clone(), bytes, Arc::clone(&sink));
         tokio::pin!(transfer);
         tokio::pin!(cancel);

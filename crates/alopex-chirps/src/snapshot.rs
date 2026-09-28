@@ -75,6 +75,17 @@ impl Default for SnapshotTransferOptions {
     }
 }
 
+impl SnapshotTransferOptions {
+    pub fn validate(self) -> Result<Self, SnapshotTransferError> {
+        if self.transfer_timeout.is_zero() {
+            return Err(SnapshotTransferError::InvalidConfig(
+                "transfer_timeout must be greater than zero".into(),
+            ));
+        }
+        Ok(self)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotManifest {
     pub snapshot_id: String,
@@ -281,14 +292,9 @@ impl SnapshotSender {
         observer: Arc<dyn SnapshotProgressObserver>,
         options: SnapshotTransferOptions,
     ) -> Result<Self, SnapshotTransferError> {
-        if options.transfer_timeout.is_zero() {
-            return Err(SnapshotTransferError::InvalidConfig(
-                "transfer_timeout must be greater than zero".into(),
-            ));
-        }
         Ok(Self {
             config: config.validate()?,
-            options,
+            options: options.validate()?,
             observer,
         })
     }
