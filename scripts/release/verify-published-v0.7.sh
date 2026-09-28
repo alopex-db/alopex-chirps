@@ -5,11 +5,13 @@ usage() {
   cat <<'USAGE' >&2
 Usage: verify-published-v0.7.sh --evidence FILE --evidence-sha256 SHA256
        --candidate FILE --candidate-sha256 SHA256
-       --bundle FILE --bundle-sha256 SHA256 [--schema FILE]
+       --bundle FILE --bundle-sha256 SHA256 --tag-object SHA1 [--schema FILE]
        verify-published-v0.7.sh --self-test
 
-The verifier reads already-stored bytes. It neither downloads, rewrites, nor
-publishes an artifact.
+The verifier validates stored evidence, then reads the remote annotated tag,
+all nine registry archives, OCI manifest, and exact GitHub release assets.
+--tag-object pins the annotated tag object recorded by the approved tag job.
+It performs no remote writes and never rebuilds or publishes an artifact.
 USAGE
 }
 
@@ -21,6 +23,7 @@ bundle=""
 evidence_sha256=""
 candidate_sha256=""
 bundle_sha256=""
+tag_object=""
 self_test=false
 
 while [[ $# -gt 0 ]]; do
@@ -31,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --candidate-sha256) candidate_sha256="${2:?missing value for --candidate-sha256}"; shift 2 ;;
     --bundle) bundle="${2:?missing value for --bundle}"; shift 2 ;;
     --bundle-sha256) bundle_sha256="${2:?missing value for --bundle-sha256}"; shift 2 ;;
+    --tag-object) tag_object="${2:?missing value for --tag-object}"; shift 2 ;;
     --schema) schema="${2:?missing value for --schema}"; shift 2 ;;
     --self-test) self_test=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -80,6 +84,7 @@ if [[ "$self_test" == true ]]; then
     exit 1
   fi
   printf '%s\n' 'published verifier self-test passed: byte drift rejected'
+  PYTHONDONTWRITEBYTECODE=1 python3 "$repo_root/scripts/release/test-verify-published-v0.7.py"
   exit 0
 fi
 
@@ -95,6 +100,10 @@ fi
 verify_digest "$evidence" "$evidence_sha256" evidence
 verify_digest "$candidate" "$candidate_sha256" candidate
 verify_digest "$bundle" "$bundle_sha256" bundle
+[[ "$tag_object" =~ ^[0-9a-f]{40}$ ]] || {
+  printf '%s\n' '--tag-object must pin the expected annotated tag SHA-1' >&2
+  exit 2
+}
 
 python3 - "$evidence" "$candidate" "$bundle" <<'PY'
 import json
@@ -119,7 +128,10 @@ PY
 "$repo_root/scripts/release/verify-v0.7-evidence.py" \
   --schema "$schema" "$evidence"
 
+python3 "$repo_root/scripts/release/verify-published-v0.7.py" \
+  --evidence "$evidence" --candidate "$candidate" --tag-object "$tag_object"
+
 verify_digest "$evidence" "$evidence_sha256" evidence
 verify_digest "$candidate" "$candidate_sha256" candidate
 verify_digest "$bundle" "$bundle_sha256" bundle
-printf '%s\n' 'published v0.7 stored bytes validated'
+printf '%s\n' 'published v0.7 remote artifacts match stored bytes'

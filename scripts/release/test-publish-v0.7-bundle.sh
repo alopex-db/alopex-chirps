@@ -429,6 +429,15 @@ common=(
   --resume-only-on-checksum-match
 )
 
+PATH="$fixture_path" "$publisher" "${common[@]}" --validate-only \
+  --fixture-registry "$endpoint/readonly-registry" \
+  --fixture-image "$endpoint/readonly-image" \
+  --fixture-github "$endpoint/readonly-github" >/dev/null
+[[ ! -e "$scratch/server/requests.log" ]] || {
+  printf '%s\n' 'local validation contacted a remote endpoint' >&2
+  exit 1
+}
+
 if PATH="$fixture_path" "$publisher" "${common[@]}" \
   --fixture-registry "$endpoint/approval-registry" \
   --fixture-image "$endpoint/approval-image" \

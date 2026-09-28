@@ -8,6 +8,7 @@ usage() {
   cat <<'USAGE' >&2
 Usage: publish-v0.7-bundle.sh --bundle FILE --candidate FILE --evidence FILE
        --require-environment-approval --resume-only-on-checksum-match
+       [--validate-only]
        [--fixture-registry URL --fixture-image URL --fixture-github URL]
 
 Production mode uploads the exact stored .crate archives to crates.io, copies
@@ -23,6 +24,7 @@ candidate=""
 evidence=""
 require_approval=false
 checksum_resume=false
+validate_only=false
 fixture_registry=""
 fixture_image=""
 fixture_github=""
@@ -34,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --evidence) evidence="${2:?missing value for --evidence}"; shift 2 ;;
     --require-environment-approval) require_approval=true; shift ;;
     --resume-only-on-checksum-match) checksum_resume=true; shift ;;
+    --validate-only) validate_only=true; shift ;;
     --fixture-registry) fixture_registry="${2:?missing fixture registry URL}"; shift 2 ;;
     --fixture-image) fixture_image="${2:?missing fixture image URL}"; shift 2 ;;
     --fixture-github) fixture_github="${2:?missing fixture GitHub URL}"; shift 2 ;;
@@ -517,6 +520,11 @@ for index, item in enumerate(assets):
     encoding="utf-8",
 )
 PY
+
+if [[ "$validate_only" == true ]]; then
+  printf '%s\n' 'publication bundle local validation passed; no remote operations performed'
+  exit 0
+fi
 
 IFS=$'\t' read -r source_commit release_tag image_path image_sha256 \
   image_reference image_manifest_digest github_repository < "$scratch/identity.tsv"
