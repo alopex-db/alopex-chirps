@@ -1,6 +1,7 @@
 //! Publish-disabled performance evidence tool.
 
 mod evidence;
+mod verify;
 
 use alopex_chirps::NodeId;
 use alopex_chirps::durable::{
@@ -39,6 +40,7 @@ enum Mode {
     Aa,
     SafetyAblation,
     Paired,
+    Verify,
 }
 
 struct Cli {
@@ -249,11 +251,20 @@ async fn main() -> Result<()> {
     })?;
     let candidate: CandidateManifest = serde_json::from_slice(&candidate_bytes)?;
     anyhow::ensure!(candidate.performance.samples > 0, "sample count is zero");
-    validate_plan(&candidate.performance)?;
     let candidate_sha256 = sha256(&candidate_bytes);
+    if matches!(cli.mode, Mode::Verify) {
+        return verify::verify(
+            &cli.output,
+            &candidate_sha256,
+            &candidate.performance.axes,
+            candidate.performance.samples,
+        );
+    }
+    validate_plan(&candidate.performance)?;
     fs::create_dir_all(&cli.output)?;
 
     match cli.mode {
+        Mode::Verify => unreachable!("read-only verification returned above"),
         Mode::Aa => run_aa(&cli.output, &candidate_sha256, &candidate.performance).await,
         Mode::SafetyAblation => {
             run_safety(
@@ -1284,7 +1295,7 @@ fn parse_args(args: &[String]) -> Result<Cli> {
         anyhow::ensure!(
             matches!(
                 pair[0].as_str(),
-                "--mode" | "--candidate-manifest" | "--bounds" | "--output"
+                "--mode" | "--candidate-manifest" | "--bounds" | "--output" | "--evidence-root"
             ),
             "unknown option {}",
             pair[0]
@@ -1299,17 +1310,31 @@ fn parse_args(args: &[String]) -> Result<Cli> {
         "aa" => Mode::Aa,
         "safety-ablation" => Mode::SafetyAblation,
         "paired" => Mode::Paired,
+        "verify" => Mode::Verify,
         value => anyhow::bail!("invalid --mode {value}"),
     };
     let bounds = options.get("--bounds").copied().map(PathBuf::from);
     if matches!(mode, Mode::Aa) {
         anyhow::ensure!(bounds.is_none(), "A/A does not accept external bounds");
     }
+    let output = if matches!(mode, Mode::Verify) {
+        anyhow::ensure!(
+            bounds.is_none() && !options.contains_key("--output"),
+            "verify accepts only --evidence-root"
+        );
+        required(&options, "--evidence-root")?
+    } else {
+        anyhow::ensure!(
+            !options.contains_key("--evidence-root"),
+            "--evidence-root is only valid for verify"
+        );
+        required(&options, "--output")?
+    };
     Ok(Cli {
         mode,
         candidate_manifest: required(&options, "--candidate-manifest")?.into(),
         bounds,
-        output: required(&options, "--output")?.into(),
+        output: output.into(),
     })
 }
 
@@ -1354,8 +1379,18 @@ fn observation_id(
     arm: Arm,
     safety_control: Option<SafetyControl>,
 ) -> Result<String> {
+    observation_id_for_axes(&plan.axes, phase, sample, arm, safety_control)
+}
+
+fn observation_id_for_axes(
+    axes: &ComparableAxes,
+    phase: &str,
+    sample: u64,
+    arm: Arm,
+    safety_control: Option<SafetyControl>,
+) -> Result<String> {
     Ok(sha256(&serde_json::to_vec(&(
-        &plan.axes,
+        axes,
         phase,
         sample,
         arm,
@@ -1406,6 +1441,33 @@ mod tests {
     fn v07_task_6_12_cli_rejects_external_thresholds_and_aa_bounds() {
         assert!(parse_args(&args(&["--threshold", "123"])).is_err());
         assert!(parse_args(&args(&["--bounds", "/external.json"])).is_err());
+    }
+
+    #[test]
+    fn verify_cli_requires_read_only_evidence_root() {
+        let valid: Vec<String> = [
+            "--mode",
+            "verify",
+            "--candidate-manifest",
+            "/candidate.json",
+            "--evidence-root",
+            "/evidence",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let cli = parse_args(&valid).unwrap();
+        assert!(matches!(cli.mode, Mode::Verify));
+        assert_eq!(cli.output, PathBuf::from("/evidence"));
+        for option in ["--output", "--bounds"] {
+            let mut invalid = valid.clone();
+            invalid.extend([option.to_owned(), "/file".to_owned()]);
+            assert!(parse_args(&invalid).is_err());
+        }
+        let mut missing = valid.clone();
+        missing.truncate(4);
+        assert!(parse_args(&missing).is_err());
+        assert!(parse_args(&args(&["--evidence-root", "/evidence"])).is_err());
     }
 
     #[test]
