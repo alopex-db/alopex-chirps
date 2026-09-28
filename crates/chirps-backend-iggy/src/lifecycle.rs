@@ -12,7 +12,7 @@ use alopex_chirps_core::durable::{
 use async_trait::async_trait;
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use thiserror::Error;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -30,6 +30,18 @@ impl ShutdownTransportReport {
     #[must_use]
     pub const fn new(closed: bool, joined: bool) -> Self {
         Self { closed, joined }
+    }
+
+    /// Returns whether every owned transport received its close signal.
+    #[must_use]
+    pub const fn socket_close_requested(self) -> bool {
+        self.closed
+    }
+
+    /// Returns whether every owned transport worker joined.
+    #[must_use]
+    pub const fn all_workers_joined(self) -> bool {
+        self.joined
     }
 }
 
@@ -70,6 +82,7 @@ struct SendState {
 /// Shared phase handle for one lifecycle-registered send.
 #[derive(Debug, Clone)]
 pub struct SendOperationHandle {
+    registry: Weak<Mutex<ShutdownStartState>>,
     state: Arc<Mutex<SendState>>,
 }
 
@@ -77,6 +90,33 @@ impl SendOperationHandle {
     /// Advances the send phase without permitting regression or terminal
     /// outcome replacement.
     pub fn transition(&self, next: SendOperationPhase) -> Result<(), LifecycleCoordinatorError> {
+        let registry = self
+            .registry
+            .upgrade()
+            .ok_or(LifecycleCoordinatorError::OperationNotRegistered)?;
+        let mut shutdown = registry
+            .lock()
+            .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?;
+        if shutdown.freeze.is_some() {
+            return Err(LifecycleCoordinatorError::OperationFrozen);
+        }
+        let state_position = shutdown
+            .send_states
+            .iter()
+            .position(|state| Arc::ptr_eq(state, &self.state))
+            .ok_or(LifecycleCoordinatorError::OperationNotRegistered)?;
+        let terminal = matches!(next, SendOperationPhase::Terminal(_));
+        let operation_position = if terminal {
+            Some(
+                shutdown
+                    .started_operations
+                    .iter()
+                    .rposition(|operation| operation.kind() == RegisteredOperationKind::Send)
+                    .ok_or(LifecycleCoordinatorError::OperationNotRegistered)?,
+            )
+        } else {
+            None
+        };
         let mut state = self
             .state
             .lock()
@@ -88,7 +128,38 @@ impl SendOperationHandle {
             return Err(LifecycleCoordinatorError::InvalidSendTransition);
         }
         state.phase = next;
+        drop(state);
+        if let Some(operation_position) = operation_position {
+            shutdown.send_states.remove(state_position);
+            shutdown.started_operations.remove(operation_position);
+        }
         Ok(())
+    }
+
+    /// Returns the exact current phase and whether shutdown froze it.
+    pub(crate) fn snapshot(&self) -> Result<(SendOperationPhase, bool), LifecycleCoordinatorError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?;
+        Ok((state.phase, state.frozen))
+    }
+}
+
+impl Drop for SendOperationHandle {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.state) != 2 {
+            return;
+        }
+        let Some(registry) = self.registry.upgrade() else {
+            return;
+        };
+        let Ok(mut shutdown) = registry.lock() else {
+            return;
+        };
+        if shutdown.freeze.is_none() && Arc::strong_count(&self.state) == 2 {
+            shutdown.unregister_send(&self.state);
+        }
     }
 }
 
@@ -115,6 +186,7 @@ struct CheckpointState {
 /// Shared phase handle for one lifecycle-registered checkpoint install.
 #[derive(Debug, Clone)]
 pub struct CheckpointOperationHandle {
+    registry: Weak<Mutex<ShutdownStartState>>,
     state: Arc<Mutex<CheckpointState>>,
 }
 
@@ -125,6 +197,33 @@ impl CheckpointOperationHandle {
         &self,
         next: CheckpointOperationPhase,
     ) -> Result<(), LifecycleCoordinatorError> {
+        let registry = self
+            .registry
+            .upgrade()
+            .ok_or(LifecycleCoordinatorError::OperationNotRegistered)?;
+        let mut shutdown = registry
+            .lock()
+            .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?;
+        if shutdown.freeze.is_some() {
+            return Err(LifecycleCoordinatorError::OperationFrozen);
+        }
+        let state_position = shutdown
+            .checkpoint_states
+            .iter()
+            .position(|state| Arc::ptr_eq(state, &self.state))
+            .ok_or(LifecycleCoordinatorError::OperationNotRegistered)?;
+        let terminal = matches!(next, CheckpointOperationPhase::Terminal(_));
+        let operation_position = if terminal {
+            Some(
+                shutdown
+                    .started_operations
+                    .iter()
+                    .rposition(|operation| operation.kind() == RegisteredOperationKind::Checkpoint)
+                    .ok_or(LifecycleCoordinatorError::OperationNotRegistered)?,
+            )
+        } else {
+            None
+        };
         let mut state = self
             .state
             .lock()
@@ -136,7 +235,40 @@ impl CheckpointOperationHandle {
             return Err(LifecycleCoordinatorError::InvalidCheckpointTransition);
         }
         state.phase = next;
+        drop(state);
+        if let Some(operation_position) = operation_position {
+            shutdown.checkpoint_states.remove(state_position);
+            shutdown.started_operations.remove(operation_position);
+        }
         Ok(())
+    }
+
+    /// Returns the exact current phase and whether shutdown froze it.
+    pub(crate) fn snapshot(
+        &self,
+    ) -> Result<(CheckpointOperationPhase, bool), LifecycleCoordinatorError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?;
+        Ok((state.phase, state.frozen))
+    }
+}
+
+impl Drop for CheckpointOperationHandle {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.state) != 2 {
+            return;
+        }
+        let Some(registry) = self.registry.upgrade() else {
+            return;
+        };
+        let Ok(mut shutdown) = registry.lock() else {
+            return;
+        };
+        if shutdown.freeze.is_none() && Arc::strong_count(&self.state) == 2 {
+            shutdown.unregister_checkpoint(&self.state);
+        }
     }
 }
 
@@ -158,27 +290,154 @@ fn valid_checkpoint_transition(
                 CheckpointOperationPhase::InstallUnknown
                     | CheckpointOperationPhase::Confirmed
                     | CheckpointOperationPhase::Terminal(_)
+            ) | (
+                CheckpointOperationPhase::InstallUnknown,
+                CheckpointOperationPhase::Confirmed | CheckpointOperationPhase::Terminal(_)
+            ) | (
+                CheckpointOperationPhase::Confirmed,
+                CheckpointOperationPhase::Terminal(_)
             )
         )
 }
 
 struct RegisteredWorker {
-    cancel: watch::Sender<bool>,
     task: JoinHandle<()>,
+}
+
+struct ShutdownStartState {
+    gate: LifecycleGate,
+    started_operations: Vec<RegisteredOperation>,
+    send_states: Vec<Arc<Mutex<SendState>>>,
+    checkpoint_states: Vec<Arc<Mutex<CheckpointState>>>,
+    worker_cancellations: Vec<watch::Sender<bool>>,
+    delivery_fences: Vec<Box<dyn DeliveryFence>>,
+    freeze: Option<ShutdownFreeze>,
+}
+
+impl ShutdownStartState {
+    fn new() -> Self {
+        Self {
+            gate: LifecycleGate::new(),
+            started_operations: Vec::new(),
+            send_states: Vec::new(),
+            checkpoint_states: Vec::new(),
+            worker_cancellations: Vec::new(),
+            delivery_fences: Vec::new(),
+            freeze: None,
+        }
+    }
+
+    fn unregister_send(&mut self, target: &Arc<Mutex<SendState>>) -> bool {
+        let Some(state_position) = self
+            .send_states
+            .iter()
+            .position(|state| Arc::ptr_eq(state, target))
+        else {
+            return false;
+        };
+        let Some(operation_position) = self
+            .started_operations
+            .iter()
+            .rposition(|operation| operation.kind() == RegisteredOperationKind::Send)
+        else {
+            return false;
+        };
+        self.send_states.remove(state_position);
+        self.started_operations.remove(operation_position);
+        true
+    }
+
+    fn unregister_checkpoint(&mut self, target: &Arc<Mutex<CheckpointState>>) -> bool {
+        let Some(state_position) = self
+            .checkpoint_states
+            .iter()
+            .position(|state| Arc::ptr_eq(state, target))
+        else {
+            return false;
+        };
+        let Some(operation_position) = self
+            .started_operations
+            .iter()
+            .rposition(|operation| operation.kind() == RegisteredOperationKind::Checkpoint)
+        else {
+            return false;
+        };
+        self.checkpoint_states.remove(state_position);
+        self.started_operations.remove(operation_position);
+        true
+    }
+
+    fn begin_shutdown(&mut self) -> Result<(), LifecycleCoordinatorError> {
+        if self.freeze.is_some() {
+            return Ok(());
+        }
+        let generation = self.gate.begin_shutdown()?;
+        for fence in &mut self.delivery_fences {
+            fence.fence();
+        }
+        for state in &self.send_states {
+            state
+                .lock()
+                .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?
+                .frozen = true;
+        }
+        for state in &self.checkpoint_states {
+            state
+                .lock()
+                .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?
+                .frozen = true;
+        }
+        for cancel in &self.worker_cancellations {
+            cancel.send_replace(true);
+        }
+        self.freeze = Some(ShutdownFreeze::try_new(
+            generation,
+            self.started_operations.clone(),
+            true,
+        )?);
+        Ok(())
+    }
+}
+
+/// Cloneable synchronous owner of the one lifecycle shutdown-start boundary.
+#[derive(Clone)]
+pub(crate) struct LifecycleShutdownTrigger {
+    state: Arc<Mutex<ShutdownStartState>>,
+}
+
+impl std::fmt::Debug for LifecycleShutdownTrigger {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LifecycleShutdownTrigger")
+            .finish_non_exhaustive()
+    }
+}
+
+impl LifecycleShutdownTrigger {
+    /// Closes admission, fences deliveries, freezes operations, and cancels workers once.
+    pub(crate) fn request_shutdown(&self) -> Result<(), LifecycleCoordinatorError> {
+        self.state
+            .lock()
+            .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?
+            .begin_shutdown()
+    }
+
+    /// Returns whether the shared shutdown-start boundary has been installed.
+    pub(crate) fn is_shutdown_requested(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.freeze.is_some())
+            .unwrap_or(false)
+    }
 }
 
 /// Owns Durable admission, phase freezing, transport close, and worker joins.
 pub struct LifecycleCoordinator {
-    gate: LifecycleGate,
+    shutdown_start: LifecycleShutdownTrigger,
     readiness: Readiness,
     partitions: BTreeMap<u32, PartitionState>,
-    started_operations: Vec<RegisteredOperation>,
-    send_states: Vec<Arc<Mutex<SendState>>>,
-    checkpoint_states: Vec<Arc<Mutex<CheckpointState>>>,
     workers: Vec<RegisteredWorker>,
-    delivery_fences: Vec<Box<dyn DeliveryFence>>,
     transport: Option<Box<dyn ShutdownTransport>>,
-    shutdown_freeze: Option<ShutdownFreeze>,
     observability: BoundedObservability,
 }
 
@@ -187,16 +446,13 @@ impl LifecycleCoordinator {
     #[must_use]
     pub fn new(transport: Box<dyn ShutdownTransport>, observability: BoundedObservability) -> Self {
         Self {
-            gate: LifecycleGate::new(),
+            shutdown_start: LifecycleShutdownTrigger {
+                state: Arc::new(Mutex::new(ShutdownStartState::new())),
+            },
             readiness: Readiness::Unavailable(UnavailableReason::Connectivity),
             partitions: BTreeMap::new(),
-            started_operations: Vec::new(),
-            send_states: Vec::new(),
-            checkpoint_states: Vec::new(),
             workers: Vec::new(),
-            delivery_fences: Vec::new(),
             transport: Some(transport),
-            shutdown_freeze: None,
             observability,
         }
     }
@@ -204,15 +460,19 @@ impl LifecycleCoordinator {
     /// Opens admission after startup validation and sets its independent
     /// readiness projection.
     pub fn mark_ready(&mut self, readiness: Readiness) -> Result<(), LifecycleCoordinatorError> {
-        self.gate.mark_ready()?;
+        self.shutdown_state()?.gate.mark_ready()?;
         self.readiness = readiness;
         Ok(())
     }
 
     /// Returns the current lifecycle axis.
     #[must_use]
-    pub const fn phase(&self) -> LifecyclePhase {
-        self.gate.phase()
+    pub fn phase(&self) -> LifecyclePhase {
+        self.shutdown_start
+            .state
+            .lock()
+            .map(|state| state.gate.phase())
+            .unwrap_or(LifecyclePhase::Draining)
     }
 
     /// Captures the current admission generation.
@@ -222,7 +482,7 @@ impl LifecycleCoordinator {
                 self.readiness,
             ));
         }
-        Ok(self.gate.admission_ticket()?)
+        Ok(self.shutdown_state()?.gate.admission_ticket()?)
     }
 
     /// Registers a started send and returns its phase transition handle.
@@ -232,17 +492,26 @@ impl LifecycleCoordinator {
         phase: SendOperationPhase,
     ) -> Result<SendOperationHandle, LifecycleCoordinatorError> {
         self.ensure_admission_ready()?;
-        if phase == SendOperationPhase::Idle {
+        if matches!(
+            phase,
+            SendOperationPhase::Idle | SendOperationPhase::Terminal(_)
+        ) {
             return Err(LifecycleCoordinatorError::InvalidSendInitialPhase);
         }
-        let operation = self.gate.register(ticket, RegisteredOperationKind::Send)?;
         let state = Arc::new(Mutex::new(SendState {
             phase,
             frozen: false,
         }));
-        self.started_operations.push(operation);
-        self.send_states.push(Arc::clone(&state));
-        Ok(SendOperationHandle { state })
+        let mut shutdown = self.shutdown_state()?;
+        let operation = shutdown
+            .gate
+            .register(ticket, RegisteredOperationKind::Send)?;
+        shutdown.started_operations.push(operation);
+        shutdown.send_states.push(Arc::clone(&state));
+        Ok(SendOperationHandle {
+            registry: Arc::downgrade(&self.shutdown_start.state),
+            state,
+        })
     }
 
     /// Registers a started checkpoint and returns its phase transition handle.
@@ -252,19 +521,26 @@ impl LifecycleCoordinator {
         phase: CheckpointOperationPhase,
     ) -> Result<CheckpointOperationHandle, LifecycleCoordinatorError> {
         self.ensure_admission_ready()?;
-        if phase == CheckpointOperationPhase::Idle {
+        if matches!(
+            phase,
+            CheckpointOperationPhase::Idle | CheckpointOperationPhase::Terminal(_)
+        ) {
             return Err(LifecycleCoordinatorError::InvalidCheckpointInitialPhase);
         }
-        let operation = self
-            .gate
-            .register(ticket, RegisteredOperationKind::Checkpoint)?;
         let state = Arc::new(Mutex::new(CheckpointState {
             phase,
             frozen: false,
         }));
-        self.started_operations.push(operation);
-        self.checkpoint_states.push(Arc::clone(&state));
-        Ok(CheckpointOperationHandle { state })
+        let mut shutdown = self.shutdown_state()?;
+        let operation = shutdown
+            .gate
+            .register(ticket, RegisteredOperationKind::Checkpoint)?;
+        shutdown.started_operations.push(operation);
+        shutdown.checkpoint_states.push(Arc::clone(&state));
+        Ok(CheckpointOperationHandle {
+            registry: Arc::downgrade(&self.shutdown_start.state),
+            state,
+        })
     }
 
     /// Registers and starts one owned worker under lifecycle cancellation.
@@ -278,15 +554,36 @@ impl LifecycleCoordinator {
         Fut: Future<Output = ()> + Send + 'static,
     {
         self.ensure_admission_ready()?;
-        let operation = self
+        let (cancel, cancelled) = watch::channel(false);
+        let mut shutdown = self.shutdown_state()?;
+        let operation = shutdown
             .gate
             .register(ticket, RegisteredOperationKind::Worker)?;
-        let (cancel, cancelled) = watch::channel(false);
-        self.started_operations.push(operation);
+        shutdown.started_operations.push(operation);
+        shutdown.worker_cancellations.push(cancel);
+        drop(shutdown);
         self.workers.push(RegisteredWorker {
-            cancel,
             task: tokio::spawn(worker(cancelled)),
         });
+        Ok(())
+    }
+
+    pub(crate) fn own_operation_worker(
+        &mut self,
+        cancel: watch::Sender<bool>,
+        task: JoinHandle<()>,
+    ) -> Result<(), LifecycleCoordinatorError> {
+        let mut shutdown = self.shutdown_state()?;
+        shutdown
+            .worker_cancellations
+            .retain(|registered| !registered.is_closed());
+        if shutdown.freeze.is_some() {
+            cancel.send_replace(true);
+        }
+        shutdown.worker_cancellations.push(cancel);
+        drop(shutdown);
+        self.workers.retain(|worker| !worker.task.is_finished());
+        self.workers.push(RegisteredWorker { task });
         Ok(())
     }
 
@@ -298,11 +595,34 @@ impl LifecycleCoordinator {
         fence: Box<dyn DeliveryFence>,
     ) -> Result<(), LifecycleCoordinatorError> {
         self.ensure_admission_ready()?;
-        let operation = self
+        let mut shutdown = self.shutdown_state()?;
+        let operation = shutdown
             .gate
             .register(ticket, RegisteredOperationKind::Worker)?;
-        self.started_operations.push(operation);
-        self.delivery_fences.push(fence);
+        shutdown.started_operations.push(operation);
+        shutdown.delivery_fences.push(fence);
+        Ok(())
+    }
+
+    /// Cancels the most recently registered delivery fence when its owning
+    /// operation ended known-old before becoming active. A shutdown freeze
+    /// retains the registration because the fence has already participated in
+    /// the immutable started set.
+    pub(crate) fn cancel_last_delivery_fence(&mut self) -> Result<(), LifecycleCoordinatorError> {
+        let mut shutdown = self.shutdown_state()?;
+        if shutdown.freeze.is_some() {
+            return Ok(());
+        }
+        if shutdown.delivery_fences.is_empty()
+            || !matches!(
+                shutdown.started_operations.last(),
+                Some(operation) if operation.kind() == RegisteredOperationKind::Worker
+            )
+        {
+            return Err(LifecycleCoordinatorError::InvalidDeliveryFenceCancellation);
+        }
+        shutdown.delivery_fences.pop();
+        shutdown.started_operations.pop();
         Ok(())
     }
 
@@ -326,7 +646,7 @@ impl LifecycleCoordinator {
             .collect();
         ChirpsPlaneHealth::new(
             control,
-            DurableHealth::new(self.gate.phase(), self.readiness, partitions),
+            DurableHealth::new(self.phase(), self.readiness, partitions),
         )
     }
 
@@ -341,23 +661,33 @@ impl LifecycleCoordinator {
         &mut self.observability
     }
 
+    /// Returns a cloneable handle to the same one-shot shutdown-start boundary.
+    #[must_use]
+    pub(crate) fn shutdown_trigger(&self) -> LifecycleShutdownTrigger {
+        self.shutdown_start.clone()
+    }
+
+    /// Starts shutdown synchronously without taking ownership of transport joins.
+    pub(crate) fn request_shutdown(&self) -> Result<(), LifecycleCoordinatorError> {
+        self.shutdown_start.request_shutdown()
+    }
+
     /// Closes admission, fences deliveries, freezes outcomes, closes transport,
     /// joins every owned worker, and memoizes the exact terminal report.
     pub async fn shutdown(
         &mut self,
         deadline: Instant,
     ) -> Result<ShutdownReport, LifecycleCoordinatorError> {
-        if let Some(report) = self.gate.cached_shutdown_report() {
-            return Ok(report.clone());
+        if let Some(report) = self
+            .shutdown_state()?
+            .gate
+            .cached_shutdown_report()
+            .cloned()
+        {
+            return Ok(report);
         }
 
-        let generation = self.gate.begin_shutdown()?;
-        for fence in &mut self.delivery_fences {
-            fence.fence();
-        }
-        let freeze = ShutdownFreeze::try_new(generation, self.started_operations.clone(), true)?;
-        self.freeze_operation_phases()?;
-        self.shutdown_freeze = Some(freeze);
+        self.request_shutdown()?;
         self.readiness = Readiness::Unavailable(UnavailableReason::Shutdown);
 
         self.transport
@@ -365,9 +695,6 @@ impl LifecycleCoordinator {
             .ok_or(LifecycleCoordinatorError::TransportUnavailable)?
             .request_close();
 
-        for worker in &self.workers {
-            worker.cancel.send_replace(true);
-        }
         for mut worker in self.workers.drain(..) {
             if tokio::time::timeout_at(deadline, &mut worker.task)
                 .await
@@ -386,25 +713,36 @@ impl LifecycleCoordinator {
         let send_operations = self.frozen_send_reports()?;
         let checkpoint_operations = self.frozen_checkpoint_reports()?;
         let report = ShutdownReport::try_new(
-            generation,
+            self.shutdown_freeze()
+                .ok_or(LifecycleCoordinatorError::TransportUnavailable)?
+                .generation(),
             transport_report.closed,
             transport_report.joined,
             send_operations,
             checkpoint_operations,
         )?;
-        Ok(self.gate.complete_shutdown(report)?.clone())
+        let mut shutdown = self.shutdown_state()?;
+        Ok(shutdown.gate.complete_shutdown(report)?.clone())
     }
 
     /// Returns the immutable started-operation snapshot installed at drain.
     #[must_use]
-    pub const fn shutdown_freeze(&self) -> Option<&ShutdownFreeze> {
-        self.shutdown_freeze.as_ref()
+    pub fn shutdown_freeze(&self) -> Option<ShutdownFreeze> {
+        self.shutdown_start
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.freeze.clone())
     }
 
     /// Returns zero before terminal shutdown and one after report installation.
     #[must_use]
-    pub const fn shutdown_install_count(&self) -> u8 {
-        self.gate.shutdown_install_count()
+    pub fn shutdown_install_count(&self) -> u8 {
+        self.shutdown_start
+            .state
+            .lock()
+            .map(|state| state.gate.shutdown_install_count())
+            .unwrap_or(0)
     }
 
     fn ensure_admission_ready(&self) -> Result<(), LifecycleCoordinatorError> {
@@ -416,24 +754,18 @@ impl LifecycleCoordinator {
         Ok(())
     }
 
-    fn freeze_operation_phases(&self) -> Result<(), LifecycleCoordinatorError> {
-        for state in &self.send_states {
-            state
-                .lock()
-                .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?
-                .frozen = true;
-        }
-        for state in &self.checkpoint_states {
-            state
-                .lock()
-                .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)?
-                .frozen = true;
-        }
-        Ok(())
+    fn shutdown_state(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, ShutdownStartState>, LifecycleCoordinatorError> {
+        self.shutdown_start
+            .state
+            .lock()
+            .map_err(|_| LifecycleCoordinatorError::OperationStatePoisoned)
     }
 
     fn frozen_send_reports(&self) -> Result<Vec<SendOperationReport>, LifecycleCoordinatorError> {
-        self.send_states
+        self.shutdown_state()?
+            .send_states
             .iter()
             .map(|state| {
                 let state = state
@@ -447,7 +779,8 @@ impl LifecycleCoordinator {
     fn frozen_checkpoint_reports(
         &self,
     ) -> Result<Vec<CheckpointOperationReport>, LifecycleCoordinatorError> {
-        self.checkpoint_states
+        self.shutdown_state()?
+            .checkpoint_states
             .iter()
             .map(|state| {
                 let state = state
@@ -489,9 +822,15 @@ pub enum LifecycleCoordinatorError {
     /// A checkpoint phase regressed or attempted to replace a terminal outcome.
     #[error("invalid checkpoint operation phase transition")]
     InvalidCheckpointTransition,
+    /// A known-old delivery-owner registration was not the latest fence.
+    #[error("delivery fence cancellation did not match the latest registration")]
+    InvalidDeliveryFenceCancellation,
     /// Shutdown already froze this operation's exact phase.
     #[error("operation phase is frozen by shutdown")]
     OperationFrozen,
+    /// This operation already completed or its lifecycle owner was dropped.
+    #[error("operation is no longer registered with its lifecycle owner")]
+    OperationNotRegistered,
     /// A prior panic poisoned shared operation state.
     #[error("operation phase state is poisoned")]
     OperationStatePoisoned,
@@ -599,6 +938,12 @@ mod tests {
         checkpoint
             .transition(CheckpointOperationPhase::InstallUnknown)
             .unwrap();
+        let trigger = coordinator.shutdown_trigger();
+        trigger.request_shutdown().unwrap();
+        trigger.request_shutdown().unwrap();
+        assert!(trigger.is_shutdown_requested());
+        assert_eq!(coordinator.phase(), LifecyclePhase::Draining);
+        assert!(coordinator.admission_ticket().is_err());
         let report = coordinator
             .shutdown(Instant::now() + Duration::from_secs(1))
             .await
@@ -665,10 +1010,6 @@ mod tests {
                 SendOperationPhase::AppendInvoked,
                 DurableSendOutcome::Indeterminate(AttemptFailureKind::Shutdown),
             ),
-            (
-                SendOperationPhase::Terminal(DurableSendOutcome::OsSyncedAccepted),
-                DurableSendOutcome::OsSyncedAccepted,
-            ),
         ];
         let checkpoint_cases = [
             (
@@ -687,10 +1028,6 @@ mod tests {
                 CheckpointOperationPhase::Confirmed,
                 CheckpointOutcome::CheckpointCommitted,
             ),
-            (
-                CheckpointOperationPhase::Terminal(CheckpointOutcome::CheckpointCommitted),
-                CheckpointOutcome::CheckpointCommitted,
-            ),
         ];
 
         for (send_phase, send_outcome) in send_cases {
@@ -699,8 +1036,8 @@ mod tests {
                 let mut coordinator = coordinator(&calls);
                 coordinator.mark_ready(Readiness::Available).unwrap();
                 let ticket = coordinator.admission_ticket().unwrap();
-                coordinator.register_send(ticket, send_phase).unwrap();
-                coordinator
+                let _send = coordinator.register_send(ticket, send_phase).unwrap();
+                let _checkpoint = coordinator
                     .register_checkpoint(ticket, checkpoint_phase)
                     .unwrap();
 
@@ -715,6 +1052,143 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn v07_task_6_5_terminal_operations_leave_the_started_set() {
+        let calls = Arc::new(Calls::default());
+        let mut coordinator = coordinator(&calls);
+        coordinator.mark_ready(Readiness::Available).unwrap();
+        let ticket = coordinator.admission_ticket().unwrap();
+
+        for _ in 0..128 {
+            let send = coordinator
+                .register_send(ticket, SendOperationPhase::Prepared)
+                .unwrap();
+            send.transition(SendOperationPhase::Terminal(
+                DurableSendOutcome::BrokerAccepted,
+            ))
+            .unwrap();
+            let checkpoint = coordinator
+                .register_checkpoint(ticket, CheckpointOperationPhase::Prewrite)
+                .unwrap();
+            checkpoint
+                .transition(CheckpointOperationPhase::Terminal(
+                    CheckpointOutcome::CheckpointNotCommitted,
+                ))
+                .unwrap();
+            let shutdown = coordinator.shutdown_state().unwrap();
+            assert!(shutdown.send_states.is_empty());
+            assert!(shutdown.checkpoint_states.is_empty());
+            assert!(shutdown.started_operations.is_empty());
+        }
+
+        let checkpoint = coordinator
+            .register_checkpoint(ticket, CheckpointOperationPhase::Prewrite)
+            .unwrap();
+        checkpoint
+            .transition(CheckpointOperationPhase::InstallUnknown)
+            .unwrap();
+        checkpoint
+            .transition(CheckpointOperationPhase::Confirmed)
+            .unwrap();
+        checkpoint
+            .transition(CheckpointOperationPhase::Terminal(
+                CheckpointOutcome::CheckpointCommitted,
+            ))
+            .unwrap();
+        assert!(
+            coordinator
+                .shutdown_state()
+                .unwrap()
+                .started_operations
+                .is_empty()
+        );
+
+        let report = coordinator
+            .shutdown(Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(report.send_operations().is_empty());
+        assert!(report.checkpoint_operations().is_empty());
+        assert!(
+            coordinator
+                .shutdown_freeze()
+                .unwrap()
+                .started_operations()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn v07_task_6_5_last_handle_drop_unregisters_unfinished_operations() {
+        let calls = Arc::new(Calls::default());
+        let mut coordinator = coordinator(&calls);
+        coordinator.mark_ready(Readiness::Available).unwrap();
+        let ticket = coordinator.admission_ticket().unwrap();
+
+        let send = coordinator
+            .register_send(ticket, SendOperationPhase::Prepared)
+            .unwrap();
+        let send_clone = send.clone();
+        drop(send);
+        assert_eq!(coordinator.shutdown_state().unwrap().send_states.len(), 1);
+        drop(send_clone);
+        assert!(coordinator.shutdown_state().unwrap().send_states.is_empty());
+
+        let checkpoint = coordinator
+            .register_checkpoint(ticket, CheckpointOperationPhase::Prewrite)
+            .unwrap();
+        drop(checkpoint);
+        let shutdown = coordinator.shutdown_state().unwrap();
+        assert!(shutdown.checkpoint_states.is_empty());
+        assert!(shutdown.started_operations.is_empty());
+        drop(shutdown);
+
+        let send = coordinator
+            .register_send(ticket, SendOperationPhase::AppendInvoked)
+            .unwrap();
+        coordinator.request_shutdown().unwrap();
+        drop(send);
+        let shutdown = coordinator.shutdown_state().unwrap();
+        assert_eq!(shutdown.send_states.len(), 1);
+        assert_eq!(
+            shutdown.freeze.as_ref().unwrap().started_operations().len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn v07_task_6_5_transferred_operation_owner_is_cancelled_and_joined() {
+        let calls = Arc::new(Calls::default());
+        let mut coordinator = coordinator(&calls);
+        coordinator.mark_ready(Readiness::Available).unwrap();
+        let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
+        let owner_joined = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&owner_joined);
+        let owner = tokio::spawn(async move {
+            while !*cancelled.borrow() {
+                if cancelled.changed().await.is_err() {
+                    return;
+                }
+            }
+            observed.store(1, Ordering::SeqCst);
+        });
+        coordinator.own_operation_worker(cancel, owner).unwrap();
+
+        let report = coordinator
+            .shutdown(Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(report.workers_joined());
+        assert_eq!(owner_joined.load(Ordering::SeqCst), 1);
+        assert!(
+            coordinator
+                .shutdown_freeze()
+                .unwrap()
+                .started_operations()
+                .is_empty()
+        );
     }
 
     #[tokio::test]

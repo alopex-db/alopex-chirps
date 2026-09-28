@@ -3,7 +3,7 @@
 use alopex_chirps_core::durable::{DurableMessageId, EnvelopeDigest, ResourceEpoch, ResourceId};
 use thiserror::Error;
 
-const IDENTITY_BODY_LEN: usize = 118;
+pub(crate) const IDENTITY_BODY_LEN: usize = 118;
 
 /// Provenance attached to the durable retry-not-before wall-clock value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

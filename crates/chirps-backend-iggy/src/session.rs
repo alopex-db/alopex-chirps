@@ -24,8 +24,8 @@ use iggy_binary_protocol::{ResponseFrame, STATUS_OK};
 use rustls::ClientConfig;
 use rustls::pki_types::ServerName;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tokio::time::{Duration, Instant, timeout_at};
 
@@ -265,7 +265,7 @@ trait SessionIo: Send + Sync {
     async fn invoke_with_admission(
         &self,
         request: DataPlaneRequestFrame,
-        on_admitted: Box<dyn FnOnce() + Send>,
+        on_admitted: Box<dyn FnOnce() -> bool + Send>,
     ) -> Result<Bytes, InvocationError>;
 
     fn close(&self);
@@ -291,7 +291,7 @@ impl SessionIo for OwnedSessionIo {
     async fn invoke_with_admission(
         &self,
         request: DataPlaneRequestFrame,
-        on_admitted: Box<dyn FnOnce() + Send>,
+        on_admitted: Box<dyn FnOnce() -> bool + Send>,
     ) -> Result<Bytes, InvocationError> {
         self.0.invoke_with_admission(request, on_admitted).await
     }
@@ -426,8 +426,10 @@ impl AuthenticatedConnection {
             expected,
             report,
             binding,
-            server_expiry_millis: verified.expires_at_monotonic_millis(),
-            local_expiry,
+            lease: Mutex::new(LeaseState {
+                server_expiry_millis: verified.expires_at_monotonic_millis(),
+                local_expiry,
+            }),
             fenced: AtomicU8::new(0),
         })
     }
@@ -505,9 +507,14 @@ pub struct BoundSession {
     expected: ExpectedCapability,
     report: CapabilityReport,
     binding: SessionBinding,
+    lease: Mutex<LeaseState>,
+    fenced: AtomicU8,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LeaseState {
     server_expiry_millis: u64,
     local_expiry: Instant,
-    fenced: AtomicU8,
 }
 
 impl std::fmt::Debug for BoundSession {
@@ -515,7 +522,7 @@ impl std::fmt::Debug for BoundSession {
         formatter
             .debug_struct("BoundSession")
             .field("report", &self.report)
-            .field("server_expiry_millis", &self.server_expiry_millis)
+            .field("server_expiry_millis", &self.server_expiry_millis())
             .field("fenced", &self.stored_fence_reason())
             .finish_non_exhaustive()
     }
@@ -536,8 +543,10 @@ impl BoundSession {
 
     /// Returns the latest server-monotonic expiry received on this connection.
     #[must_use]
-    pub const fn server_expiry_millis(&self) -> u64 {
-        self.server_expiry_millis
+    pub fn server_expiry_millis(&self) -> u64 {
+        self.lease
+            .lock()
+            .map_or(0, |lease| lease.server_expiry_millis)
     }
 
     /// Returns the permanent fence reason, if renewal fail-closed the session.
@@ -571,12 +580,13 @@ impl BoundSession {
 
     /// Renews only on the same authenticated owned connection and requires
     /// the exact binding plus a strictly increasing server expiry.
-    pub async fn renew(&mut self) -> Result<(), SessionError> {
+    pub async fn renew(&self) -> Result<(), SessionError> {
         if let Some(reason) = self.fence_reason() {
             return Err(SessionError::Fenced(reason));
         }
         let started_at = self.clock.now();
-        if started_at >= self.local_expiry {
+        let current = *self.lease.lock().map_err(|_| SessionError::Protocol)?;
+        if started_at >= current.local_expiry {
             self.fence(SessionFenceReason::LeaseExpired);
             return Err(SessionError::LeaseExpired);
         }
@@ -609,7 +619,7 @@ impl BoundSession {
             self.fence(SessionFenceReason::ResponseMismatch);
             return Err(SessionError::Protocol);
         }
-        if verified.expires_at_monotonic_millis() <= self.server_expiry_millis {
+        if verified.expires_at_monotonic_millis() <= current.server_expiry_millis {
             self.fence(SessionFenceReason::ResponseMismatch);
             return Err(SessionError::LeaseDidNotAdvance);
         }
@@ -617,8 +627,10 @@ impl BoundSession {
             self.fence(SessionFenceReason::LeaseExpired);
             return Err(SessionError::LeaseExpired);
         }
-        self.server_expiry_millis = verified.expires_at_monotonic_millis();
-        self.local_expiry = candidate_local_expiry;
+        *self.lease.lock().map_err(|_| SessionError::Protocol)? = LeaseState {
+            server_expiry_millis: verified.expires_at_monotonic_millis(),
+            local_expiry: candidate_local_expiry,
+        };
         Ok(())
     }
 
@@ -636,13 +648,13 @@ impl BoundSession {
             message_id,
             envelope_digest,
             canonical_envelope,
-            || {},
+            || true,
         )
         .await
     }
 
-    /// Constructs one strong append and fires `on_admitted` only after the
-    /// owned transport has accepted the exact data-plane job into its queue.
+    /// Constructs one strong append and lets `on_admitted` authorize the exact
+    /// transition into the owned transport queue after local validation.
     pub async fn append_one_synced_with_admission<F>(
         &self,
         attempt_id: [u8; 16],
@@ -652,7 +664,7 @@ impl BoundSession {
         on_admitted: F,
     ) -> Result<VerifiedAppendOneSyncedResponse, SessionInvocationError>
     where
-        F: FnOnce() + Send + 'static,
+        F: FnOnce() -> bool + Send + 'static,
     {
         let request = PrivateRequest::AppendOneSynced(
             AppendOneSyncedRequest::new(
@@ -716,7 +728,8 @@ impl BoundSession {
             self.fence(SessionFenceReason::Disconnected);
             return Err(SessionError::Fenced(SessionFenceReason::Disconnected));
         }
-        if self.clock.now() >= self.local_expiry {
+        let lease = self.lease.lock().map_err(|_| SessionError::Protocol)?;
+        if self.clock.now() >= lease.local_expiry {
             self.fence(SessionFenceReason::LeaseExpired);
             return Err(SessionError::LeaseExpired);
         }
@@ -727,14 +740,14 @@ impl BoundSession {
         &self,
         request: PrivateRequest,
     ) -> Result<VerifiedPrivateResponse, SessionInvocationError> {
-        self.invoke_private_with_admission(request, Box::new(|| {}))
+        self.invoke_private_with_admission(request, Box::new(|| true))
             .await
     }
 
     async fn invoke_private_with_admission(
         &self,
         request: PrivateRequest,
-        on_admitted: Box<dyn FnOnce() + Send>,
+        on_admitted: Box<dyn FnOnce() -> bool + Send>,
     ) -> Result<VerifiedPrivateResponse, SessionInvocationError> {
         self.ensure_active()
             .map_err(SessionInvocationError::Session)?;
@@ -934,12 +947,14 @@ mod tests {
         async fn invoke_with_admission(
             &self,
             _request: DataPlaneRequestFrame,
-            on_admitted: Box<dyn FnOnce() + Send>,
+            on_admitted: Box<dyn FnOnce() -> bool + Send>,
         ) -> Result<Bytes, InvocationError> {
             if self.fail_before_admission.load(Ordering::SeqCst) {
                 return Err(InvocationError::NotInvoked(TransportError::Closed));
             }
-            on_admitted();
+            if !on_admitted() {
+                return Err(InvocationError::NotInvoked(TransportError::Closed));
+            }
             self.invocation_calls.fetch_add(1, Ordering::SeqCst);
             Ok(poll_response(
                 binding(SESSION_ID, BOOT_ID, FINGERPRINT),
@@ -1182,6 +1197,7 @@ mod tests {
                 prepared.canonical_bytes().to_vec(),
                 move || {
                     observed_admissions.fetch_add(1, Ordering::SeqCst);
+                    true
                 },
             )
             .await;
@@ -1419,7 +1435,7 @@ mod tests {
             ],
             Arc::clone(&clock),
         );
-        let mut session = connection.bind(expected(100)).await.unwrap();
+        let session = connection.bind(expected(100)).await.unwrap();
         clock.advance(10);
         session.renew().await.unwrap();
 
@@ -1446,7 +1462,7 @@ mod tests {
             ],
             Arc::clone(&clock),
         );
-        let mut session = connection.bind(expected(100)).await.unwrap();
+        let session = connection.bind(expected(100)).await.unwrap();
         assert_eq!(session.renew().await, Err(SessionError::LeaseRejected(17)));
         assert_eq!(
             session.fence_reason(),
@@ -1475,7 +1491,7 @@ mod tests {
             ],
             clock,
         );
-        let mut session = connection.bind(expected(100)).await.unwrap();
+        let session = connection.bind(expected(100)).await.unwrap();
         assert!(matches!(session.renew().await, Err(SessionError::Protocol)));
         assert_eq!(
             session.fence_reason(),
@@ -1510,7 +1526,7 @@ mod tests {
             ],
             clock,
         );
-        let mut session = connection.bind(expected(100)).await.unwrap();
+        let session = connection.bind(expected(100)).await.unwrap();
         assert_eq!(session.renew().await, Err(SessionError::LeaseDidNotAdvance));
         assert_eq!(
             session.fence_reason(),
@@ -1529,7 +1545,7 @@ mod tests {
             ))],
             Arc::clone(&clock),
         );
-        let mut session = connection.bind(expected(100)).await.unwrap();
+        let session = connection.bind(expected(100)).await.unwrap();
         clock.advance(100);
         assert_eq!(session.renew().await, Err(SessionError::LeaseExpired));
         assert_eq!(

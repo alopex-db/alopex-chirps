@@ -667,7 +667,7 @@ pub struct CheckedPollResponse {
 }
 
 impl CheckedPollResponse {
-    /// Creates and validates a maximum-count-one atomic observation.
+    /// Creates an atomic observation; the subscriber owns canonical-envelope decoding.
     pub(crate) fn new(
         binding: SessionBinding,
         location: ResourceLocation,
@@ -676,14 +676,6 @@ impl CheckedPollResponse {
         oldest_available: u64,
         record: Option<CheckedPollRecord>,
     ) -> Result<Self, PrivateProtocolError> {
-        if let Some(record) = &record {
-            validate_envelope_binding(
-                record.canonical_bytes(),
-                record.message_id().as_bytes(),
-                record.envelope_digest(),
-                location.partition_id,
-            )?;
-        }
         PollObservation::try_new(
             location.resource_epoch(),
             end_exclusive,
@@ -2151,9 +2143,9 @@ mod tests {
 
         let invalid_poll_record =
             CheckedPollRecord::try_new(91, uuid_v4(9), digest, vec![1]).unwrap();
-        assert_eq!(
-            CheckedPollResponse::new(binding, location, 91, 92, 7, Some(invalid_poll_record)),
-            Err(PrivateProtocolError::InvalidCanonicalEnvelope)
+        assert!(
+            CheckedPollResponse::new(binding, location, 91, 92, 7, Some(invalid_poll_record))
+                .is_ok()
         );
 
         let (_, response) = sample_pairs().remove(0);

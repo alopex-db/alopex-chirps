@@ -13,6 +13,7 @@ documentation = "https://docs.rs/alopex-chirps"
 [features]
 default = []
 durable-iggy = ["dep:alopex-chirps-backend-iggy"]
+durable-verification = ["durable-iggy", "alopex-chirps-backend-iggy/durable-verification"]
 multi-raft = ["openraft/storage-v2"]
 tso = ["multi-raft"]
 hlc = ["alopex-chirps-gossip-swim/hlc", "alopex-chirps-wire/hlc"]

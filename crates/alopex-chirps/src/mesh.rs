@@ -3,6 +3,7 @@ use crate::config::NodeConfig;
 use crate::error::{MeshError, TransportError};
 use crate::node_id::{NodeId, load_or_create_node_id};
 use crate::profile::{EnvelopeMetadata, MessageProfile, resolve_profile};
+use alopex_chirps_core::connectivity::{EndpointResolver, StaticEndpointResolver};
 use alopex_chirps_file_transfer::{
     ChunkStreamOpener, FileTransferConfig, FileTransferError, FileTransferServiceImpl,
 };
@@ -247,13 +248,22 @@ pub struct MeshMetricsSnapshot {
 impl Mesh {
     /// 指定された設定でメッシュを起動する。NodeId永続化→トランスポート→ゴシップの順に初期化する。
     pub async fn start(config: NodeConfig) -> Result<MeshHandle, MeshError> {
+        let endpoint_resolver = Arc::new(StaticEndpointResolver::from_seeds(config.seeds.clone()));
+        Self::start_with_endpoint_resolver(config, endpoint_resolver).await
+    }
+
+    /// Starts a mesh with identity-independent endpoint candidates.
+    pub async fn start_with_endpoint_resolver(
+        config: NodeConfig,
+        endpoint_resolver: Arc<dyn EndpointResolver>,
+    ) -> Result<MeshHandle, MeshError> {
         #[cfg(feature = "hlc")]
         {
-            Self::start_inner(config, None).await
+            Self::start_inner(config, endpoint_resolver, None).await
         }
         #[cfg(not(feature = "hlc"))]
         {
-            Self::start_inner(config).await
+            Self::start_inner(config, endpoint_resolver).await
         }
     }
 
@@ -263,20 +273,26 @@ impl Mesh {
         config: NodeConfig,
         metrics: Arc<crate::raft::ChirpsMetricsCollector>,
     ) -> Result<MeshHandle, MeshError> {
-        Self::start_inner(config, Some(metrics)).await
+        let endpoint_resolver = Arc::new(StaticEndpointResolver::from_seeds(config.seeds.clone()));
+        Self::start_inner(config, endpoint_resolver, Some(metrics)).await
     }
 
     async fn start_inner(
         config: NodeConfig,
+        endpoint_resolver: Arc<dyn EndpointResolver>,
         #[cfg(feature = "hlc")] metrics: Option<Arc<crate::raft::ChirpsMetricsCollector>>,
     ) -> Result<MeshHandle, MeshError> {
         let config = Arc::new(config);
         let (node_id, incarnation) = load_or_create_node_id(&config.node_id_path)?;
 
         let quic_backend = Arc::new(
-            QuicBackend::new(node_id, Arc::clone(&config))
-                .await
-                .map_err(|e| TransportError::Connection(e.to_string()))?,
+            QuicBackend::new_with_endpoint_resolver(
+                node_id,
+                Arc::clone(&config),
+                endpoint_resolver,
+            )
+            .await
+            .map_err(|e| TransportError::Connection(e.to_string()))?,
         );
         let backend: Arc<dyn MessageBackend> = quic_backend.clone();
 

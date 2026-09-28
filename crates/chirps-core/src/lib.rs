@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod config;
+pub mod connectivity;
 pub mod durable;
 pub mod error;
 mod time;

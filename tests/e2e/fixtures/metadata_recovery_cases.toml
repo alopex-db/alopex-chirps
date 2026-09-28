@@ -1,0 +1,89 @@
+schema_version = 1
+producer_task = "6.13"
+artifact_kind = "publish-disabled-test"
+oracle = "external-resource-store-v1"
+
+[[snapshot_stage]]
+name = "temp-write"
+failpoint = "snapshot-temp-write"
+expected = "new"
+
+[[snapshot_stage]]
+name = "file-sync"
+failpoint = "snapshot-file-sync"
+expected = "new"
+
+[[snapshot_stage]]
+name = "rename"
+failpoint = "snapshot-rename"
+expected = "new"
+
+[[snapshot_stage]]
+name = "directory-sync"
+failpoint = "snapshot-directory-sync"
+expected = "new"
+
+[[snapshot_stage]]
+name = "install"
+failpoint = "snapshot-install"
+expected = "new"
+
+[[snapshot_stage]]
+name = "apply"
+failpoint = "snapshot-apply"
+expected = "new"
+
+[[wal_case]]
+name = "complete"
+mutation = "complete"
+expected = "new"
+
+[[wal_case]]
+name = "partial"
+mutation = "partial"
+expected = "fail-stop"
+
+[[wal_case]]
+name = "truncated"
+mutation = "truncated"
+expected = "fail-stop"
+
+[[wal_case]]
+name = "checksum"
+mutation = "checksum"
+expected = "fail-stop"
+
+[[wal_case]]
+name = "unknown-version"
+mutation = "unknown-version"
+expected = "fail-stop"
+
+[[wal_case]]
+name = "exact-duplicate"
+mutation = "exact-duplicate"
+expected = "unchanged"
+
+[[wal_case]]
+name = "gap"
+mutation = "gap"
+expected = "fail-stop"
+
+[[wal_case]]
+name = "duplicate-mismatch"
+mutation = "duplicate-mismatch"
+expected = "fail-stop"
+
+[[wal_case]]
+name = "corrupt-magic"
+mutation = "corrupt-magic"
+expected = "fail-stop"
+
+[[wal_case]]
+name = "torn-snapshot"
+mutation = "torn-snapshot"
+expected = "fail-stop"
+
+[[wal_case]]
+name = "mixed-generation"
+mutation = "mixed-generation"
+expected = "fail-stop"

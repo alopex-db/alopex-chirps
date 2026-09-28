@@ -42,7 +42,7 @@ use uuid::Uuid;
 
 /// Combines the immutable partition router and canonical codec before any
 /// backend contact.
-pub fn prepare(
+pub(crate) fn prepare(
     router: &PartitionRouter,
     target: NodeId,
     ordering_key: Vec<u8>,
@@ -111,6 +111,10 @@ impl AppendContext {
 /// Immutable one-envelope request passed to the append port exactly once.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppendAttempt {
+    #[cfg(feature = "durable-verification")]
+    prepared: PreparedDurableSend,
+    #[cfg(feature = "durable-verification")]
+    binding: AttemptBinding,
     attempt_id: DurableAttemptId,
     message_id: DurableMessageId,
     envelope_digest: EnvelopeDigest,
@@ -126,24 +130,52 @@ pub struct AppendAttempt {
 /// A port must consume this value with [`Self::admit`] only after all local
 /// validation has passed and the append operation has been admitted. Dropping
 /// it proves that no append was admitted and no future automatic send remains.
-#[derive(Debug)]
 pub struct AppendAdmission {
     signal: Option<oneshot::Sender<()>>,
+    authorize: Option<Box<dyn FnOnce() -> bool + Send>>,
+    #[cfg(feature = "durable-verification")]
+    on_admitted: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl std::fmt::Debug for AppendAdmission {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AppendAdmission")
+            .field("pending", &self.signal.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl AppendAdmission {
-    fn new(signal: oneshot::Sender<()>) -> Self {
+    fn new(signal: oneshot::Sender<()>, authorize: impl FnOnce() -> bool + Send + 'static) -> Self {
         Self {
             signal: Some(signal),
+            authorize: Some(Box::new(authorize)),
+            #[cfg(feature = "durable-verification")]
+            on_admitted: None,
         }
+    }
+
+    #[cfg(feature = "durable-verification")]
+    fn with_callback(mut self, callback: impl FnOnce() + Send + 'static) -> Self {
+        self.on_admitted = Some(Box::new(callback));
+        self
     }
 
     /// Marks the exact append invocation boundary once. Repeated admission is
     /// impossible because this method consumes the token.
-    pub fn admit(mut self) {
+    pub fn admit(mut self) -> bool {
+        if !self.authorize.take().is_some_and(|authorize| authorize()) {
+            return false;
+        }
+        #[cfg(feature = "durable-verification")]
+        if let Some(callback) = self.on_admitted.take() {
+            callback();
+        }
         if let Some(signal) = self.signal.take() {
             let _ = signal.send(());
         }
+        true
     }
 }
 
@@ -154,6 +186,10 @@ impl AppendAttempt {
         context: AppendContext,
     ) -> Result<Self, ProducerCoordinatorError> {
         Ok(Self {
+            #[cfg(feature = "durable-verification")]
+            prepared: prepared.clone(),
+            #[cfg(feature = "durable-verification")]
+            binding: binding.clone(),
             attempt_id: binding
                 .attempt_id()
                 .ok_or(ProducerCoordinatorError::MissingAttemptBinding)?,
@@ -208,6 +244,22 @@ impl AppendAttempt {
     #[must_use]
     pub fn canonical_envelope(&self) -> &[u8] {
         &self.canonical_envelope
+    }
+
+    /// Returns the immutable prepared request used by verification-only
+    /// composition before the append boundary.
+    #[cfg(feature = "durable-verification")]
+    #[must_use]
+    pub const fn prepared(&self) -> &PreparedDurableSend {
+        &self.prepared
+    }
+
+    /// Returns the still-started attempt binding used by verification-only
+    /// composition before the append boundary.
+    #[cfg(feature = "durable-verification")]
+    #[must_use]
+    pub const fn binding(&self) -> &AttemptBinding {
+        &self.binding
     }
 }
 
@@ -288,6 +340,78 @@ pub trait AppendPort: Send + Sync {
         attempt: &AppendAttempt,
         admission: AppendAdmission,
     ) -> AppendPortOutcome;
+}
+
+/// Verification-only observer called around the real append admission
+/// boundary. Production composition never installs one.
+#[cfg(feature = "durable-verification")]
+pub trait AppendVerificationObserver: Send + Sync {
+    /// Persists the exact started attempt before the wrapped append is called.
+    fn before_append(
+        &self,
+        prepared: &PreparedDurableSend,
+        binding: &AttemptBinding,
+    ) -> Result<(), AppendVerificationError>;
+
+    /// Observes the real admission token consumption once.
+    fn append_admitted(&self, prepared: &PreparedDurableSend, binding: &AttemptBinding);
+}
+
+/// Verification storage rejected an intent before append invocation.
+#[cfg(feature = "durable-verification")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("durable verification observer rejected append intent")]
+pub struct AppendVerificationError;
+
+#[cfg(feature = "durable-verification")]
+pub(crate) struct ObservedAppendPort {
+    inner: Arc<dyn AppendPort>,
+    observer: Arc<dyn AppendVerificationObserver>,
+}
+
+#[cfg(feature = "durable-verification")]
+impl ObservedAppendPort {
+    pub(crate) fn new(
+        inner: Arc<dyn AppendPort>,
+        observer: Arc<dyn AppendVerificationObserver>,
+    ) -> Self {
+        Self { inner, observer }
+    }
+}
+
+#[cfg(feature = "durable-verification")]
+#[async_trait]
+impl AppendPort for ObservedAppendPort {
+    fn preflight(
+        &self,
+        prepared: &PreparedDurableSend,
+        requested_boundary: ConfirmationBoundary,
+    ) -> Result<AppendContext, PreflightFailureKind> {
+        self.inner.preflight(prepared, requested_boundary)
+    }
+
+    async fn append_once(
+        &self,
+        attempt: &AppendAttempt,
+        admission: AppendAdmission,
+    ) -> AppendPortOutcome {
+        if self
+            .observer
+            .before_append(attempt.prepared(), attempt.binding())
+            .is_err()
+        {
+            return AppendPortOutcome::NotInvoked(AttemptFailureKind::Protocol);
+        }
+        let observer = Arc::clone(&self.observer);
+        let prepared = attempt.prepared().clone();
+        let binding = attempt.binding().clone();
+        self.inner
+            .append_once(
+                attempt,
+                admission.with_callback(move || observer.append_admitted(&prepared, &binding)),
+            )
+            .await
+    }
 }
 
 /// A successful preflight that still has no attempt ID.
@@ -394,7 +518,8 @@ impl SendAttemptHandle {
     /// and awaited again on the same handle without losing the result.
     pub async fn terminal(&mut self) -> Arc<AttemptTerminal> {
         loop {
-            if let Some(terminal) = self.terminal_rx.borrow().clone() {
+            let terminal = self.terminal_rx.borrow().clone();
+            if let Some(terminal) = terminal {
                 if let Some(owner) = self.owner.take() {
                     let _ = owner.await;
                 }
@@ -404,6 +529,12 @@ impl SendAttemptHandle {
                 continue;
             }
         }
+    }
+
+    pub(crate) fn take_owner(&mut self) -> Option<(watch::Sender<bool>, JoinHandle<()>)> {
+        self.owner
+            .take()
+            .map(|owner| (self.cancel_tx.clone(), owner))
     }
 }
 
@@ -473,12 +604,41 @@ where
     where
         P: 'static,
     {
+        self.execute_with_admission(started, || true)
+    }
+
+    /// Starts one attempt and invokes the callback exactly when the append
+    /// crosses the provider admission boundary.
+    pub(crate) fn execute_with_admission<F>(
+        &self,
+        started: StartedSend,
+        on_admitted: F,
+    ) -> SendAttemptHandle
+    where
+        P: 'static,
+        F: FnOnce() -> bool + Send + 'static,
+    {
+        self.execute_with_callbacks(started, on_admitted, |_| {})
+    }
+
+    pub(crate) fn execute_with_callbacks<F, T>(
+        &self,
+        started: StartedSend,
+        on_admitted: F,
+        on_terminal: T,
+    ) -> SendAttemptHandle
+    where
+        P: 'static,
+        F: FnOnce() -> bool + Send + 'static,
+        T: FnOnce(&Result<DurableSendResult, ProducerCoordinatorError>) + Send + 'static,
+    {
         let attempt_id = started.attempt_id();
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let (terminal_tx, terminal_rx) = watch::channel(None);
         let port = Arc::clone(&self.port);
         let owner = tokio::spawn(async move {
-            let result = run_attempt(port, started, cancel_rx).await;
+            let result = run_attempt(port, started, cancel_rx, on_admitted).await;
+            on_terminal(&result);
             terminal_tx.send_replace(Some(Arc::new(AttemptTerminal { result })));
         });
         SendAttemptHandle {
@@ -490,13 +650,15 @@ where
     }
 }
 
-async fn run_attempt<P>(
+async fn run_attempt<P, F>(
     port: Arc<P>,
     started: StartedSend,
     mut cancel_rx: watch::Receiver<bool>,
+    on_admitted: F,
 ) -> Result<DurableSendResult, ProducerCoordinatorError>
 where
     P: AppendPort + ?Sized,
+    F: FnOnce() -> bool + Send + 'static,
 {
     let StartedSend {
         prepared,
@@ -510,7 +672,7 @@ where
     }
 
     let (admission_tx, mut admission_rx) = oneshot::channel();
-    let append = port.append_once(&attempt, AppendAdmission::new(admission_tx));
+    let append = port.append_once(&attempt, AppendAdmission::new(admission_tx, on_admitted));
     tokio::pin!(append);
     enum InitialAppendState {
         Admitted,
@@ -1092,6 +1254,46 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{Duration, timeout};
 
+    #[cfg(feature = "durable-verification")]
+    #[derive(Debug)]
+    struct VerificationObserver {
+        reject: bool,
+        before_calls: AtomicUsize,
+        admitted_calls: AtomicUsize,
+    }
+
+    #[cfg(feature = "durable-verification")]
+    impl super::AppendVerificationObserver for VerificationObserver {
+        fn before_append(
+            &self,
+            prepared: &PreparedDurableSend,
+            binding: &alopex_chirps_core::durable::AttemptBinding,
+        ) -> Result<(), super::AppendVerificationError> {
+            assert_eq!(binding.phase(), AttemptPhase::Started);
+            alopex_chirps_core::durable::DurableSendResult::not_submitted(
+                prepared,
+                binding.clone(),
+                AttemptFailureKind::Protocol,
+            )
+            .unwrap();
+            self.before_calls.fetch_add(1, Ordering::SeqCst);
+            if self.reject {
+                Err(super::AppendVerificationError)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn append_admitted(
+            &self,
+            _prepared: &PreparedDurableSend,
+            binding: &alopex_chirps_core::durable::AttemptBinding,
+        ) {
+            assert_eq!(binding.phase(), AttemptPhase::Started);
+            self.admitted_calls.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
     #[derive(Debug, Clone, Copy)]
     enum FakeOutcome {
         NotInvoked(AttemptFailureKind),
@@ -1176,29 +1378,39 @@ mod tests {
             match outcome {
                 FakeOutcome::NotInvoked(failure) => AppendPortOutcome::NotInvoked(failure),
                 FakeOutcome::Indeterminate(failure) => {
-                    admission.admit();
+                    if !admission.admit() {
+                        return AppendPortOutcome::NotInvoked(AttemptFailureKind::Shutdown);
+                    }
                     self.invocation_count.fetch_add(1, Ordering::SeqCst);
                     AppendPortOutcome::Indeterminate(failure)
                 }
                 FakeOutcome::BrokerAccepted => {
-                    admission.admit();
+                    if !admission.admit() {
+                        return AppendPortOutcome::NotInvoked(AttemptFailureKind::Shutdown);
+                    }
                     self.invocation_count.fetch_add(1, Ordering::SeqCst);
                     AppendPortOutcome::BrokerAccepted
                 }
                 FakeOutcome::OsSyncedAccepted(location) => {
-                    admission.admit();
+                    if !admission.admit() {
+                        return AppendPortOutcome::NotInvoked(AttemptFailureKind::Shutdown);
+                    }
                     self.invocation_count.fetch_add(1, Ordering::SeqCst);
                     AppendPortOutcome::OsSyncedAccepted(strong_confirmation(attempt, location))
                 }
                 FakeOutcome::CacheStrong(location) => {
-                    admission.admit();
+                    if !admission.admit() {
+                        return AppendPortOutcome::NotInvoked(AttemptFailureKind::Shutdown);
+                    }
                     self.invocation_count.fetch_add(1, Ordering::SeqCst);
                     let confirmation = strong_confirmation(attempt, location);
                     *self.cached_strong.lock().unwrap() = Some(confirmation.clone());
                     AppendPortOutcome::OsSyncedAccepted(confirmation)
                 }
                 FakeOutcome::ReplayCachedStrong => {
-                    admission.admit();
+                    if !admission.admit() {
+                        return AppendPortOutcome::NotInvoked(AttemptFailureKind::Shutdown);
+                    }
                     self.invocation_count.fetch_add(1, Ordering::SeqCst);
                     AppendPortOutcome::OsSyncedAccepted(
                         self.cached_strong.lock().unwrap().clone().unwrap(),
@@ -1206,7 +1418,9 @@ mod tests {
                 }
                 FakeOutcome::BlockBeforeAdmission => pending::<AppendPortOutcome>().await,
                 FakeOutcome::BlockAfterInvocation => {
-                    admission.admit();
+                    if !admission.admit() {
+                        return AppendPortOutcome::NotInvoked(AttemptFailureKind::Shutdown);
+                    }
                     self.invocation_count.fetch_add(1, Ordering::SeqCst);
                     pending::<AppendPortOutcome>().await
                 }
@@ -1412,6 +1626,30 @@ mod tests {
         );
         assert_eq!(result.attempt_binding().phase(), AttemptPhase::Started);
         assert!(result.receipt().is_none());
+        assert_eq!(port.append_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(port.invocation_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn v07_task_6_5_frozen_admission_cannot_start_a_physical_append() {
+        let prepared = prepared();
+        let port = Arc::new(FakePort::new(location(1, 0), [FakeOutcome::BrokerAccepted]));
+        let coordinator = ProducerCoordinator::new(Arc::clone(&port));
+        let started = coordinator
+            .preflight(&prepared, ConfirmationBoundary::BrokerAccepted)
+            .unwrap()
+            .start()
+            .unwrap();
+
+        let mut handle = coordinator.execute_with_admission(started, || false);
+        let completed = terminal(&mut handle).await;
+        let result = completed.result().unwrap();
+
+        assert_eq!(
+            result.outcome(),
+            DurableSendOutcome::NotSubmitted(AttemptFailureKind::Shutdown)
+        );
+        assert_eq!(result.attempt_binding().phase(), AttemptPhase::Started);
         assert_eq!(port.append_calls.load(Ordering::SeqCst), 1);
         assert_eq!(port.invocation_count.load(Ordering::SeqCst), 0);
     }
@@ -1776,5 +2014,70 @@ mod tests {
         assert_ne!(observed[0].attempt_id, observed[1].attempt_id);
         assert_eq!(port.append_calls.load(Ordering::SeqCst), 2);
         assert_eq!(port.invocation_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[cfg(feature = "durable-verification")]
+    #[tokio::test]
+    async fn v07_task_6_4_verification_intent_precedes_exactly_one_real_admission() {
+        let prepared = prepared();
+        let exact_location = location(1, 0);
+
+        let rejected_inner = Arc::new(FakePort::new(exact_location, [FakeOutcome::BrokerAccepted]));
+        let rejected_observer = Arc::new(VerificationObserver {
+            reject: true,
+            before_calls: AtomicUsize::new(0),
+            admitted_calls: AtomicUsize::new(0),
+        });
+        let rejected_port = Arc::new(super::ObservedAppendPort::new(
+            rejected_inner.clone(),
+            rejected_observer.clone(),
+        ));
+        let rejected_coordinator = ProducerCoordinator::new(rejected_port);
+        let rejected = rejected_coordinator
+            .preflight(&prepared, ConfirmationBoundary::OsSyncedAccepted)
+            .unwrap()
+            .start()
+            .unwrap();
+        let mut rejected_handle = rejected_coordinator.execute(rejected);
+        assert_eq!(
+            terminal(&mut rejected_handle)
+                .await
+                .result()
+                .unwrap()
+                .outcome(),
+            DurableSendOutcome::NotSubmitted(AttemptFailureKind::Protocol)
+        );
+        assert_eq!(rejected_observer.before_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(rejected_observer.admitted_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(rejected_inner.append_calls.load(Ordering::SeqCst), 0);
+
+        let accepted_inner = Arc::new(FakePort::new(exact_location, [FakeOutcome::BrokerAccepted]));
+        let accepted_observer = Arc::new(VerificationObserver {
+            reject: false,
+            before_calls: AtomicUsize::new(0),
+            admitted_calls: AtomicUsize::new(0),
+        });
+        let coordinator = ProducerCoordinator::new(Arc::new(super::ObservedAppendPort::new(
+            accepted_inner.clone(),
+            accepted_observer.clone(),
+        )));
+        let accepted = coordinator
+            .preflight(&prepared, ConfirmationBoundary::OsSyncedAccepted)
+            .unwrap()
+            .start()
+            .unwrap();
+        let mut accepted_handle = coordinator.execute(accepted);
+        assert_eq!(
+            terminal(&mut accepted_handle)
+                .await
+                .result()
+                .unwrap()
+                .outcome(),
+            DurableSendOutcome::BrokerAccepted
+        );
+        assert_eq!(accepted_observer.before_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(accepted_observer.admitted_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(accepted_inner.append_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(accepted_inner.invocation_count.load(Ordering::SeqCst), 1);
     }
 }

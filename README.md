@@ -13,6 +13,16 @@ Chirps can be used as the control-plane foundation for:
 
 It is completely independent from AlopexDB or jjvm — those are *users* of Chirps, not dependencies.
 
+> **Release status:** v0.7.0 is under release-candidate validation and is not published until the v0.7.0 tag and attested artifacts exist. The existing QUIC mesh remains the default; Durable messaging is opt-in.
+
+## Durable messaging（v0.7）
+
+`durable-iggy` featureは、既存QUIC meshとは独立したpoint-to-point Durable planeを追加します。利用者は`DurableBuilder`で明示構成し、send、subscription creation、delivery、local checkpointの境界をtyped resultとして個別に扱います。Durableが未構成またはunavailableでも、別profileやQUIC sendへ暗黙fallbackしません。
+
+v0.7の保証はretention内に限定されます。strong profileの`OsSyncedAccepted`はcompatible serverのmessage/index OS-sync境界を示しますが、device power-loss、replication、delivery、exactly-once application effectは示しません。response loss後の明示retryやeffect完了後・checkpoint前のcrashではduplicate deliveryが起こり得ます。
+
+公開契約、supported matrix、identity horizon、caller責務、およびpoint-to-point例は[Durable messaging profile](docs/durable-profile.md)を参照してください。bounded metrics、health、event correlationの非正本契約は[Durable observability guide](docs/durable-observability.md)を参照してください。Durable broadcast、unlimited replay、global/cross-partition order、sender auto-recovery、HA/failover、cross-host rebalanceはv0.7の対象外です。
+
 ---
 
 ## Features (v0.1)

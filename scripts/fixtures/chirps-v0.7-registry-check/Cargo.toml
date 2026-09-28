@@ -1,0 +1,26 @@
+[package]
+name = "chirps-v07-registry-check"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata.chirps-v07-registry]
+publish-order = [
+    "alopex-chirps-wire",
+    "alopex-chirps-raft-storage",
+    "alopex-chirps-core",
+    "alopex-chirps-gossip-swim",
+    "alopex-chirps-mock",
+    "alopex-chirps-transport-quic",
+    "alopex-chirps-backend-iggy",
+    "alopex-chirps-file-transfer",
+    "alopex-chirps",
+]
+
+[features]
+default = []
+durable-iggy = ["alopex-chirps/durable-iggy"]
+
+[dependencies]
+alopex-chirps = { version = "=0.7.0", default-features = false }
+alopex-chirps-mock = "=0.7.0"

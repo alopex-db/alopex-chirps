@@ -1,5 +1,24 @@
 # Chirps リリースノート
 
+## [Unreleased]
+
+v0.7.0はrelease-candidate検証中です。公開保証とsupported matrixの正本は[Durable messaging profile](docs/durable-profile.md)です。
+
+### 追加
+
+- 既存QUIC meshを変更しないopt-inの`durable-iggy` featureと、独立した`DurableBuilder` / `DurableHandle`を追加した。
+- immutable prepareとattempt単位の`NotSubmitted` / `BrokerAccepted` / `OsSyncedAccepted` / `Indeterminate`を追加した。exact locationを持つreceiptはcompatible serverの`OsSyncedAccepted`だけが返す。
+- explicit initial position、crash-consistent creation/owner state、single in-flight delivery、manual `ack` / `release`、`CheckpointCommitted` / `CheckpointNotCommitted` / `CheckpointUnknown`を追加した。
+- retention gap、resource/inbox generation fencing、bounded local capacity、generation-barrier compaction、および三条件のidentity horizonを追加した。identity GC後の遅延retryはfirst-seenとして扱われ得る。
+- runtime-localで有限なmetrics/event reportと、Control/Durableを分離したhealth projectionを追加した。observabilityはoperation resultやrecovered canonical stateの代替にはならない。
+- pinned Iggy 0.8.0 development interoperabilityと、adapter-owned TCP/TLS・private extension v1を使うcompatible strong profileを分離した。
+
+### 保証境界
+
+- crash/restartを跨ぐat-least-onceは、選択済み`OsSyncedAccepted` recordがretention内にあり、subscription/broker/checkpoint、resource/inbox generation、checked poll、capacityが有効な間に限定した。
+- application effect後・checkpoint commit前のcrashと、indeterminate sendの明示retryはduplicateを生じ得る。Chirpsはapplication transaction、producer outbox、process-crash resendを所有しない。
+- exactly-once、unlimited replay、post-horizon dedup、global/cross-partition order、replication/quorum/HA/failover、mTLS、device power-loss耐性、cross-host rebalance、atomic data snapshot/restore、Durable broadcastは非保証とした。
+
 ## [0.5.2] - 2026-08-02
 
 ### 修正

@@ -276,7 +276,19 @@ impl CapacityController {
         footprint: CapacityFootprint,
         retention: Retention,
     ) -> Result<CapacityToken, CapacityError> {
-        self.try_admit_owned(category, footprint, retention, None)
+        self.try_admit_owned(category, footprint, retention, None, true)
+    }
+
+    /// Adds a later charge that belongs to an operation already admitted by
+    /// [`Self::try_admit`]. Hard bounds still apply, but saturation caused by
+    /// the operation's first charge does not reject its remaining accounting.
+    pub(crate) fn try_admit_continuation(
+        &mut self,
+        category: StateCategory,
+        footprint: CapacityFootprint,
+        retention: Retention,
+    ) -> Result<CapacityToken, CapacityError> {
+        self.try_admit_owned(category, footprint, retention, None, false)
     }
 
     pub(crate) fn try_admit_identity(
@@ -292,6 +304,7 @@ impl CapacityController {
             footprint,
             Retention::LiveRecovery,
             Some(message_id),
+            true,
         )?;
         self.identity_charges.insert(message_id, token);
         Ok(token)
@@ -303,8 +316,9 @@ impl CapacityController {
         footprint: CapacityFootprint,
         retention: Retention,
         identity: Option<[u8; 16]>,
+        require_open: bool,
     ) -> Result<CapacityToken, CapacityError> {
-        if !self.status().admission_open {
+        if require_open && !self.status().admission_open {
             return Err(CapacityError::AdmissionStopped);
         }
         let next = self.usage[category.index()].checked_add(footprint)?;
@@ -332,6 +346,32 @@ impl CapacityController {
             self.capacity_rejected = true;
         }
         Ok(token)
+    }
+
+    /// Converts a successfully persisted preview charge into live identity
+    /// ownership without opening a second admission window.
+    pub(crate) fn bind_identity(
+        &mut self,
+        token: CapacityToken,
+        message_id: [u8; 16],
+    ) -> Result<(), CapacityError> {
+        if self.identity_charges.contains_key(&message_id) {
+            return Err(CapacityError::DuplicateIdentityCharge);
+        }
+        let charge = self
+            .charges
+            .get_mut(&token)
+            .ok_or(CapacityError::UnknownToken)?;
+        if charge.category != StateCategory::ProcessedIdentity
+            || charge.retention != Retention::Terminal
+            || charge.identity.is_some()
+        {
+            return Err(CapacityError::NotLiveRecoveryState);
+        }
+        charge.retention = Retention::LiveRecovery;
+        charge.identity = Some(message_id);
+        self.identity_charges.insert(message_id, token);
+        Ok(())
     }
 
     pub(crate) fn release_terminal(&mut self, token: CapacityToken) -> Result<(), CapacityError> {
@@ -379,7 +419,7 @@ impl CapacityController {
         Ok(())
     }
 
-    pub(super) fn identity_gc_token(
+    pub(crate) fn identity_gc_token(
         &self,
         message_id: [u8; 16],
     ) -> Result<CapacityToken, CapacityError> {
@@ -387,6 +427,10 @@ impl CapacityController {
             .get(&message_id)
             .copied()
             .ok_or(CapacityError::InvalidGcProof)
+    }
+
+    pub(crate) fn contains_identity(&self, message_id: [u8; 16]) -> bool {
+        self.identity_charges.contains_key(&message_id)
     }
 
     pub(crate) fn begin_compaction(&mut self) -> Result<(), CapacityError> {
@@ -448,6 +492,8 @@ pub(crate) enum CapacityError {
     ArithmeticOverflow,
     #[error("capacity accounting does not match its token")]
     AccountingMismatch,
+    #[error("capacity accounting state is poisoned")]
+    StatePoisoned,
     #[error("checkpoint-install and compaction reserves are unavailable")]
     StartupReserveUnavailable,
     #[error("capacity is exhausted for {category:?}")]

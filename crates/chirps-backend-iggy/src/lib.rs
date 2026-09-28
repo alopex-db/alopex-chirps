@@ -16,7 +16,9 @@ pub mod offset_mirror;
 pub mod poll;
 pub mod producer;
 pub mod protocol;
-pub mod routing;
+pub(crate) mod routing;
+pub use routing::RoutingError;
+pub mod runtime;
 pub mod session;
 #[allow(dead_code)] // staged local-state internals are composed by later Phase 4 tasks
 pub(crate) mod state;

@@ -10,7 +10,7 @@ use thiserror::Error;
 
 /// Immutable identity of one admitted delivery attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DeliveryToken {
+pub(crate) struct DeliveryToken {
     subscription_id: SubscriptionId,
     target: NodeId,
     generation: u64,
@@ -24,7 +24,7 @@ pub struct DeliveryToken {
 }
 
 impl DeliveryToken {
-    fn from_handle(handle: &DeliveryHandle) -> Self {
+    pub(crate) fn from_handle(handle: &DeliveryHandle) -> Self {
         Self {
             subscription_id: handle.subscription_id(),
             target: handle.target(),
@@ -38,48 +38,8 @@ impl DeliveryToken {
             lifecycle_generation: handle.lifecycle_generation(),
         }
     }
-
     fn matches(self, handle: &DeliveryHandle) -> bool {
         self == Self::from_handle(handle)
-    }
-
-    /// Returns the monotonically increasing attempt bound to this token.
-    #[must_use]
-    pub const fn delivery_attempt(self) -> u64 {
-        self.delivery_attempt
-    }
-
-    /// Returns the delivered inclusive broker offset.
-    #[must_use]
-    pub const fn offset(self) -> u64 {
-        self.offset
-    }
-
-    /// Returns the canonical logical message identity.
-    #[must_use]
-    pub const fn message_id(self) -> DurableMessageId {
-        self.message_id
-    }
-}
-
-/// Application-visible bytes released only after durable identity insertion.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AdmittedDelivery {
-    canonical_bytes: Vec<u8>,
-    token: DeliveryToken,
-}
-
-impl AdmittedDelivery {
-    /// Returns the immutable canonical envelope bytes.
-    #[must_use]
-    pub fn canonical_bytes(&self) -> &[u8] {
-        &self.canonical_bytes
-    }
-
-    /// Returns the exact owner/message/attempt arbitration token.
-    #[must_use]
-    pub const fn token(&self) -> DeliveryToken {
-        self.token
     }
 }
 
@@ -90,15 +50,13 @@ pub(crate) enum DeliveryEvent {
     Release,
     /// Delivery deadline expired; the same offset may be redelivered.
     Timeout,
-    /// Lifecycle shutdown fenced this handle.
-    ShutdownFence,
 }
 
 /// Serial owner of the sole in-flight handle for one partition.
 #[derive(Debug)]
 pub(crate) struct DeliveryArbiter {
     binding: SubscriptionBinding,
-    current: Option<Delivery>,
+    current: Option<DeliveryToken>,
 }
 
 impl DeliveryArbiter {
@@ -118,21 +76,12 @@ impl DeliveryArbiter {
         self.current.is_some()
     }
 
-    /// Returns the current handle state without releasing the handle.
-    #[must_use]
-    #[cfg(test)]
-    fn current_state(&self) -> Option<DeliveryHandleState> {
-        self.current
-            .as_ref()
-            .map(|delivery| delivery.handle().state())
-    }
-
     /// Admits a record only after its exact attempt was durably persisted.
     pub(crate) fn admit_persisted(
         &mut self,
         record: CheckedPollRecord,
         delivery_attempt: u64,
-    ) -> Result<AdmittedDelivery, DeliveryEventError> {
+    ) -> Result<Delivery, DeliveryEventError> {
         if self.current.is_some() {
             return Err(DeliveryEventError::AlreadyInFlight);
         }
@@ -143,36 +92,29 @@ impl DeliveryArbiter {
             DeliveryContext::new(self.binding, delivery_attempt),
             record,
         );
-        let admission = AdmittedDelivery {
-            canonical_bytes: delivery.canonical_bytes().to_vec(),
-            token: DeliveryToken::from_handle(delivery.handle()),
-        };
-        self.current = Some(delivery);
-        Ok(admission)
+        self.current = Some(DeliveryToken::from_handle(delivery.handle()));
+        Ok(delivery)
     }
 
     /// Begins checkpoint installation for the exact current token.
     pub(crate) fn begin_ack(
         &mut self,
-        token: DeliveryToken,
+        handle: &mut DeliveryHandle,
     ) -> Result<CheckpointInstallBinding, DeliveryEventError> {
-        self.current_handle_mut(token)?
-            .begin_ack()
-            .map_err(Into::into)
+        self.require_current(handle)?;
+        handle.begin_ack().map_err(Into::into)
     }
 
     /// Applies one exact checkpoint result and releases only terminal handles.
     pub(crate) fn finish_ack(
         &mut self,
-        token: DeliveryToken,
+        handle: &mut DeliveryHandle,
         binding: &CheckpointInstallBinding,
         outcome: CheckpointOutcome,
     ) -> Result<DeliveryHandleState, DeliveryEventError> {
-        let state = {
-            let handle = self.current_handle_mut(token)?;
-            handle.finish_ack(binding, outcome)?;
-            handle.state()
-        };
+        self.require_current(handle)?;
+        handle.finish_ack(binding, outcome)?;
+        let state = handle.state();
         if state.is_terminal() {
             self.current = None;
         }
@@ -182,34 +124,29 @@ impl DeliveryArbiter {
     /// Linearizes one release, timeout, or shutdown event.
     pub(crate) fn finish(
         &mut self,
-        token: DeliveryToken,
+        handle: &mut DeliveryHandle,
         event: DeliveryEvent,
     ) -> Result<DeliveryHandleState, DeliveryEventError> {
-        let state = {
-            let handle = self.current_handle_mut(token)?;
-            match event {
-                DeliveryEvent::Release => handle.release(),
-                DeliveryEvent::Timeout => handle.timeout(),
-                DeliveryEvent::ShutdownFence => handle.shutdown_fence(),
-            }?;
-            handle.state()
-        };
+        self.require_current(handle)?;
+        match event {
+            DeliveryEvent::Release => handle.release(),
+            DeliveryEvent::Timeout => handle.timeout(),
+        }?;
+        let state = handle.state();
         self.current = None;
         Ok(state)
     }
 
-    fn current_handle_mut(
-        &mut self,
-        token: DeliveryToken,
-    ) -> Result<&mut DeliveryHandle, DeliveryEventError> {
-        let delivery = self
-            .current
-            .as_mut()
-            .ok_or(DeliveryEventError::NoInFlight)?;
-        if !token.matches(delivery.handle()) {
+    pub(crate) fn fence(&mut self) {
+        self.current = None;
+    }
+
+    fn require_current(&self, handle: &DeliveryHandle) -> Result<(), DeliveryEventError> {
+        let token = self.current.ok_or(DeliveryEventError::NoInFlight)?;
+        if !token.matches(handle) {
             return Err(DeliveryEventError::StaleToken);
         }
-        Ok(delivery.handle_mut())
+        Ok(())
     }
 }
 
@@ -280,52 +217,45 @@ mod tests {
 
     #[test]
     fn v07_task_4_4_only_one_terminal_event_wins_and_old_token_stays_fenced() {
-        for winner in [
-            DeliveryEvent::Release,
-            DeliveryEvent::Timeout,
-            DeliveryEvent::ShutdownFence,
-        ] {
+        for winner in [DeliveryEvent::Release, DeliveryEvent::Timeout] {
             let mut arbiter = DeliveryArbiter::new(binding(1));
-            let first = arbiter.admit_persisted(record(9, 0x41), 1).unwrap();
-            arbiter.finish(first.token(), winner).unwrap();
+            let mut first = arbiter.admit_persisted(record(9, 0x41), 1).unwrap();
+            arbiter.finish(first.handle_mut(), winner).unwrap();
             assert!(!arbiter.has_in_flight());
 
             let second = arbiter.admit_persisted(record(9, 0x41), 2).unwrap();
-            assert!(second.token().delivery_attempt() > first.token().delivery_attempt());
+            assert!(second.handle().delivery_attempt() > first.handle().delivery_attempt());
             assert_eq!(
-                arbiter.begin_ack(first.token()),
+                arbiter.begin_ack(first.handle_mut()),
                 Err(DeliveryEventError::StaleToken)
             );
-            assert_eq!(arbiter.current_state(), Some(DeliveryHandleState::Open));
+            assert_eq!(second.handle().state(), DeliveryHandleState::Open);
         }
     }
 
     #[test]
     fn v07_task_4_4_ack_install_is_nonterminal_and_only_known_old_retries() {
         let mut arbiter = DeliveryArbiter::new(binding(1));
-        let delivery = arbiter.admit_persisted(record(9, 0x41), 1).unwrap();
-        let install = arbiter.begin_ack(delivery.token()).unwrap();
+        let mut delivery = arbiter.admit_persisted(record(9, 0x41), 1).unwrap();
+        let install = arbiter.begin_ack(delivery.handle_mut()).unwrap();
         assert_eq!(
-            arbiter.finish(delivery.token(), DeliveryEvent::Release),
+            arbiter.finish(delivery.handle_mut(), DeliveryEvent::Release),
             Err(DeliveryEventError::AckInstallInProgress)
         );
         arbiter
             .finish_ack(
-                delivery.token(),
+                delivery.handle_mut(),
                 &install,
                 CheckpointOutcome::CheckpointNotCommitted,
             )
             .unwrap();
-        assert_eq!(
-            arbiter.current_state(),
-            Some(DeliveryHandleState::AckRetryable)
-        );
+        assert_eq!(delivery.handle().state(), DeliveryHandleState::AckRetryable);
 
-        let retry = arbiter.begin_ack(delivery.token()).unwrap();
+        let retry = arbiter.begin_ack(delivery.handle_mut()).unwrap();
         assert_ne!(install.checkpoint_attempt(), retry.checkpoint_attempt());
         arbiter
             .finish_ack(
-                delivery.token(),
+                delivery.handle_mut(),
                 &retry,
                 CheckpointOutcome::CheckpointCommitted,
             )
@@ -333,7 +263,7 @@ mod tests {
         assert!(!arbiter.has_in_flight());
         assert_eq!(
             arbiter.finish_ack(
-                delivery.token(),
+                delivery.handle_mut(),
                 &retry,
                 CheckpointOutcome::CheckpointCommitted,
             ),

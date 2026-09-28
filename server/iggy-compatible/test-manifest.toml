@@ -1,0 +1,70 @@
+schema_version = 1
+
+[artifact]
+kind = "publish-disabled-test"
+publishable = false
+filename = "iggy-server"
+output_path = "/home/roomtv/works/alopex-db/release-artifacts/chirps-v0.7.0/server/test/iggy-server"
+output_sha256 = "2daa29a71b9d7ba4555ad84f2273c0f269744efe6091dd0dc8aa2fa647fb31b4"
+
+[source]
+repository = "https://github.com/apache/iggy.git"
+baseline_commit = "f5350d999d883fd3ca9dd33b3dc2754ddb0df049"
+commit = "76dcccf24b27c61a9434a79b3f81f065c4d3a832"
+tree = "c63cdecf5edb11650e7db85db3f7ad168a2103f7"
+cargo_lock_sha256 = "0e4ac6717cfb6ba04894f734b8f56afc56e265925fdd805242b6e39d4d676b41"
+clean_required = true
+
+[toolchain]
+channel = "1.94.0"
+rustc_commit = "4a4ef493e3a1488c6e321570238084b38948f6db"
+cargo_commit = "85eff7c80277b57f78b11e28d14154ab12fcf643"
+manifest_sha256 = "c73ceece264a4826462f5e22926b8909955e5c98cd391733846540d4ed9e6f21"
+
+[build]
+package = "server"
+binary = "iggy-server"
+profile = "release"
+default_features = false
+features = ["mimalloc", "chirps-test-failpoints"]
+source_date_epoch = 1790115008
+runtime_build_sha = "76dcccf24b27c61a9434a79b3f81f065c4d3a832"
+
+[container]
+dockerfile = "server/iggy-compatible/Dockerfile.test"
+dockerfile_sha256 = "cc37f30000a94ab30022058cea9c99bc7a66c004d28b8f3c9a755446c17ed3bf"
+platform = "linux/amd64"
+runtime_image = "docker.io/library/debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16"
+runtime_snapshot = "20260810T000000Z"
+
+[failpoints]
+environment = "IGGY_CHIRPS_FAILPOINT"
+stages = [
+    "message-open-sync",
+    "index-open-sync",
+    "append",
+    "journal-flush",
+    "message-sync",
+    "index-sync",
+    "response",
+    "partial-write",
+    "truncate",
+    "checksum-failure",
+    "unknown-version",
+    "disk-full",
+    "permission-denied",
+    "read-only",
+    "io-timeout",
+    "snapshot-temp-write",
+    "snapshot-file-sync",
+    "snapshot-rename",
+    "snapshot-directory-sync",
+    "snapshot-install",
+    "snapshot-apply",
+]
+
+[verification]
+production_manifest = "server/iggy-compatible/manifest.toml"
+required_symbols = ["IGGY_CHIRPS_FAILPOINT"]
+production_forbidden_symbols = ["IGGY_CHIRPS_FAILPOINT", "ChirpsFailpoint"]
+distinct_production_output = true

@@ -1,6 +1,8 @@
 //! Bounded, secret-free Durable metrics and structured events.
 
-use alopex_chirps_core::durable::{DurableEvent, DurableMetricLabels};
+use alopex_chirps_core::durable::{
+    DurableEvent, DurableMetricLabels, DurableTraceContext, ResourceEpoch,
+};
 use std::collections::VecDeque;
 use thiserror::Error;
 
@@ -35,6 +37,94 @@ impl ObservabilityLimits {
 pub struct MetricSeries {
     labels: DurableMetricLabels,
     count: u64,
+}
+
+/// Finite health projection of the in-process observability buffers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObservabilitySnapshot {
+    metric_series: usize,
+    metric_series_limit: usize,
+    retained_events: usize,
+    event_capacity: usize,
+    dropped_events: u64,
+}
+
+/// One owned, finite observation of a running Durable backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservabilityReport {
+    snapshot: ObservabilitySnapshot,
+    metric_series: Vec<MetricSeries>,
+    events: Vec<DurableEvent>,
+}
+
+impl ObservabilityReport {
+    /// Returns bounded-buffer health without correlation identity.
+    #[must_use]
+    pub fn snapshot(&self) -> ObservabilitySnapshot {
+        self.snapshot
+    }
+
+    /// Returns the complete finite metric series at observation time.
+    #[must_use]
+    pub fn metric_series(&self) -> &[MetricSeries] {
+        &self.metric_series
+    }
+
+    /// Returns retained structured events in oldest-to-newest order.
+    #[must_use]
+    pub fn events(&self) -> &[DurableEvent] {
+        &self.events
+    }
+
+    /// Iterates retained events for one partition/resource incarnation.
+    pub fn partition_events(
+        &self,
+        partition: u32,
+        resource_epoch: ResourceEpoch,
+    ) -> impl Iterator<Item = &DurableEvent> {
+        self.events.iter().filter(move |event| {
+            matches!(
+                event.trace(),
+                DurableTraceContext::Partition {
+                    partition: event_partition,
+                    resource_epoch: event_resource,
+                    ..
+                } if event_partition == partition && event_resource == resource_epoch
+            )
+        })
+    }
+}
+
+impl ObservabilitySnapshot {
+    /// Returns the number of occupied metric series.
+    #[must_use]
+    pub const fn metric_series(self) -> usize {
+        self.metric_series
+    }
+
+    /// Returns the configured metric-series hard limit.
+    #[must_use]
+    pub const fn metric_series_limit(self) -> usize {
+        self.metric_series_limit
+    }
+
+    /// Returns the number of retained structured events.
+    #[must_use]
+    pub const fn retained_events(self) -> usize {
+        self.retained_events
+    }
+
+    /// Returns the configured structured-event hard limit.
+    #[must_use]
+    pub const fn event_capacity(self) -> usize {
+        self.event_capacity
+    }
+
+    /// Returns the saturating count of evicted events.
+    #[must_use]
+    pub const fn dropped_events(self) -> u64 {
+        self.dropped_events
+    }
 }
 
 impl MetricSeries {
@@ -118,6 +208,52 @@ impl BoundedObservability {
     #[must_use]
     pub const fn dropped_event_count(&self) -> u64 {
         self.dropped_event_count
+    }
+
+    /// Returns bounded buffer health without exposing any trace identity.
+    #[must_use]
+    pub fn snapshot(&self) -> ObservabilitySnapshot {
+        ObservabilitySnapshot {
+            metric_series: self.metric_series.len(),
+            metric_series_limit: self.limits.metric_series,
+            retained_events: self.events.len(),
+            event_capacity: self.limits.event_capacity,
+            dropped_events: self.dropped_event_count,
+        }
+    }
+
+    /// Copies the finite buffers for read-only inspection by the public
+    /// facade. The report remains evidence only and cannot affect outcomes.
+    #[must_use]
+    pub fn report(&self) -> ObservabilityReport {
+        ObservabilityReport {
+            snapshot: self.snapshot(),
+            metric_series: self.metric_series.clone(),
+            events: self.events.iter().copied().collect(),
+        }
+    }
+
+    /// Iterates the retained events for one partition/resource incarnation.
+    ///
+    /// Owner epochs intentionally remain in each returned event so a caller
+    /// can reconstruct rebinds without placing correlation identity in metric
+    /// labels. The bounded FIFO remains evidence only; operation outcomes stay
+    /// authoritative in their owning components.
+    pub fn partition_events(
+        &self,
+        partition: u32,
+        resource_epoch: ResourceEpoch,
+    ) -> impl Iterator<Item = &DurableEvent> {
+        self.events.iter().filter(move |event| {
+            matches!(
+                event.trace(),
+                DurableTraceContext::Partition {
+                    partition: event_partition,
+                    resource_epoch: event_resource,
+                    ..
+                } if event_partition == partition && event_resource == resource_epoch
+            )
+        })
     }
 }
 
@@ -227,5 +363,99 @@ mod tests {
             ObservabilityLimits::new(1, 1_025),
             Err(ObservabilityError::InvalidEventCapacity)
         );
+    }
+
+    #[test]
+    fn v07_task_6_14_snapshot_stays_finite_after_event_eviction() {
+        let mut observability = BoundedObservability::new(ObservabilityLimits::new(2, 2).unwrap());
+        observability
+            .record_metric(labels(MetricOutcome::Success))
+            .unwrap();
+        for owner_epoch in 1..=3 {
+            observability.record_event(DurableEvent::new(
+                DurableEventKind::Recovery,
+                DurableTraceContext::partition(
+                    7,
+                    owner_epoch,
+                    ResourceEpoch::new(ResourceId::from_bytes([0x44; 16]), 9),
+                ),
+            ));
+        }
+
+        let snapshot = observability.snapshot();
+        assert_eq!(snapshot.metric_series(), 1);
+        assert_eq!(snapshot.metric_series_limit(), 2);
+        assert_eq!(snapshot.retained_events(), 2);
+        assert_eq!(snapshot.event_capacity(), 2);
+        assert_eq!(snapshot.dropped_events(), 1);
+    }
+
+    #[test]
+    fn v07_task_6_14_partition_chain_crosses_owner_epoch_but_not_resource_epoch() {
+        let resource = ResourceEpoch::new(ResourceId::from_bytes([0x55; 16]), 11);
+        let other_resource = ResourceEpoch::new(ResourceId::from_bytes([0x55; 16]), 12);
+        let mut observability = BoundedObservability::new(ObservabilityLimits::new(1, 8).unwrap());
+        for (kind, owner_epoch) in [
+            (DurableEventKind::Fault, 1),
+            (DurableEventKind::Recovery, 2),
+            (DurableEventKind::Redelivery, 2),
+            (DurableEventKind::Checkpoint, 2),
+            (DurableEventKind::SessionRebind, 3),
+        ] {
+            observability.record_event(DurableEvent::new(
+                kind,
+                DurableTraceContext::partition(3, owner_epoch, resource),
+            ));
+        }
+        observability.record_event(DurableEvent::new(
+            DurableEventKind::Fault,
+            DurableTraceContext::partition(3, 4, other_resource),
+        ));
+
+        let chain: Vec<_> = observability
+            .partition_events(3, resource)
+            .map(|event| event.kind())
+            .collect();
+        assert_eq!(
+            chain,
+            [
+                DurableEventKind::Fault,
+                DurableEventKind::Recovery,
+                DurableEventKind::Redelivery,
+                DurableEventKind::Checkpoint,
+                DurableEventKind::SessionRebind,
+            ]
+        );
+    }
+
+    #[test]
+    fn v07_task_6_14_rendered_contract_has_no_free_form_security_fields() {
+        let resource = ResourceEpoch::new(ResourceId::from_bytes([0x66; 16]), u64::MAX);
+        let mut observability = BoundedObservability::new(ObservabilityLimits::new(1, 1).unwrap());
+        observability
+            .record_metric(labels(MetricOutcome::RecoveryRequired))
+            .unwrap();
+        observability.record_event(DurableEvent::new(
+            DurableEventKind::Recovery,
+            DurableTraceContext::partition(u32::MAX, u64::MAX, resource),
+        ));
+
+        let rendered = format!(
+            "{:?}{:?}",
+            observability.metric_series(),
+            observability.events()
+        )
+        .to_ascii_lowercase();
+        for forbidden in [
+            "message_id",
+            "target",
+            "payload",
+            "credential",
+            "password",
+            "token",
+            "permission",
+        ] {
+            assert!(!rendered.contains(forbidden));
+        }
     }
 }

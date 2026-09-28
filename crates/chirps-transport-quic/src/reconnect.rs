@@ -1,3 +1,4 @@
+use alopex_chirps_core::connectivity::EndpointResolver;
 use alopex_chirps_wire::node_id::NodeId;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rand::{Rng, thread_rng};
@@ -21,7 +22,7 @@ pub enum ReconnectCommand {
 }
 
 pub fn start_seed_reconnector(
-    seeds: Vec<SocketAddr>,
+    endpoint_resolver: Arc<dyn EndpointResolver>,
     endpoint: Endpoint,
     client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
@@ -34,13 +35,12 @@ pub fn start_seed_reconnector(
     metrics: Arc<TransportCounters>,
     handshake_config: HandshakeConfig,
 ) -> mpsc::Sender<ReconnectCommand> {
-    let seeds = Arc::new(seeds);
     let inflight = Arc::new(Mutex::new(HashSet::new()));
     let (tx, mut rx) = mpsc::channel(8);
     let mut ticker = interval(Duration::from_secs(60));
 
     tokio::spawn({
-        let seeds = Arc::clone(&seeds);
+        let endpoint_resolver = Arc::clone(&endpoint_resolver);
         let inflight = Arc::clone(&inflight);
         let endpoint = endpoint.clone();
         let client_config = client_config.clone();
@@ -58,7 +58,7 @@ pub fn start_seed_reconnector(
                     _ = shutdown_rx.recv() => break,
                     _ = ticker.tick() => {
                         launch_attempts(
-                            Arc::clone(&seeds),
+                            Arc::clone(&endpoint_resolver),
                             endpoint.clone(),
                             client_config.clone(),
                             Arc::clone(&connections),
@@ -75,7 +75,7 @@ pub fn start_seed_reconnector(
                     }
                     Some(ReconnectCommand::Trigger) = rx.recv() => {
                         launch_attempts(
-                            Arc::clone(&seeds),
+                            Arc::clone(&endpoint_resolver),
                             endpoint.clone(),
                             client_config.clone(),
                             Arc::clone(&connections),
@@ -100,7 +100,7 @@ pub fn start_seed_reconnector(
 }
 
 async fn launch_attempts(
-    seeds: Arc<Vec<SocketAddr>>,
+    endpoint_resolver: Arc<dyn EndpointResolver>,
     endpoint: Endpoint,
     client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
@@ -114,8 +114,19 @@ async fn launch_attempts(
     handshake_config: HandshakeConfig,
     inflight: Arc<Mutex<HashSet<SocketAddr>>>,
 ) {
-    for seed in seeds.iter().copied() {
-        if is_connected(&connections, &seed).await {
+    let now = std::time::SystemTime::now();
+    let candidates = endpoint_resolver
+        .resolve()
+        .into_iter()
+        .flat_map(|peer| {
+            peer.candidates
+                .into_iter()
+                .filter(|candidate| candidate.is_current_at(now))
+                .map(move |candidate| (peer.node_id, candidate.address))
+        })
+        .collect::<HashSet<_>>();
+    for (expected_remote_id, seed) in candidates {
+        if is_connected(&connections, expected_remote_id, &seed).await {
             continue;
         }
         let mut guard = inflight.lock().await;
@@ -127,6 +138,8 @@ async fn launch_attempts(
 
         tokio::spawn(reconnect_seed(
             seed,
+            expected_remote_id,
+            Arc::clone(&endpoint_resolver),
             endpoint.clone(),
             client_config.clone(),
             Arc::clone(&connections),
@@ -145,6 +158,8 @@ async fn launch_attempts(
 
 async fn reconnect_seed(
     seed: SocketAddr,
+    expected_remote_id: Option<NodeId>,
+    endpoint_resolver: Arc<dyn EndpointResolver>,
     endpoint: Endpoint,
     client_config: ClientConfig,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
@@ -166,7 +181,10 @@ async fn reconnect_seed(
         if shutdown_rx.try_recv().is_ok() {
             break;
         }
-        if is_connected(&connections, &seed).await {
+        if !candidate_is_current(&endpoint_resolver, expected_remote_id, seed) {
+            break;
+        }
+        if is_connected(&connections, expected_remote_id, &seed).await {
             backoff = Duration::from_millis(200);
             sleep(Duration::from_secs(1)).await;
             continue;
@@ -187,6 +205,7 @@ async fn reconnect_seed(
                     if let Err(err) = handle_connection(
                         connection,
                         local_id,
+                        expected_remote_id,
                         connections,
                         peer_capabilities,
                         handler,
@@ -218,8 +237,62 @@ async fn reconnect_seed(
 
 async fn is_connected(
     connections: &Arc<RwLock<HashMap<NodeId, Connection>>>,
+    expected_remote_id: Option<NodeId>,
     seed: &SocketAddr,
 ) -> bool {
     let guard = connections.read().await;
-    guard.values().any(|conn| conn.remote_address() == *seed)
+    expected_remote_id.is_some_and(|node_id| guard.contains_key(&node_id))
+        || guard.values().any(|conn| conn.remote_address() == *seed)
+}
+
+fn candidate_is_current(
+    endpoint_resolver: &Arc<dyn EndpointResolver>,
+    expected_remote_id: Option<NodeId>,
+    seed: SocketAddr,
+) -> bool {
+    let now = std::time::SystemTime::now();
+    endpoint_resolver.resolve().into_iter().any(|peer| {
+        peer.node_id == expected_remote_id
+            && peer
+                .candidates
+                .into_iter()
+                .any(|candidate| candidate.address == seed && candidate.is_current_at(now))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::candidate_is_current;
+    use alopex_chirps_core::connectivity::{EndpointCandidate, EndpointResolver, PeerEndpoints};
+    use alopex_chirps_wire::node_id::NodeId;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+
+    struct Resolver(Vec<PeerEndpoints>);
+
+    impl EndpointResolver for Resolver {
+        fn resolve(&self) -> Vec<PeerEndpoints> {
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn removed_or_reassigned_candidates_are_not_retried() {
+        let node_a = NodeId::from([1; 16]);
+        let node_b = NodeId::from([2; 16]);
+        let address: SocketAddr = "127.0.0.1:7000".parse().unwrap();
+        let resolver: Arc<dyn EndpointResolver> = Arc::new(Resolver(vec![PeerEndpoints::new(
+            Some(node_a),
+            vec![EndpointCandidate::static_seed(address)],
+        )]));
+
+        assert!(candidate_is_current(&resolver, Some(node_a), address));
+        assert!(!candidate_is_current(&resolver, Some(node_b), address));
+        assert!(!candidate_is_current(&resolver, None, address));
+        assert!(!candidate_is_current(
+            &resolver,
+            Some(node_a),
+            "127.0.0.1:7001".parse().unwrap()
+        ));
+    }
 }

@@ -350,13 +350,45 @@ fn every_v061_crate_source_file_remains_byte_for_byte_compatible() {
             current.replacen("pub mod durable;\n", "", 1).into_bytes()
         } else if path == "crates/alopex-chirps/src/lib.rs" {
             let current = String::from_utf8(current).expect("alopex-chirps lib.rs must be UTF-8");
-            let additive_reexport = "#[cfg(feature = \"durable-iggy\")]\npub use alopex_chirps_backend_iggy as durable_iggy;\n";
+            let additive_module = "#[cfg(feature = \"durable-iggy\")]\npub mod durable;\n";
+            let additive_verification_reexport = concat!(
+                "#[cfg(feature = \"durable-verification\")]\n",
+                "pub use crate::durable::{AppendVerificationError, AppendVerificationObserver};\n",
+            );
+            let additive_reexport = concat!(
+                "#[cfg(feature = \"durable-iggy\")]\n",
+                "pub use crate::durable::{\n",
+                "    DURABLE_CHECKPOINT_JOURNAL_LIMIT_BYTES, DurableBuildError, DurableBuilder,\n",
+                "    DurableCapacityConfig, DurableCapacityLimit, DurableCapacityUsage, DurableCheckpointConfig,\n",
+                "    DurableClockReading, DurableClockSource, DurableClockTrust, DurableCompactionOutcome,\n",
+                "    DurableConfig, DurableCredential, DurableCredentialProvider, DurableCredentialProviderError,\n",
+                "    DurableDeliveryClock, DurableExtensionConfig, DurableHandle, DurableLeaseConfig,\n",
+                "    DurableLocalStateError, DurableLocalStateStatus, DurableObservabilityReport,\n",
+                "    DurablePartitionProjection, DurablePoll, DurablePrepareError, DurableProfile,\n",
+                "    DurableResourceConfig, DurableRoutingConfig, DurableSendError, DurableShutdownError,\n",
+                "    DurableShutdownTrigger, DurableStateCategory, DurableSubscriptionError, DurableTlsConfig,\n",
+                "};\n",
+            );
+            assert_eq!(
+                current.matches(additive_module).count(),
+                1,
+                "alopex-chirps must contain exactly one reviewed additive durable module"
+            );
+            assert_eq!(
+                current.matches(additive_verification_reexport).count(),
+                1,
+                "alopex-chirps must contain exactly one reviewed additive verification re-export"
+            );
             assert_eq!(
                 current.matches(additive_reexport).count(),
                 1,
-                "alopex-chirps must contain exactly one reviewed additive durable-iggy re-export"
+                "alopex-chirps must contain exactly one reviewed additive provider-neutral durable re-export"
             );
-            current.replacen(additive_reexport, "", 1).into_bytes()
+            current
+                .replacen(additive_module, "", 1)
+                .replacen(additive_verification_reexport, "", 1)
+                .replacen(additive_reexport, "", 1)
+                .into_bytes()
         } else {
             current
         };

@@ -5,15 +5,13 @@
 //! redeliver the same logical message with a new delivery attempt.
 
 use crate::codec::{EnvelopeDecodeError, decode};
-use crate::delivery::{
-    AdmittedDelivery, DeliveryArbiter, DeliveryEvent, DeliveryEventError, DeliveryToken,
-};
+use crate::delivery::{DeliveryArbiter, DeliveryEvent, DeliveryEventError};
 use crate::poll::{CheckedPollCoordinator, CheckedPollError, CheckedPollKind, CheckedPollPort};
 use crate::state::identity::{ClockProvenance, IdentityCandidate, IdentityError};
 use crate::state::journal::{IdentityPersistOutcome, JournalError, JournalStore};
 use alopex_chirps_core::durable::{
-    CheckpointInstallBinding, CheckpointOutcome, DeliveryHandleState, ReplayError,
-    SubscriptionBinding,
+    CheckpointInstallBinding, CheckpointOperationPhase, CheckpointOutcome, Delivery,
+    DeliveryHandle, DeliveryHandleState, ReplayError, SubscriptionBinding,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -57,14 +55,14 @@ impl From<DeliveryClock> for ClockProvenance {
 }
 
 /// Accepted result of one bounded poll attempt.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NextDelivery {
     /// The expected offset equals the atomic captured end.
     Tail,
     /// Identity append was known-old; the same expected record may be polled again.
     IdentityNotCommitted,
     /// Identity reached durability and application bytes may now be observed.
-    Delivery(AdmittedDelivery),
+    Delivery(Delivery),
 }
 
 /// Coordinates checked poll, canonical decode, durable identity, and handle CAS.
@@ -91,7 +89,10 @@ trait SubscriberJournal: Send {
     fn install_checkpoint(
         &mut self,
         binding: CheckpointInstallBinding,
+        transition: &mut dyn FnMut(CheckpointOperationPhase) -> bool,
     ) -> Result<CheckpointOutcome, JournalError>;
+    fn identity_bytes(&self, message_id: [u8; 16]) -> Option<Vec<u8>>;
+    fn checkpoint_bytes(&self) -> Option<Vec<u8>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,8 +140,19 @@ impl SubscriberJournal for JournalStore {
     fn install_checkpoint(
         &mut self,
         binding: CheckpointInstallBinding,
+        transition: &mut dyn FnMut(CheckpointOperationPhase) -> bool,
     ) -> Result<CheckpointOutcome, JournalError> {
-        self.install_checkpoint(binding)
+        self.install_checkpoint_with_phase(binding, transition)
+    }
+
+    fn identity_bytes(&self, message_id: [u8; 16]) -> Option<Vec<u8>> {
+        self.identity(message_id)
+            .map(|identity| identity.encode_body().to_vec())
+    }
+
+    fn checkpoint_bytes(&self) -> Option<Vec<u8>> {
+        self.checkpoint()
+            .map(|checkpoint| checkpoint.compaction_bytes())
     }
 }
 
@@ -190,6 +202,14 @@ where
     #[must_use]
     pub const fn has_in_flight(&self) -> bool {
         self.delivery.has_in_flight()
+    }
+
+    pub(crate) fn identity_bytes(&self, message_id: [u8; 16]) -> Option<Vec<u8>> {
+        self.journal.identity_bytes(message_id)
+    }
+
+    pub(crate) fn checkpoint_bytes(&self) -> Option<Vec<u8>> {
+        self.journal.checkpoint_bytes()
     }
 
     /// Performs at most one checked poll and releases bytes only after identity sync.
@@ -286,17 +306,28 @@ where
     }
 
     /// Installs one exact canonical checkpoint and preserves its phase outcome.
-    pub fn ack(&mut self, token: DeliveryToken) -> Result<CheckpointOutcome, SubscriberError> {
+    pub fn ack(
+        &mut self,
+        handle: &mut DeliveryHandle,
+    ) -> Result<CheckpointOutcome, SubscriberError> {
+        self.ack_with_phase(handle, |_| true)
+    }
+
+    pub(crate) fn ack_with_phase(
+        &mut self,
+        handle: &mut DeliveryHandle,
+        mut transition: impl FnMut(CheckpointOperationPhase) -> bool,
+    ) -> Result<CheckpointOutcome, SubscriberError> {
         self.require_status(PartitionStatus::InFlight)?;
-        let install = self.delivery.begin_ack(token)?;
-        let outcome = match self.journal.install_checkpoint(install) {
+        let install = self.delivery.begin_ack(handle)?;
+        let outcome = match self.journal.install_checkpoint(install, &mut transition) {
             Ok(outcome) => outcome,
             Err(error) => {
                 self.latch_journal_error(error);
                 return Err(SubscriberError::State(error.into()));
             }
         };
-        let state = self.delivery.finish_ack(token, &install, outcome)?;
+        let state = self.delivery.finish_ack(handle, &install, outcome)?;
         self.status = match state {
             DeliveryHandleState::AckRetryable => PartitionStatus::InFlight,
             DeliveryHandleState::AckTerminalCommitted => PartitionStatus::Active,
@@ -307,36 +338,32 @@ where
     }
 
     /// Nack/releases the exact current handle without advancing checkpoint state.
-    pub fn release(&mut self, token: DeliveryToken) -> Result<(), SubscriberError> {
-        self.finish_non_ack(token, DeliveryEvent::Release)
+    pub fn release(&mut self, handle: &mut DeliveryHandle) -> Result<(), SubscriberError> {
+        self.finish_non_ack(handle, DeliveryEvent::Release)
     }
 
     /// Times out the exact current handle without advancing checkpoint state.
-    pub fn timeout(&mut self, token: DeliveryToken) -> Result<(), SubscriberError> {
-        self.finish_non_ack(token, DeliveryEvent::Timeout)
+    pub fn timeout(&mut self, handle: &mut DeliveryHandle) -> Result<(), SubscriberError> {
+        self.finish_non_ack(handle, DeliveryEvent::Timeout)
     }
 
     /// Fences an optional open handle and closes this coordinator.
-    pub fn close(&mut self, token: Option<DeliveryToken>) -> Result<(), SubscriberError> {
+    pub fn close(&mut self) -> Result<(), SubscriberError> {
         if self.status == PartitionStatus::Closed {
             return Ok(());
         }
-        if let Some(token) = token {
-            self.delivery.finish(token, DeliveryEvent::ShutdownFence)?;
-        } else if self.delivery.has_in_flight() {
-            return Err(SubscriberError::MissingShutdownToken);
-        }
+        self.delivery.fence();
         self.status = PartitionStatus::Closed;
         Ok(())
     }
 
     fn finish_non_ack(
         &mut self,
-        token: DeliveryToken,
+        handle: &mut DeliveryHandle,
         event: DeliveryEvent,
     ) -> Result<(), SubscriberError> {
         self.require_status(PartitionStatus::InFlight)?;
-        self.delivery.finish(token, event)?;
+        self.delivery.finish(handle, event)?;
         self.status = PartitionStatus::Active;
         Ok(())
     }
@@ -431,9 +458,6 @@ pub enum SubscriberError {
     /// A handle reached a state outside the checkpoint outcome mapping.
     #[error("checkpoint produced unexpected handle state {0:?}")]
     UnexpectedHandleState(DeliveryHandleState),
-    /// Closing with an in-flight handle requires its exact token.
-    #[error("shutdown token is required while a delivery is in flight")]
-    MissingShutdownToken,
 }
 
 #[cfg(test)]
@@ -527,8 +551,24 @@ mod tests {
         fn install_checkpoint(
             &mut self,
             _binding: CheckpointInstallBinding,
+            transition: &mut dyn FnMut(CheckpointOperationPhase) -> bool,
         ) -> Result<CheckpointOutcome, JournalError> {
-            self.checkpoints.pop_front().unwrap()
+            let outcome = self.checkpoints.pop_front().unwrap()?;
+            let phase = match outcome {
+                CheckpointOutcome::CheckpointNotCommitted => CheckpointOperationPhase::KnownOld,
+                CheckpointOutcome::CheckpointUnknown => CheckpointOperationPhase::InstallUnknown,
+                CheckpointOutcome::CheckpointCommitted => CheckpointOperationPhase::Confirmed,
+            };
+            transition(phase);
+            Ok(outcome)
+        }
+
+        fn identity_bytes(&self, _message_id: [u8; 16]) -> Option<Vec<u8>> {
+            None
+        }
+
+        fn checkpoint_bytes(&self) -> Option<Vec<u8>> {
+            None
         }
     }
 
@@ -613,7 +653,7 @@ mod tests {
             [Ok(IdentityResult::Committed), Ok(IdentityResult::Committed)],
             [],
         );
-        let NextDelivery::Delivery(first) = coordinator
+        let NextDelivery::Delivery(mut first) = coordinator
             .next_delivery(1_000, DeliveryClock::Trusted)
             .await
             .unwrap()
@@ -630,21 +670,21 @@ mod tests {
             SubscriberError::PartitionUnavailable(PartitionStatus::InFlight).to_string()
         );
         assert_eq!(port.calls.load(Ordering::SeqCst), 1);
-        coordinator.release(first.token()).unwrap();
+        coordinator.release(first.handle_mut()).unwrap();
 
-        let NextDelivery::Delivery(second) = coordinator
+        let NextDelivery::Delivery(mut second) = coordinator
             .next_delivery(1_000, DeliveryClock::Trusted)
             .await
             .unwrap()
         else {
             panic!("expected redelivery")
         };
-        assert_eq!(second.token().delivery_attempt(), 2);
+        assert_eq!(second.handle().delivery_attempt(), 2);
         assert!(matches!(
-            coordinator.ack(first.token()),
+            coordinator.ack(first.handle_mut()),
             Err(SubscriberError::Delivery(DeliveryEventError::StaleToken))
         ));
-        coordinator.timeout(second.token()).unwrap();
+        coordinator.timeout(second.handle_mut()).unwrap();
         assert_eq!(coordinator.status(), PartitionStatus::Active);
         assert_eq!(*port.expected.lock().unwrap(), [9, 9]);
     }
@@ -695,7 +735,7 @@ mod tests {
         let mut coordinator =
             SubscriberCoordinator::new(binding, epoch(), Arc::clone(&port), *journal);
 
-        let NextDelivery::Delivery(delivery) = coordinator
+        let NextDelivery::Delivery(mut delivery) = coordinator
             .next_delivery(1_000, DeliveryClock::Trusted)
             .await
             .unwrap()
@@ -703,45 +743,45 @@ mod tests {
             panic!("identity commit must release the delivery")
         };
         assert_eq!(coordinator.status(), PartitionStatus::InFlight);
-        coordinator.release(delivery.token()).unwrap();
+        coordinator.release(delivery.handle_mut()).unwrap();
         assert_eq!(coordinator.status(), PartitionStatus::Active);
 
-        let NextDelivery::Delivery(redelivery) = coordinator
+        let NextDelivery::Delivery(mut redelivery) = coordinator
             .next_delivery(9_999, DeliveryClock::Unknown)
             .await
             .unwrap()
         else {
             panic!("the persisted identity horizon must be reused for redelivery")
         };
-        assert_eq!(redelivery.token().delivery_attempt(), 2);
+        assert_eq!(redelivery.handle().delivery_attempt(), 2);
         assert_eq!(
-            coordinator.ack(redelivery.token()).unwrap(),
+            coordinator.ack(redelivery.handle_mut()).unwrap(),
             CheckpointOutcome::CheckpointCommitted
         );
 
-        let NextDelivery::Delivery(duplicate) = coordinator
+        let NextDelivery::Delivery(mut duplicate) = coordinator
             .next_delivery(12_000, DeliveryClock::RollbackDetected)
             .await
             .unwrap()
         else {
             panic!("same-ID same-digest append must remain a visible duplicate attempt")
         };
-        assert_eq!(duplicate.token().delivery_attempt(), 3);
+        assert_eq!(duplicate.handle().delivery_attempt(), 3);
         assert_eq!(
-            coordinator.ack(duplicate.token()).unwrap(),
+            coordinator.ack(duplicate.handle_mut()).unwrap(),
             CheckpointOutcome::CheckpointCommitted
         );
 
-        let NextDelivery::Delivery(second) = coordinator
+        let NextDelivery::Delivery(mut second) = coordinator
             .next_delivery(2_000, DeliveryClock::Trusted)
             .await
             .unwrap()
         else {
             panic!("the next identity must have its own first attempt")
         };
-        assert_eq!(second.token().delivery_attempt(), 1);
+        assert_eq!(second.handle().delivery_attempt(), 1);
         assert_eq!(
-            coordinator.ack(second.token()).unwrap(),
+            coordinator.ack(second.handle_mut()).unwrap(),
             CheckpointOutcome::CheckpointCommitted
         );
         assert_eq!(*port.expected.lock().unwrap(), [9, 9, 10, 11]);
@@ -768,18 +808,18 @@ mod tests {
                 [Ok(IdentityResult::Committed)],
                 outcomes,
             );
-            let NextDelivery::Delivery(delivery) = coordinator
+            let NextDelivery::Delivery(mut delivery) = coordinator
                 .next_delivery(1_000, DeliveryClock::Trusted)
                 .await
                 .unwrap()
             else {
                 panic!("expected delivery")
             };
-            let first = coordinator.ack(delivery.token()).unwrap();
+            let first = coordinator.ack(delivery.handle_mut()).unwrap();
             if first == CheckpointOutcome::CheckpointNotCommitted {
                 assert_eq!(coordinator.status(), PartitionStatus::InFlight);
                 assert_eq!(
-                    coordinator.ack(delivery.token()).unwrap(),
+                    coordinator.ack(delivery.handle_mut()).unwrap(),
                     CheckpointOutcome::CheckpointCommitted
                 );
             }

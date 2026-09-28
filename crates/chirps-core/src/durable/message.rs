@@ -484,7 +484,7 @@ pub enum AttemptPhase {
 /// and envelope digest. Advancing to append invocation consumes the started
 /// token, so `NotSubmitted` and post-invocation outcomes require distinct
 /// values.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AttemptBinding {
     state: AttemptBindingState,
 }
@@ -653,7 +653,7 @@ pub enum DurableSendOutcome {
 /// `BrokerAccepted` means only that the pinned standard broker returned normal
 /// success. It deliberately contains no offset/index and makes no OS-sync,
 /// restart-presence, delivery, replication, or exactly-once claim.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DurableSendResult {
     message_id: DurableMessageId,
     binding: AttemptBinding,
@@ -766,7 +766,7 @@ impl DurableSendResult {
 /// durability, replication, delivery, broker exactly-once, or an application
 /// transaction. A lost response followed by explicit retry may append or
 /// deliver the same logical message more than once.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DurableReceipt {
     resource_epoch: ResourceEpoch,
     partition: u32,

@@ -247,7 +247,7 @@ impl CheckedPollRecord {
         self.message_id
     }
 
-    /// Returns the verified canonical-envelope digest.
+    /// Returns the wire-supplied envelope digest.
     #[must_use]
     pub const fn envelope_digest(&self) -> EnvelopeDigest {
         self.envelope_digest

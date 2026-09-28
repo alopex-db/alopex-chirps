@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alopex-db/alopex-chirps/docs/release/v0.7.0-evidence-schema.json",
+  "title": "Chirps v0.7.0 candidate, evidence, and bundle contract",
+  "oneOf": [
+    {"$ref": "#/$defs/candidate"},
+    {"$ref": "#/$defs/evidenceIndex"},
+    {"$ref": "#/$defs/bundle"}
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    },
+    "digestReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "release_version",
+        "source_commit",
+        "iggy_commit",
+        "source_sha256",
+        "specification_sha256",
+        "model_sha256",
+        "configuration_sha256",
+        "tool_sha256",
+        "environment_sha256",
+        "server_sha256",
+        "package_graph_sha256",
+        "performance"
+      ],
+      "properties": {
+        "schema": {"const": "chirps.v0.7.candidate/v1"},
+        "release_version": {"const": "0.7.0"},
+        "source_commit": {"$ref": "#/$defs/commit"},
+        "iggy_commit": {"$ref": "#/$defs/commit"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "specification_sha256": {"$ref": "#/$defs/sha256"},
+        "model_sha256": {"$ref": "#/$defs/sha256"},
+        "configuration_sha256": {"$ref": "#/$defs/sha256"},
+        "tool_sha256": {"$ref": "#/$defs/sha256"},
+        "environment_sha256": {"$ref": "#/$defs/sha256"},
+        "server_sha256": {"$ref": "#/$defs/sha256"},
+        "package_graph_sha256": {"$ref": "#/$defs/sha256"},
+        "performance": {
+          "type": "object",
+          "minProperties": 1
+        }
+      }
+    },
+    "evidenceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "result",
+        "candidate_sha256",
+        "environment_sha256",
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+        "kind": {
+          "enum": [
+            "source",
+            "specification",
+            "model",
+            "configuration",
+            "tool",
+            "environment",
+            "process",
+            "fault",
+            "performance",
+            "package",
+            "compatibility",
+            "server",
+            "security"
+          ]
+        },
+        "result": {"const": "pass"},
+        "candidate_sha256": {"$ref": "#/$defs/sha256"},
+        "environment_sha256": {"$ref": "#/$defs/sha256"},
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "release_version",
+        "candidate_sha256",
+        "environment_sha256",
+        "artifacts"
+      ],
+      "properties": {
+        "schema": {"const": "chirps.v0.7.bundle/v1"},
+        "release_version": {"const": "0.7.0"},
+        "candidate_sha256": {"$ref": "#/$defs/sha256"},
+        "environment_sha256": {"$ref": "#/$defs/sha256"},
+        "artifacts": {
+          "type": "array",
+          "minItems": 13,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceEntry"}
+        }
+      }
+    },
+    "evidenceIndex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "release_version",
+        "schema_sha256",
+        "candidate",
+        "bundle",
+        "evidence"
+      ],
+      "properties": {
+        "schema": {"const": "chirps.v0.7.evidence/v1"},
+        "release_version": {"const": "0.7.0"},
+        "schema_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate": {"$ref": "#/$defs/digestReference"},
+        "bundle": {"$ref": "#/$defs/digestReference"},
+        "evidence": {
+          "type": "array",
+          "minItems": 13,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceEntry"}
+        }
+      }
+    }
+  }
+}

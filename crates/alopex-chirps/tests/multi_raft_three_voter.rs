@@ -749,16 +749,26 @@ async fn concurrent_single_group_proposals_converge_on_all_voters() {
 async fn three_voters_survive_baseline_level_single_group_concurrency() {
     let cluster = TestCluster::new(GroupId(14)).await;
     cluster.bootstrap_three_voters().await;
-    let seed = cluster.managers[&1].get_group(GroupId(14)).unwrap();
+    let replicas = [
+        (1, cluster.managers[&1].get_group(GroupId(14)).unwrap()),
+        (2, cluster.managers[&2].get_group(GroupId(14)).unwrap()),
+        (3, cluster.managers[&3].get_group(GroupId(14)).unwrap()),
+    ];
 
     let proposals = (0..300)
         .map(|index| {
-            let seed = Arc::clone(&seed);
+            let replicas = replicas.clone();
             tokio::spawn(async move {
                 let command = format!("baseline-{index}").into_bytes();
                 let deadline = Instant::now() + TEST_PROPOSAL_TIMEOUT;
                 loop {
-                    match seed.propose(command.clone()).await {
+                    let target = replicas
+                        .iter()
+                        .find_map(|(node_id, replica)| {
+                            (replica.metrics().current_leader == Some(*node_id)).then_some(replica)
+                        })
+                        .unwrap_or(&replicas[0].1);
+                    match target.propose(command.clone()).await {
                         Ok(_) => break Ok(()),
                         Err(_error) if Instant::now() < deadline => {
                             sleep(Duration::from_millis(10)).await;

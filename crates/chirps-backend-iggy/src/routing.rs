@@ -40,6 +40,22 @@ pub struct PartitionRouter {
 }
 
 impl PartitionRouter {
+    /// Creates the first immutable routing configuration for one explicit
+    /// inbox generation. Later configuration changes must use
+    /// [`Self::transition`] so they cannot reuse the current generation.
+    pub(crate) fn new(
+        source: NodeId,
+        generation: u64,
+        partition_count: u32,
+    ) -> Result<Self, RoutingError> {
+        Self::from_validated_configuration(ValidatedRoutingConfiguration {
+            source,
+            generation,
+            partition_count,
+            mapping_version: ROUTING_MAP_VERSION,
+        })
+    }
+
     /// Reconstructs a router only from metadata accepted by the adapter's
     /// durable-manifest validation boundary.
     pub fn from_validated_configuration(
@@ -56,6 +72,7 @@ impl PartitionRouter {
 
     /// Creates the next immutable configuration while forbidding config changes
     /// inside the current generation.
+    #[allow(dead_code)] // retained for manifest transition validation
     pub fn transition(
         &self,
         proposed_generation: u64,
@@ -96,12 +113,14 @@ impl PartitionRouter {
 
     /// Returns the non-zero number of zero-based explicit partitions.
     #[must_use]
+    #[allow(dead_code)] // retained for manifest transition validation
     pub const fn partition_count(&self) -> u32 {
         self.partition_count
     }
 
     /// Returns the fixed mapping algorithm version.
     #[must_use]
+    #[allow(dead_code)] // retained for manifest transition validation
     pub const fn mapping_version(&self) -> u32 {
         self.mapping_version
     }

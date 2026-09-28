@@ -622,19 +622,19 @@ impl OwnedTransport {
     /// reconnect, batching, or automatic login. Once queued, every failure is
     /// indeterminate because no valid response was confirmed.
     pub async fn invoke(&self, request: DataPlaneRequestFrame) -> Result<Bytes, InvocationError> {
-        self.invoke_with_admission(request, || {}).await
+        self.invoke_with_admission(request, || true).await
     }
 
-    /// Invokes one data-plane frame and calls `on_admitted` exactly after the
-    /// request has entered the owned coordinator queue. Cancellation before
-    /// that callback proves that no future automatic append remains queued.
+    /// Invokes one data-plane frame after `on_admitted` authorizes the exact
+    /// transition into the owned coordinator queue. Rejection proves that no
+    /// future automatic append was queued.
     pub async fn invoke_with_admission<F>(
         &self,
         request: DataPlaneRequestFrame,
         on_admitted: F,
     ) -> Result<Bytes, InvocationError>
     where
-        F: FnOnce() + Send,
+        F: FnOnce() -> bool + Send,
     {
         self.limits
             .validate_frame(&request.bytes)
@@ -642,44 +642,12 @@ impl OwnedTransport {
         if self.close.is_closed() {
             return Err(InvocationError::NotInvoked(TransportError::Closed));
         }
-        self.exchange_with_admission(ExchangeKind::DataPlane, request.bytes, on_admitted)
+        if !on_admitted() {
+            return Err(InvocationError::NotInvoked(TransportError::Closed));
+        }
+        self.exchange(ExchangeKind::DataPlane, request.bytes)
             .await
             .map_err(InvocationError::Indeterminate)
-    }
-
-    async fn exchange_with_admission<F>(
-        &self,
-        kind: ExchangeKind,
-        request: Bytes,
-        on_admitted: F,
-    ) -> Result<Bytes, TransportError>
-    where
-        F: FnOnce() + Send,
-    {
-        let Some(exchange_tx) = &self.exchange_tx else {
-            return Err(TransportError::Closed);
-        };
-        let (reply, response) = oneshot::channel();
-        let job = ExchangeJob {
-            kind,
-            request,
-            reply,
-        };
-        let mut close_rx = self.close.close_tx.subscribe();
-        tokio::select! {
-            biased;
-            () = wait_until_closed(&mut close_rx) => return Err(TransportError::Closed),
-            result = exchange_tx.send(job) => {
-                result.map_err(|_| TransportError::WorkerStopped(TransportWorker::Coordinator))?;
-            }
-        }
-        on_admitted();
-        tokio::select! {
-            biased;
-            result = response => result
-                .map_err(|_| TransportError::WorkerStopped(TransportWorker::Coordinator))?,
-            () = wait_until_closed(&mut close_rx) => Err(TransportError::Closed),
-        }
     }
 
     async fn exchange(&self, kind: ExchangeKind, request: Bytes) -> Result<Bytes, TransportError> {
@@ -1354,6 +1322,7 @@ mod tests {
                     },
                     move || {
                         rejected_admissions.fetch_add(1, Ordering::SeqCst);
+                        true
                     },
                 )
                 .await,
@@ -1368,6 +1337,7 @@ mod tests {
             data_request(b"one-admitted-append"),
             move || {
                 accepted_admissions.fetch_add(1, Ordering::SeqCst);
+                true
             },
         ));
         tokio::select! {

@@ -1,3 +1,4 @@
+use crate::connectivity::{EndpointCandidate, PeerEndpoints};
 use crate::error::TransportError;
 use alopex_chirps_wire::frame::Frame;
 use alopex_chirps_wire::node_id::NodeId;
@@ -111,4 +112,15 @@ pub trait MessageBackend: Send + Sync {
 
     /// Returns a list of currently connected peers.
     fn connected_peers(&self) -> Vec<(NodeId, SocketAddr)>;
+
+    /// Returns authenticated identities separately from their current physical
+    /// endpoint. Existing backends retain the `connected_peers` implementation.
+    fn connected_peer_endpoints(&self) -> Vec<PeerEndpoints> {
+        self.connected_peers()
+            .into_iter()
+            .map(|(node_id, address)| {
+                PeerEndpoints::new(Some(node_id), vec![EndpointCandidate::observed(address)])
+            })
+            .collect()
+    }
 }

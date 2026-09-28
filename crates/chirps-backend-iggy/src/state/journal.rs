@@ -8,7 +8,8 @@ use super::{
 #[cfg(test)]
 use super::{digest, digest_parts, hex, sync_directory};
 use alopex_chirps_core::durable::{
-    CheckpointInstallBinding, CheckpointOutcome, ResourceEpoch, ResourceId, SubscriptionId,
+    CheckpointInstallBinding, CheckpointOperationPhase, CheckpointOutcome, ResourceEpoch,
+    ResourceId, SubscriptionId,
 };
 use alopex_chirps_wire::node_id::NodeId;
 use std::collections::BTreeMap;
@@ -25,7 +26,7 @@ const JOURNAL_PENDING_FILE: &str = ".checkpoint.journal.pending";
 const JOURNAL_GENERATION: u64 = 1;
 const HEADER_BODY_LEN: usize = 100;
 const CHECKPOINT_BODY_LEN: usize = 148;
-const MAX_JOURNAL_LEN: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_JOURNAL_LEN: u64 = 16 * 1024 * 1024;
 const COMMIT_MARKER: &[u8; 8] = b"COMMIT07";
 #[cfg(test)]
 const CORPUS_SOURCE_DOMAIN: &[u8] = b"chirps-v0.7-task-4.2-source-input\0";
@@ -243,6 +244,10 @@ impl CheckpointRecord {
     pub(crate) const fn message_id_bytes(&self) -> [u8; 16] {
         self.message_id
     }
+
+    pub(crate) fn compaction_bytes(&self) -> Vec<u8> {
+        self.encode_body().to_vec()
+    }
 }
 
 /// Test seam for physical append-stage failures; never exported by the facade.
@@ -401,13 +406,30 @@ impl JournalStore {
         &mut self,
         binding: CheckpointInstallBinding,
     ) -> Result<CheckpointOutcome, JournalError> {
-        self.install_checkpoint_with_fault(binding, AppendFault::None)
+        self.install_checkpoint_with_phase(binding, |_| true)
+    }
+
+    pub(crate) fn install_checkpoint_with_phase(
+        &mut self,
+        binding: CheckpointInstallBinding,
+        transition: impl FnMut(CheckpointOperationPhase) -> bool,
+    ) -> Result<CheckpointOutcome, JournalError> {
+        self.install_checkpoint_with_fault_and_phase(binding, AppendFault::None, transition)
     }
 
     fn install_checkpoint_with_fault(
         &mut self,
         binding: CheckpointInstallBinding,
         fault: AppendFault,
+    ) -> Result<CheckpointOutcome, JournalError> {
+        self.install_checkpoint_with_fault_and_phase(binding, fault, |_| true)
+    }
+
+    fn install_checkpoint_with_fault_and_phase(
+        &mut self,
+        binding: CheckpointInstallBinding,
+        fault: AppendFault,
+        mut transition: impl FnMut(CheckpointOperationPhase) -> bool,
     ) -> Result<CheckpointOutcome, JournalError> {
         self.ensure_ready()?;
         self.validate_binding(binding)?;
@@ -428,7 +450,7 @@ impl JournalStore {
         let checkpoint = CheckpointRecord::from_binding(sequence, binding);
         let frame =
             encode_state_frame(StateRecordKind::CheckpointCommit, &checkpoint.encode_body())?;
-        match append_frame(&self.path, &frame, fault) {
+        match append_checkpoint_frame(&self.path, &frame, fault, &mut transition) {
             AppendResult::KnownOld => Ok(CheckpointOutcome::CheckpointNotCommitted),
             AppendResult::Unknown => {
                 self.recovery_required = true;
@@ -668,6 +690,36 @@ fn append_frame(path: &Path, frame: &[u8], fault: AppendFault) -> AppendResult {
     if fault == AppendFault::AfterFileSync {
         return AppendResult::Unknown;
     }
+    AppendResult::Committed
+}
+
+fn append_checkpoint_frame(
+    path: &Path,
+    frame: &[u8],
+    fault: AppendFault,
+    transition: &mut dyn FnMut(CheckpointOperationPhase) -> bool,
+) -> AppendResult {
+    if fault == AppendFault::BeforeWrite {
+        transition(CheckpointOperationPhase::KnownOld);
+        return AppendResult::KnownOld;
+    }
+    let mut file = match OpenOptions::new().append(true).open(path) {
+        Ok(file) => file,
+        Err(_) => {
+            transition(CheckpointOperationPhase::KnownOld);
+            return AppendResult::KnownOld;
+        }
+    };
+    if !transition(CheckpointOperationPhase::InstallUnknown) {
+        return AppendResult::KnownOld;
+    }
+    if file.write_all(frame).is_err() || fault == AppendFault::AfterWrite {
+        return AppendResult::Unknown;
+    }
+    if file.sync_all().is_err() || fault == AppendFault::AfterFileSync {
+        return AppendResult::Unknown;
+    }
+    transition(CheckpointOperationPhase::Confirmed);
     AppendResult::Committed
 }
 
@@ -1226,8 +1278,8 @@ mod tests {
     use crate::state::InstallFault;
     use crate::state::identity::{ClockProvenance, IdentityCandidate};
     use alopex_chirps_core::durable::{
-        CheckedPollRecord, CheckpointOutcome, Delivery, DeliveryContext, EnvelopeDigest,
-        ResourceEpoch, ResourceId, SubscriptionBinding, SubscriptionId,
+        CheckedPollRecord, CheckpointOperationPhase, CheckpointOutcome, Delivery, DeliveryContext,
+        EnvelopeDigest, ResourceEpoch, ResourceId, SubscriptionBinding, SubscriptionId,
     };
     use alopex_chirps_wire::node_id::NodeId;
     use std::fs;
@@ -1425,6 +1477,34 @@ mod tests {
         assert_eq!(store.checkpoint().unwrap().offset(), 4);
         assert!(store.identity(message_id()).unwrap().is_checkpointed());
         assert_eq!(store.expected_offset().unwrap(), 5);
+    }
+
+    #[test]
+    fn v07_task_6_5_checkpoint_freeze_before_install_keeps_the_old_journal() {
+        let root = tempdir().unwrap();
+        let directory = root.path().join("checkpoint-freeze");
+        fs::create_dir(&directory).unwrap();
+        let mut store = ready(&directory);
+        store.persist_identity(identity(1, [0x62; 32])).unwrap();
+        let binding = checkpoint_binding(1, [0x62; 32], 1);
+        let before = fs::metadata(directory.join(JOURNAL_FILE)).unwrap().len();
+        let mut phases = Vec::new();
+
+        let outcome = store
+            .install_checkpoint_with_phase(binding, |phase| {
+                phases.push(phase);
+                phase != CheckpointOperationPhase::InstallUnknown
+            })
+            .unwrap();
+
+        assert_eq!(outcome, CheckpointOutcome::CheckpointNotCommitted);
+        assert_eq!(phases, [CheckpointOperationPhase::InstallUnknown]);
+        assert_eq!(
+            fs::metadata(directory.join(JOURNAL_FILE)).unwrap().len(),
+            before
+        );
+        assert!(store.checkpoint().is_none());
+        assert!(!store.identity(message_id()).unwrap().is_checkpointed());
     }
 
     #[test]

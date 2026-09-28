@@ -2,6 +2,8 @@
 
 pub mod backend;
 pub mod config;
+#[cfg(feature = "durable-iggy")]
+pub mod durable;
 pub mod error;
 #[cfg(feature = "hlc")]
 pub mod hlc;
@@ -17,6 +19,20 @@ pub mod snapshot;
 pub mod tso;
 
 pub use crate::config::NodeConfig;
+#[cfg(feature = "durable-verification")]
+pub use crate::durable::{AppendVerificationError, AppendVerificationObserver};
+#[cfg(feature = "durable-iggy")]
+pub use crate::durable::{
+    DURABLE_CHECKPOINT_JOURNAL_LIMIT_BYTES, DurableBuildError, DurableBuilder,
+    DurableCapacityConfig, DurableCapacityLimit, DurableCapacityUsage, DurableCheckpointConfig,
+    DurableClockReading, DurableClockSource, DurableClockTrust, DurableCompactionOutcome,
+    DurableConfig, DurableCredential, DurableCredentialProvider, DurableCredentialProviderError,
+    DurableDeliveryClock, DurableExtensionConfig, DurableHandle, DurableLeaseConfig,
+    DurableLocalStateError, DurableLocalStateStatus, DurableObservabilityReport,
+    DurablePartitionProjection, DurablePoll, DurablePrepareError, DurableProfile,
+    DurableResourceConfig, DurableRoutingConfig, DurableSendError, DurableShutdownError,
+    DurableShutdownTrigger, DurableStateCategory, DurableSubscriptionError, DurableTlsConfig,
+};
 use crate::error::MeshError;
 #[cfg(feature = "hlc")]
 pub use crate::hlc::{
@@ -36,8 +52,9 @@ pub use crate::raft::{
     RaftMetricsCollector, RaftMetricsUpdate, RaftNode, TsoMetricsUpdate, serve_metrics,
     serve_metrics_authorized,
 };
-#[cfg(feature = "durable-iggy")]
-pub use alopex_chirps_backend_iggy as durable_iggy;
+pub use alopex_chirps_core::connectivity::{
+    EndpointCandidate, EndpointResolver, EndpointSource, PeerEndpoints, StaticEndpointResolver,
+};
 pub use alopex_chirps_file_transfer::{
     BroadcastHandle, CompressionAlgorithm, ConflictResolution, FileInfo, FileMetadata,
     FileTransferConfig, FileTransferError, FileTransferService, FileTransferServiceImpl,
@@ -53,6 +70,15 @@ pub use alopex_chirps_wire::frame::{Frame, UserMessage};
 /// 成功時は `MeshHandle` を返す。エラー時は設定・永続化・トランスポートの各失敗を `MeshError` で返す。
 pub async fn start(config: NodeConfig) -> Result<MeshHandle, MeshError> {
     Mesh::start(config).await
+}
+
+/// Starts a mesh with a resolver that supplies network locations separately
+/// from authenticated node identity.
+pub async fn start_with_endpoint_resolver(
+    config: NodeConfig,
+    endpoint_resolver: std::sync::Arc<dyn EndpointResolver>,
+) -> Result<MeshHandle, MeshError> {
+    Mesh::start_with_endpoint_resolver(config, endpoint_resolver).await
 }
 
 /// Starts a mesh and connects real HLC operations to the unified registry.

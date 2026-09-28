@@ -20,6 +20,15 @@ on:
         required: false
         default: false
         type: boolean
+      v07_artifact_run_id:
+        description: Run ID containing the frozen v0.7 candidate/evidence/release bytes
+        required: false
+        type: string
+      v07_artifact_name:
+        description: Exact artifact name containing the frozen v0.7 release bundle
+        required: false
+        default: chirps-v0.7.0-release-bundle
+        type: string
 
 env:
   RUST_BACKTRACE: 1
@@ -38,6 +47,12 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.release_metadata.outputs.version }}
+      commit: ${{ steps.release_metadata.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -94,10 +109,38 @@ jobs:
           echo "Tag version ${tag_version} matches Cargo.toml"
           echo "version=${tag_version}" >> "${GITHUB_OUTPUT}"
           echo "commit=${RELEASE_COMMIT}" >> "${GITHUB_OUTPUT}"
+          if [[ "${tag_version}" == "0.7.0" ]]; then
+            [[ "${{ inputs.v07_artifact_run_id }}" =~ ^[0-9]+$ ]] || {
+              echo "v0.7.0 requires an exact numeric v07_artifact_run_id" >&2
+              exit 1
+            }
+          fi
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Verify v0.7 release and publication structure
+        if: steps.release_metadata.outputs.version == '0.7.0'
+        run: |
+          scripts/run-v0.7-release-gate.sh --structure-only
+          scripts/release/test-publish-v0.7-bundle.sh
+          scripts/verify-release-contract.sh --publication-workflow
+      - name: Download frozen v0.7 candidate, evidence, and release bytes
+        if: steps.release_metadata.outputs.version == '0.7.0'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.v07_artifact_name }}
+          path: ${{ runner.temp }}/chirps-v0.7-release-bundle
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.v07_artifact_run_id }}
+      - name: Verify frozen v0.7 evidence without rebuilding
+        if: steps.release_metadata.outputs.version == '0.7.0'
+        run: |
+          root="${RUNNER_TEMP}/chirps-v0.7-release-bundle"
+          scripts/run-v0.7-release-gate.sh \
+            --candidate "${root}/candidate.json" \
+            --evidence "${root}/evidence.json" \
+            --bundle "${root}/bundle.json"
       - name: Run v0.6 target-version release gate
         if: steps.release_metadata.outputs.version == '0.6.0'
         run: |
@@ -108,9 +151,19 @@ jobs:
         run: |
           version="${{ steps.release_metadata.outputs.version }}"
           commit="${{ steps.release_metadata.outputs.commit }}"
-          args=(--version "${version}" --source-commit "${commit}" --require-ready)
+          args=(--version "${version}" --source-commit "${commit}")
           if [[ "${version}" == "0.6.0" ]]; then
+            args+=(--require-ready)
             args+=(--manifest "${RUNNER_TEMP}/chirps-v0.6-release-evidence/manifest.json")
+          elif [[ "${version}" == "0.7.0" ]]; then
+            root="${RUNNER_TEMP}/chirps-v0.7-release-bundle"
+            args+=(
+              --candidate "${root}/candidate.json"
+              --evidence "${root}/evidence.json"
+              --bundle "${root}/bundle.json"
+            )
+          else
+            args+=(--require-ready)
           fi
           scripts/verify-release-contract.sh "${args[@]}"
       - name: Archive v0.6 release evidence
@@ -175,7 +228,8 @@ jobs:
 
   publish-crate:
     name: Publish to crates.io
-    needs: [publish-tag]
+    needs: [ci-gate, publish-tag]
+    if: needs.ci-gate.outputs.version != '0.7.0'
     runs-on: ubuntu-latest
     environment: release
     env:
@@ -224,9 +278,62 @@ jobs:
       - name: Publish alopex-chirps
         run: ./scripts/publish-crate.sh alopex-chirps
 
+  publish-v07-bundle:
+    name: Publish exact stored v0.7 bundle
+    needs: [ci-gate, publish-tag]
+    if: needs.ci-gate.outputs.version == '0.7.0'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+      packages: write
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      CHIRPS_RELEASE_ENVIRONMENT_APPROVAL: release:${{ inputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Verify exact checkout identity
+        run: |
+          [[ "$(git rev-parse HEAD)" == "${RELEASE_COMMIT}" ]] || {
+            echo "checkout does not match the approved release commit" >&2
+            exit 1
+          }
+      - name: Download the same frozen v0.7 byte bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.v07_artifact_name }}
+          path: ${{ runner.temp }}/chirps-v0.7-release-bundle
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.v07_artifact_run_id }}
+      - name: Authenticate production image destination
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Install stored-image copy tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes skopeo
+      - name: Publish nine archives, production image, and GitHub assets from stored bytes
+        run: |
+          root="${RUNNER_TEMP}/chirps-v0.7-release-bundle"
+          scripts/release/publish-v0.7-bundle.sh \
+            --bundle "${root}/release-bundle.json" \
+            --candidate "${root}/candidate.json" \
+            --evidence "${root}/evidence.json" \
+            --require-environment-approval \
+            --resume-only-on-checksum-match
+
   create-release:
     name: Create GitHub Release
-    needs: publish-crate
+    needs: [ci-gate, publish-crate]
+    if: needs.ci-gate.outputs.version != '0.7.0'
     runs-on: ubuntu-latest
     environment: release
     permissions:

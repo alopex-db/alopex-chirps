@@ -9,6 +9,10 @@ homepage.workspace = true
 categories.workspace = true
 keywords = ["messaging", "durability", "iggy", "distributed", "alopex"]
 
+[features]
+default = []
+durable-verification = []
+
 [dependencies]
 alopex-chirps-core.workspace = true
 alopex-chirps-wire.workspace = true

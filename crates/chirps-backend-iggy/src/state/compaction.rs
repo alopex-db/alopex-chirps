@@ -665,6 +665,17 @@ impl RecoveredCompaction {
         &self.suffix
     }
 
+    pub(crate) fn materialized_state(
+        &self,
+    ) -> Result<(Option<Vec<u8>>, BTreeMap<[u8; 16], Vec<u8>>), CompactionError> {
+        let mut checkpoint = self.base.checkpoint.clone();
+        let mut identities = self.base.identities.clone();
+        for (sequence, bytes) in &self.suffix {
+            CompactionMutation::decode(*sequence, bytes)?.apply(&mut checkpoint, &mut identities);
+        }
+        Ok((checkpoint, identities))
+    }
+
     pub(crate) fn frame_commitment(&self) -> Result<FrameCommitment, CompactionError> {
         let mut commitment = self.base.frame_commitment;
         for (sequence, bytes) in &self.suffix {
@@ -950,6 +961,10 @@ impl CompactionStore {
 
     pub(crate) const fn active(&self) -> &RecoveredCompaction {
         &self.active
+    }
+
+    pub(crate) const fn recovery_required(&self) -> bool {
+        self.recovery_required
     }
 
     /// Completes a mutation registered before the barrier only after its old-generation

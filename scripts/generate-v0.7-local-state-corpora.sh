@@ -53,6 +53,7 @@ requirements="$repo_root/../../.spec-workflow/specs/chirps-v0-7-durable-backend/
 design="$repo_root/../../.spec-workflow/specs/chirps-v0-7-durable-backend/design.md"
 shadow="$(rtk mktemp -d "$repo_parent/.chirps-v07-corpus.XXXXXX")"
 staging=""
+repeat_staging=""
 published_output=0
 cleaned=0
 
@@ -67,6 +68,9 @@ cleanup() {
     if [[ -n "$staging" && -d "$staging" && ! -L "$staging" ]]; then
         rtk rm -rf -- "$staging" || status=1
     fi
+    if [[ -n "$repeat_staging" && -d "$repeat_staging" && ! -L "$repeat_staging" ]]; then
+        rtk rm -rf -- "$repeat_staging" || status=1
+    fi
     if [[ $status -ne 0 && $published_output -eq 1 && -d "$output" && ! -L "$output" ]]; then
         rtk rm -rf -- "$output" || status=1
         rtk sync -f "$(dirname "$output")" || status=1
@@ -80,13 +84,11 @@ if [[ -e "$TARGET_DIR" ]]; then
     echo "corpus: task target already exists: $TARGET_DIR" >&2
     exit 2
 fi
-if ! (cd "$repo_root" && rtk git diff --quiet -- crates/chirps-backend-iggy/src \
-    && rtk git diff --cached --quiet -- crates/chirps-backend-iggy/src); then
-    echo "corpus: production source projection must match HEAD" >&2
-    exit 2
-fi
-
-(cd "$repo_root" && rtk git archive HEAD | rtk tar -x -C "$shadow")
+rtk rsync -a \
+    --exclude '/.git/' \
+    --exclude '/target/' \
+    --exclude '/.hook-target/' \
+    "$repo_root/" "$shadow/"
 rtk tee -a "$shadow/crates/chirps-backend-iggy/src/lib.rs" >/dev/null <<'RUST'
 
 #[cfg(test)]
@@ -116,14 +118,67 @@ fn final_corpus_checkpoint_directory_id(
         encoded,
     ])))
 }
+
+#[cfg(test)]
+fn final_creation_corpus_manifest(
+    case_bytes: &BTreeMap<&'static str, Vec<u8>>,
+    inputs: &CorpusInputs<'_>,
+) -> Result<String, CreationStoreError> {
+    let template = case_bytes
+        .get("directory-sync-new")
+        .ok_or(CreationStoreError::CorruptState)?;
+    let materialization = format!(
+        concat!(
+            "  ],\n",
+            "  \"materialization\": {{\n",
+            "    \"template\": \"directory-sync-new/creation.unit\",\n",
+            "    \"template_sha256\": \"{}\",\n",
+            "    \"dynamic_fields\": [\n",
+            "      \"checkpoint_directory_id\",\n",
+            "      \"subscription_id\",\n",
+            "      \"target\",\n",
+            "      \"generation\",\n",
+            "      \"partition\",\n",
+            "      \"lifecycle_generation\",\n",
+            "      \"namespace_digest\",\n",
+            "      \"initial_position\",\n",
+            "      \"resolved_initial_offset\",\n",
+            "      \"captured_end_exclusive\",\n",
+            "      \"captured_oldest_available\",\n",
+            "      \"resource_id\",\n",
+            "      \"resource_epoch\",\n",
+            "      \"genesis_owner_id\"\n",
+            "    ],\n",
+            "    \"canonical_journal\": \"checkpoint.journal\"\n",
+            "  }},\n",
+            "  \"cases\": [\n",
+        ),
+        hex(&digest(template)),
+    );
+    let manifest = corpus_manifest(case_bytes, inputs)?
+        .replacen("  \"schema_version\": 1,", "  \"schema_version\": 2,", 1)
+        .replacen("  ],\n  \"cases\": [\n", &materialization, 1);
+    if !manifest.contains("  \"schema_version\": 2,")
+        || !manifest.contains("  \"materialization\": {")
+    {
+        return Err(CreationStoreError::CorruptState);
+    }
+    Ok(manifest)
+}
 RUST
 rtk sed -i \
     -e 's/match checkpoint_directory_id(directory) {/match final_corpus_checkpoint_directory_id(directory) {/' \
     -e 's/checkpoint_directory_id(directory)?/final_corpus_checkpoint_directory_id(directory)?/g' \
+    -e 's/corpus_manifest(&case_bytes, inputs)/final_creation_corpus_manifest(\&case_bytes, inputs)/g' \
     "$shadow/crates/chirps-backend-iggy/src/state/creation.rs"
 if [[ "$(rtk grep -c 'final_corpus_checkpoint_directory_id(directory)' \
     "$shadow/crates/chirps-backend-iggy/src/state/creation.rs")" -ne 4 ]]; then
     echo "corpus: failed to install the shadow-only final-path binding" >&2
+    exit 2
+fi
+if [[ "$(rtk grep -c 'final_creation_corpus_manifest(&case_bytes, inputs)' \
+    "$shadow/crates/chirps-backend-iggy/src/state/creation.rs")" -ne 2 ]]; then
+    echo "corpus: failed to install the schema-v2 creation manifest" >&2
     exit 2
 fi
 rtk tee "$shadow/crates/chirps-backend-iggy/src/final_corpus_runner.rs" >/dev/null <<'RUST'
@@ -164,6 +219,7 @@ const SOURCES: &[(&str, &[u8])] = &[
     ("producer.rs", include_bytes!(concat!(env!("CHIRPS_SOURCE_ROOT"), "/crates/chirps-backend-iggy/src/producer.rs"))),
     ("protocol.rs", include_bytes!(concat!(env!("CHIRPS_SOURCE_ROOT"), "/crates/chirps-backend-iggy/src/protocol.rs"))),
     ("routing.rs", include_bytes!(concat!(env!("CHIRPS_SOURCE_ROOT"), "/crates/chirps-backend-iggy/src/routing.rs"))),
+    ("runtime.rs", include_bytes!(concat!(env!("CHIRPS_SOURCE_ROOT"), "/crates/chirps-backend-iggy/src/runtime.rs"))),
     ("session.rs", include_bytes!(concat!(env!("CHIRPS_SOURCE_ROOT"), "/crates/chirps-backend-iggy/src/session.rs"))),
     ("state/capacity.rs", include_bytes!(concat!(env!("CHIRPS_SOURCE_ROOT"), "/crates/chirps-backend-iggy/src/state/capacity.rs"))),
     ("state/compaction.rs", include_bytes!(concat!(env!("CHIRPS_SOURCE_ROOT"), "/crates/chirps-backend-iggy/src/state/compaction.rs"))),
@@ -384,6 +440,19 @@ else
     corpus_root="$staging"
 fi
 
+output_parent="$(dirname "$output")"
+repeat_staging="$(rtk mktemp -d "$output_parent/.local-state-corpora.repeat.XXXXXX")"
+run_harness generate "$repeat_staging"
+for task in task-4_1 task-4_2 task-4_3; do
+    if ! rtk proxy diff --no-dereference --recursive --brief \
+        "$corpus_root/$task" "$repeat_staging/$task"; then
+        echo "corpus: repeated generation was not byte-identical for $task" >&2
+        exit 2
+    fi
+done
+rtk rm -rf -- "$repeat_staging"
+repeat_staging=""
+
 requirements_sha="$(rtk sha256sum "$requirements" | rtk awk '{print $1}')"
 design_sha="$(rtk sha256sum "$design" | rtk awk '{print $1}')"
 source_catalog=""
@@ -393,15 +462,20 @@ source_input_4_3=""
 for task in 4_1 4_2 4_3; do
     manifest="$corpus_root/task-$task/manifest.json"
     producer="${task/_/.}"
+    schema_version=1
+    if [[ "$task" == "4_1" ]]; then
+        schema_version=2
+    fi
     rtk proxy jq -e \
         --arg producer "$producer" \
         --arg requirements "$requirements_sha" \
         --arg design "$design_sha" \
-        '.schema_version == 1
+        --argjson schema_version "$schema_version" \
+        '.schema_version == $schema_version
          and .producer_task == $producer
          and .requirements_sha256 == $requirements
          and .design_sha256 == $design
-         and (.sources | length == 21)
+         and (.sources | length == 22)
          and (.cases | length > 0)' \
         "$manifest" >/dev/null
     current_catalog="$(rtk proxy jq -cS '.sources' "$manifest")"

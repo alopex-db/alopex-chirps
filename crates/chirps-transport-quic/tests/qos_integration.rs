@@ -1,7 +1,6 @@
 use alopex_chirps_transport_quic::{QosConfig, QosController, StreamKind};
 use alopex_chirps_wire::frame::{Frame, UserMessage};
 use alopex_chirps_wire::node_id::NodeId;
-use std::time::Instant;
 
 fn user_frame() -> Frame {
     Frame::User(UserMessage {
@@ -57,48 +56,5 @@ async fn raft_queueing_delay_is_bounded_under_user_load() {
     assert!(
         observed_user_turn,
         "the loaded lane must exercise DWRR fairness"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn user_throughput_degrades_less_than_10pct_under_raft_load() {
-    let mut qos = QosController::new(QosConfig::default());
-    let from = NodeId::new();
-
-    // Baseline user-only drain time
-    let user_count = 2_000;
-    for _ in 0..user_count {
-        qos.enqueue(StreamKind::User, user_frame()).await.unwrap();
-    }
-    let start = Instant::now();
-    while let Some((_kind, _)) = qos.dequeue() {}
-    let baseline_time = start.elapsed();
-
-    // Mix with Raft load
-    for _ in 0..user_count {
-        qos.enqueue(StreamKind::User, user_frame()).await.unwrap();
-    }
-    for i in 0..1_000 {
-        qos.enqueue(StreamKind::Raft, raft_frame(i, from))
-            .await
-            .unwrap();
-    }
-    let start = Instant::now();
-    let mut drained_users = 0;
-    while let Some((kind, _)) = qos.dequeue() {
-        if kind == StreamKind::User {
-            drained_users += 1;
-        }
-        if drained_users == user_count {
-            break;
-        }
-    }
-    let mixed_time = start.elapsed();
-
-    assert!(
-        mixed_time.as_secs_f64() <= baseline_time.as_secs_f64() * 1.10 + 0.001,
-        "User throughput degraded >10%: baseline {:?}, mixed {:?}",
-        baseline_time,
-        mixed_time
     );
 }

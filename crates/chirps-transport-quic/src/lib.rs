@@ -12,6 +12,7 @@
 
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
+use alopex_chirps_core::connectivity::{EndpointResolver, StaticEndpointResolver};
 use alopex_chirps_core::error::TransportError;
 use alopex_chirps_wire::node_id::NodeId;
 use alopex_chirps_wire::{envelope::FrameEnvelopeV2, frame::Frame};
@@ -243,11 +244,29 @@ pub struct QuicBackend {
 impl QuicBackend {
     /// Create a backend using default transport config (v0.4) and provided node config.
     pub async fn new(node_id: NodeId, config: Arc<NodeConfig>) -> anyhow::Result<Self> {
+        let resolver = Arc::new(StaticEndpointResolver::from_seeds(config.seeds.clone()));
+        Self::new_with_endpoint_resolver(node_id, config, resolver).await
+    }
+
+    /// Creates a backend whose connection attempts are supplied by a resolver.
+    /// The resolver owns locations; authenticated handshakes continue to own
+    /// the `NodeId` to connection mapping.
+    pub async fn new_with_endpoint_resolver(
+        node_id: NodeId,
+        config: Arc<NodeConfig>,
+        endpoint_resolver: Arc<dyn EndpointResolver>,
+    ) -> anyhow::Result<Self> {
         let transport_config = TransportConfigV04 {
             send_queue_capacity: config.send_queue_capacity,
             ..Default::default()
         };
-        Self::new_with_config(node_id, config, transport_config).await
+        Self::new_with_config_and_endpoint_resolver(
+            node_id,
+            config,
+            transport_config,
+            endpoint_resolver,
+        )
+        .await
     }
 
     /// Create a backend with explicit transport configuration (priority, retransmit, QoS, handshake settings).
@@ -255,6 +274,18 @@ impl QuicBackend {
         node_id: NodeId,
         config: Arc<NodeConfig>,
         transport_config: TransportConfigV04,
+    ) -> anyhow::Result<Self> {
+        let resolver = Arc::new(StaticEndpointResolver::from_seeds(config.seeds.clone()));
+        Self::new_with_config_and_endpoint_resolver(node_id, config, transport_config, resolver)
+            .await
+    }
+
+    /// Creates a backend with explicit transport configuration and locations.
+    pub async fn new_with_config_and_endpoint_resolver(
+        node_id: NodeId,
+        config: Arc<NodeConfig>,
+        transport_config: TransportConfigV04,
+        endpoint_resolver: Arc<dyn EndpointResolver>,
     ) -> anyhow::Result<Self> {
         config.validate()?;
         if transport_config.send_queue_capacity == 0 {
@@ -289,7 +320,7 @@ impl QuicBackend {
             Arc::clone(&metrics_ext),
         ));
         let reconnect_tx = start_seed_reconnector(
-            config.seeds.clone(),
+            endpoint_resolver,
             endpoint.clone(),
             client_config.clone(),
             Arc::clone(&connections),
@@ -379,6 +410,7 @@ impl QuicBackend {
                                             if let Err(err) = handle_connection(
                                                 connection,
                                                 local_id,
+                                                None,
                                                 connections,
                                                 peer_caps,
                                                 handler,
@@ -539,6 +571,7 @@ impl MessageBackend for QuicBackend {
 async fn handle_connection(
     connection: Connection,
     local_id: NodeId,
+    expected_remote_id: Option<NodeId>,
     connections: Arc<RwLock<HashMap<NodeId, Connection>>>,
     peer_capabilities: Arc<RwLock<HashMap<NodeId, NegotiatedCapabilities>>>,
     receive_handler: Arc<ReceiveHandler>,
@@ -587,6 +620,12 @@ async fn handle_connection(
         }
     };
     let remote_id = remote_msg.node_id;
+    if !remote_identity_matches(expected_remote_id, remote_id) {
+        connection.close(1u32.into(), b"endpoint identity mismatch");
+        return Err(TransportError::Connection(format!(
+            "endpoint identity mismatch: expected {expected_remote_id:?}, got {remote_id:?}"
+        )));
+    }
     let peer_label = format!("{remote_id:?}");
 
     connections
@@ -695,6 +734,27 @@ async fn handle_connection(
     }
 
     Ok(())
+}
+
+fn remote_identity_matches(expected_remote_id: Option<NodeId>, remote_id: NodeId) -> bool {
+    expected_remote_id.is_none_or(|expected| expected == remote_id)
+}
+
+#[cfg(test)]
+mod connectivity_tests {
+    use super::remote_identity_matches;
+    use alopex_chirps_wire::node_id::NodeId;
+
+    #[test]
+    fn resolver_identity_binding_rejects_a_different_handshake_node() {
+        let expected = NodeId::from([1; 16]);
+        assert!(remote_identity_matches(Some(expected), expected));
+        assert!(!remote_identity_matches(
+            Some(expected),
+            NodeId::from([2; 16])
+        ));
+        assert!(remote_identity_matches(None, NodeId::from([2; 16])));
+    }
 }
 
 async fn send_handshake(
