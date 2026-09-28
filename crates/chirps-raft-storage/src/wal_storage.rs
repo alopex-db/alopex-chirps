@@ -7,7 +7,7 @@ use crate::types::{
     LogState, OptionalSend, RaftLogReader, RaftSnapshotBuilder, Snapshot, SnapshotMeta,
     StorageError, StoredMembership, Vote,
 };
-use alopex_core::log::wal::{WalReader, WalRecord as CoreWalRecord};
+use alopex_core::log::wal::{WalReader, WalRecord as CoreWalRecord, WalWriter};
 use alopex_core::types::TxnId;
 use anyhow::{Context, Result, anyhow};
 use openraft::{ErrorSubject, ErrorVerb};
@@ -17,8 +17,8 @@ use sha2::{Digest, Sha256};
 use std::any::Any;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fmt::Debug;
-use std::fs::{File, OpenOptions};
-use std::io::{self, BufWriter, Cursor, Read, Write};
+use std::fs::OpenOptions;
+use std::io::{self, Cursor, Read, Write};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -151,7 +151,7 @@ struct CoordinatorGate {
 }
 
 struct DurabilityParticipant {
-    writer: Weak<Mutex<BufWriter<File>>>,
+    writer: Weak<Mutex<WalWriter>>,
     dirty: Weak<AtomicBool>,
 }
 
@@ -189,7 +189,7 @@ impl WalDurabilityCoordinator {
         }
     }
 
-    fn register(&self, writer: &Arc<Mutex<BufWriter<File>>>, dirty: &Arc<AtomicBool>) {
+    fn register(&self, writer: &Arc<Mutex<WalWriter>>, dirty: &Arc<AtomicBool>) {
         let mut participants = self.participants.lock().unwrap();
         participants
             .retain(|entry| entry.writer.strong_count() > 0 && entry.dirty.strong_count() > 0);
@@ -315,15 +315,19 @@ pub(crate) trait WalSink: Send + Sync {
 }
 
 struct RealWalSink {
-    inner: Arc<Mutex<BufWriter<File>>>,
+    inner: Arc<Mutex<WalWriter>>,
     dirty: Arc<AtomicBool>,
     coordinator: Arc<WalDurabilityCoordinator>,
 }
 
 impl RealWalSink {
     fn new(path: &Path, coordinator: Arc<WalDurabilityCoordinator>) -> Result<Self> {
-        let file = OpenOptions::new().append(true).create(true).open(path)?;
-        let inner = Arc::new(Mutex::new(BufWriter::new(file)));
+        // Core repairs torn tails on open. Raft instead rejects damaged logs,
+        // so validate before giving the writer permission to change the file.
+        if path.try_exists()? {
+            validate_wal_framing(path)?;
+        }
+        let inner = Arc::new(Mutex::new(WalWriter::new(path)?));
         let dirty = Arc::new(AtomicBool::new(false));
         coordinator.register(&inner, &dirty);
         Ok(Self {
@@ -333,18 +337,8 @@ impl RealWalSink {
         })
     }
 
-    fn append_record(writer: &mut BufWriter<File>, record: &CoreWalRecord) -> Result<()> {
-        let data = bincode::serialize(record)?;
-        let checksum = crc32fast::hash(&data);
-        writer.write_all(&(data.len() as u32).to_le_bytes())?;
-        writer.write_all(&checksum.to_le_bytes())?;
-        writer.write_all(&data)?;
-        Ok(())
-    }
-
-    fn sync_writer(writer: &mut BufWriter<File>) -> Result<()> {
-        writer.flush()?;
-        writer.get_ref().sync_all()?;
+    fn sync_writer(writer: &mut WalWriter) -> Result<()> {
+        writer.sync()?;
         PROCESS_FSYNC_CALLS.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -354,7 +348,7 @@ impl WalSink for RealWalSink {
     fn append(&mut self, record: &CoreWalRecord, sync: bool) -> Result<()> {
         {
             let mut guard = self.inner.lock().unwrap();
-            Self::append_record(&mut guard, record)?;
+            guard.append(record)?;
         }
         self.dirty.store(true, Ordering::Release);
         if sync {
@@ -705,6 +699,8 @@ where
     /// LogIdベースの取得ヘルパー。
     ///
     /// openraft標準のindex指定APIを補完するために用意されたラッパー。
+    // Keep the established public Openraft error type; boxing would break callers.
+    #[allow(clippy::result_large_err)]
     pub async fn get_entries_by_log_id(
         &mut self,
         range: RangeInclusive<LogId<ChirpsNodeId>>,
@@ -728,9 +724,9 @@ where
     where
         RB: RangeBounds<u64> + Clone,
     {
-        let reader = WalReader::new(&self.wal_path)?;
+        let mut reader = WalReader::new(&self.wal_path)?;
         let mut entries: BTreeMap<u64, Entry<ChirpsTypeConfig>> = BTreeMap::new();
-        for record in reader {
+        for record in reader.by_ref() {
             let frame = match record? {
                 CoreWalRecord::Put(_, _, bytes) => decode_frame::<WalFrame>(&bytes)?,
                 _ => continue,
@@ -769,6 +765,12 @@ where
                 }
                 _ => {}
             }
+        }
+
+        // Core's reader treats checksum damage as a recoverable tail. Raft must
+        // still reject that damage instead of returning cached/partial entries.
+        if reader.valid_prefix_len() != std::fs::metadata(&self.wal_path)?.len() {
+            return Err(anyhow!("WAL read stopped before the end of the file"));
         }
 
         let filtered = entries
@@ -852,6 +854,9 @@ fn validate_wal_framing(path: &Path) -> Result<()> {
         if crc32fast::hash(&record) != expected_checksum {
             return Err(anyhow!("WAL checksum mismatch at byte {offset}"));
         }
+        // A checksum-valid but undecodable record is also a torn tail to Core.
+        // Reject it before opening WalWriter so failed recovery preserves bytes.
+        bincode::deserialize::<CoreWalRecord>(&record).context("invalid WAL record encoding")?;
     }
     Ok(())
 }
@@ -1584,6 +1589,89 @@ mod tests {
     }
 
     #[test]
+    fn core_writer_preserves_legacy_bytes_and_defers_durability() {
+        // v0.3 framing: u32 length, CRC32, then bincode Put(TxnId(7), "k", "v").
+        // Fixed bytes keep this compatibility check independent of the writer.
+        const LEGACY_RECORD: &[u8] = &[
+            0x1e, 0x00, 0x00, 0x00, 0xb7, 0x2f, 0xef, 0x8c, 0x01, 0x00, 0x00, 0x00, 0x07, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x6b, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76,
+        ];
+        let root = tempdir().unwrap();
+        let path = root.path().join("legacy.wal");
+        std::fs::write(&path, LEGACY_RECORD).unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+        let mut sink = RealWalSink::new(&path, coordinator).unwrap();
+        let record = CoreWalRecord::Put(TxnId(7), b"k".to_vec(), b"v".to_vec());
+        sink.append(&record, false).unwrap();
+        assert!(sink.dirty.load(Ordering::Acquire));
+        assert_eq!(std::fs::read(&path).unwrap(), LEGACY_RECORD);
+        sink.sync().unwrap();
+        assert!(!sink.dirty.load(Ordering::Acquire));
+        assert_eq!(std::fs::read(&path).unwrap(), LEGACY_RECORD.repeat(2));
+        let recovered = WalReader::new(&path)
+            .unwrap()
+            .collect::<alopex_core::error::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            recovered,
+            vec![
+                record,
+                CoreWalRecord::Put(TxnId(7), b"k".to_vec(), b"v".to_vec())
+            ]
+        );
+    }
+
+    #[test]
+    fn core_writer_rejects_invalid_record_encoding_without_repairing_it() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("invalid.wal");
+        let payload = u32::MAX.to_le_bytes(); // Not a valid CoreWalRecord variant.
+        let mut bytes = (payload.len() as u32).to_le_bytes().to_vec();
+        bytes.extend_from_slice(&crc32fast::hash(&payload).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        std::fs::write(&path, &bytes).unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+        assert!(RealWalSink::new(&path, coordinator).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(24))]
+
+        #[test]
+        fn core_writer_accepts_only_complete_record_prefixes(
+            values in proptest::collection::vec(
+                proptest::collection::vec(proptest::prelude::any::<u8>(), 0..24), 1..4
+            )
+        ) {
+            let root = tempdir().unwrap();
+            let path = root.path().join("prefix.wal");
+            let mut bytes = Vec::new();
+            let mut boundaries = vec![0];
+            for value in values {
+                let record = CoreWalRecord::Put(TxnId(1), b"raft".to_vec(), value);
+                let body = bincode::serialize(&record).unwrap();
+                bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                bytes.extend_from_slice(&crc32fast::hash(&body).to_le_bytes());
+                bytes.extend_from_slice(&body);
+                boundaries.push(bytes.len());
+            }
+            // The reference model is the set of original append boundaries,
+            // independent of the parser's header/length/EOF branches.
+            for length in 0..=bytes.len() {
+                let prefix = &bytes[..length];
+                std::fs::write(&path, prefix).unwrap();
+                let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+                let result = RealWalSink::new(&path, coordinator);
+                proptest::prop_assert_eq!(result.is_ok(), boundaries.contains(&length));
+                drop(result);
+                proptest::prop_assert_eq!(std::fs::read(&path).unwrap(), prefix);
+            }
+        }
+    }
+
+    #[test]
     fn durability_coordinator_flushes_concurrent_group_wals() {
         let root = tempfile::tempdir().unwrap();
         let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::from_millis(1)));
@@ -1625,6 +1713,23 @@ mod tests {
         let after = process_durability_metrics();
         assert_eq!(after.barriers - before.barriers, 1);
         assert_eq!(after.participant_syncs - before.participant_syncs, 2);
+    }
+
+    #[tokio::test]
+    async fn wal_read_rejects_checksum_damage_after_open() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let mut storage = WalRaftStorage::new(cfg, GroupId(1), 1, MockStateMachine).unwrap();
+        storage
+            .append_for_test(vec![sample_entry(1)])
+            .await
+            .unwrap();
+        let path = storage.wal_path.clone();
+        let mut bytes = std::fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 0xff;
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(storage.try_get_log_entries(1..=1).await.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 
     #[tokio::test]

@@ -201,6 +201,7 @@ dependencies = [
  "bincode",
  "crc32fast",
  "openraft",
+ "proptest",
  "serde",
  "sha2",
  "tempfile",
@@ -246,14 +247,17 @@ dependencies = [
 
 [[package]]
 name = "alopex-core"
-version = "0.3.4"
+version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f91246870a303fd5bde67d9d9871295ce38a389da21a167044db847f47d1866d"
+checksum = "98109a3d0a27e17320c0a6b225ccefac9a8382317977cdd0f743d5132d19eee3"
 dependencies = [
  "bincode",
  "crc32fast",
+ "futures-core",
+ "getrandom 0.2.17",
  "memmap2",
  "rand 0.8.7",
+ "regex",
  "serde",
  "snap",
  "thiserror 1.0.69",
