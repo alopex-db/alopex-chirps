@@ -101,7 +101,8 @@ def check_artifact_budget(root,records):
 def artifact(root,name,digest):
     file=artifact_path(root,name)
     if file.stat().st_size>MAX_ARTIFACT_BYTES:raise ValueError('oversized formal artifact')
-    raw=file.read_bytes()
+    with file.open('rb') as stream:raw=stream.read(MAX_ARTIFACT_BYTES+1)
+    if len(raw)>MAX_ARTIFACT_BYTES:raise ValueError('oversized formal artifact')
     if sha(raw)!=digest:raise ValueError('formal artifact digest differs')
     return raw
 

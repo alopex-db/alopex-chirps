@@ -77,6 +77,14 @@ class EvidenceContract(unittest.TestCase):
     def test_aggregate_budget_precedes_artifact_reads(self):
         with patch.object(e,'MAX_ARTIFACT_BYTES',64),patch.object(e,'artifact',side_effect=AssertionError('read before size check')):
             with self.assertRaisesRegex(ValueError,'aggregate formal artifact'):self.check()
+    def test_growth_after_stat_is_bounded(self):
+        import io
+        from unittest.mock import MagicMock
+        file=MagicMock();file.stat.return_value.st_size=1
+        stream=io.BytesIO(b'x'*100);file.open.return_value.__enter__.return_value=stream
+        with patch.object(e,'artifact_path',return_value=file),patch.object(e,'MAX_ARTIFACT_BYTES',8):
+            with self.assertRaisesRegex(ValueError,'oversized formal artifact'):e.artifact(self.root,'growth.log','0'*64)
+        self.assertEqual(stream.tell(),9)
     def test_report_size_precedes_json_allocation(self):
         path=self.root/'report.json';path.write_text('{\"synthetic\":true}')
         with patch.object(e,'MAX_REPORT_BYTES',4),patch.object(e,'unique_json',side_effect=AssertionError('parsed oversized report')):
