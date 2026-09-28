@@ -332,3 +332,45 @@ async fn v061_default_profile_extensions_preserve_delivery_and_reject_durable_fa
     assert!(backend.connected_peers().is_empty());
     backend.close().await.unwrap();
 }
+
+#[cfg(feature = "tso")]
+#[test]
+fn v061_tso_configuration_literals_remain_exhaustive() {
+    use alopex_chirps::tso::{TsoClientConfig, TsoClientOptions, TsoConfig, TsoOracleOptions};
+    let _ = TsoConfig {
+        timestamp_ttl: Duration::from_secs(3),
+    };
+    let _ = TsoClientConfig {
+        batch_size: 10_000,
+        max_retries: 10,
+        initial_backoff: Duration::from_millis(10),
+        max_backoff: Duration::from_secs(1),
+    };
+    assert_eq!(TsoClientOptions::default().prefetch_threshold, 1_000);
+    assert_eq!(TsoOracleOptions::default().batch_size, 10_000);
+}
+
+#[cfg(feature = "snapshot")]
+#[test]
+fn v061_snapshot_shapes_remain_exhaustive() {
+    use alopex_chirps::snapshot::{SnapshotTransferConfig, SnapshotTransferError};
+    let _ = SnapshotTransferConfig {
+        chunk_threshold: 1024,
+        chunk_size: 64,
+        max_concurrent_chunks: 4,
+        max_retries: 3,
+    };
+    fn legacy_match(error: SnapshotTransferError) -> &'static str {
+        match error {
+            SnapshotTransferError::InvalidConfig(_) => "config",
+            SnapshotTransferError::InvalidManifest(_) => "manifest",
+            SnapshotTransferError::Integrity(_) => "integrity",
+            SnapshotTransferError::Retryable(_) => "retryable",
+            SnapshotTransferError::Terminal(_) => "terminal",
+        }
+    }
+    assert_eq!(
+        legacy_match(SnapshotTransferError::terminal("legacy")),
+        "terminal"
+    );
+}

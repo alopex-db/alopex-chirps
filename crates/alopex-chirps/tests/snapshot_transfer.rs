@@ -4,7 +4,8 @@ use alopex_chirps::snapshot::{
     DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_THRESHOLD, DEFAULT_MAX_CONCURRENT_CHUNKS,
     DEFAULT_MAX_RETRIES, SnapshotChunk, SnapshotChunkSink, SnapshotManifest, SnapshotProgress,
     SnapshotProgressObserver, SnapshotReceiver, SnapshotSender, SnapshotTransferConfig,
-    SnapshotTransferError, SnapshotTransferReceipt,
+    SnapshotTransferError, SnapshotTransferFailure, SnapshotTransferOptions,
+    SnapshotTransferReceipt,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -47,6 +48,7 @@ struct HarnessSink {
     visible: AtomicBool,
     progress: Arc<ProgressLog>,
     completions: AtomicUsize,
+    aborts: AtomicUsize,
 }
 
 impl HarnessSink {
@@ -62,6 +64,7 @@ impl HarnessSink {
             visible: AtomicBool::new(false),
             progress: Arc::new(ProgressLog::default()),
             completions: AtomicUsize::new(0),
+            aborts: AtomicUsize::new(0),
         })
     }
 
@@ -119,6 +122,7 @@ impl SnapshotChunkSink for HarnessSink {
     }
 
     async fn abort(&self, _snapshot_id: &str) {
+        self.aborts.fetch_add(1, Ordering::SeqCst);
         *self.receiver.lock().await = None;
     }
 }
@@ -129,7 +133,6 @@ fn config() -> SnapshotTransferConfig {
         chunk_size: 4,
         max_concurrent_chunks: 2,
         max_retries: 1,
-        transfer_timeout: Duration::from_secs(60),
     }
 }
 
@@ -206,18 +209,67 @@ async fn failed_transfer_never_exposes_partial_snapshot() {
 #[tokio::test]
 async fn transfer_timeout_aborts_without_exposing_partial_snapshot() {
     let sink = HarnessSink::new(None, true);
-    let mut cfg = config();
-    cfg.transfer_timeout = Duration::from_millis(1);
-    let sender = SnapshotSender::new(cfg, Arc::new(ProgressLog::default())).unwrap();
+    let sender = SnapshotSender::with_options(
+        config(),
+        Arc::new(ProgressLog::default()),
+        SnapshotTransferOptions {
+            transfer_timeout: Duration::from_millis(1),
+        },
+    )
+    .unwrap();
 
     let error = sender
-        .transfer("timeout", b"abcdefghijkl".to_vec(), sink.clone())
+        .transfer_detailed("timeout", b"abcdefghijkl".to_vec(), sink.clone())
         .await
         .unwrap_err();
 
-    assert!(matches!(error, SnapshotTransferError::Timeout));
+    assert!(matches!(error, SnapshotTransferFailure::Timeout));
     assert!(!sink.durable.load(Ordering::SeqCst));
     assert!(!sink.visible.load(Ordering::SeqCst));
+    assert_eq!(sink.aborts.load(Ordering::SeqCst), 1);
+    assert!(sink.receiver.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn legacy_timeout_is_terminal_and_abort_remains_effective() {
+    let sink = HarnessSink::new(None, true);
+    let sender = SnapshotSender::with_options(
+        config(),
+        Arc::new(ProgressLog::default()),
+        SnapshotTransferOptions {
+            transfer_timeout: Duration::from_millis(1),
+        },
+    )
+    .unwrap();
+    let error = sender
+        .transfer("legacy-timeout", b"abcdefghijkl".to_vec(), sink.clone())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, SnapshotTransferError::Terminal(message) if message.contains("timed out"))
+    );
+    assert!(!sink.durable.load(Ordering::SeqCst));
+    assert!(!sink.visible.load(Ordering::SeqCst));
+    assert_eq!(sink.aborts.load(Ordering::SeqCst), 1);
+    assert!(sink.receiver.lock().await.is_none());
+}
+
+#[test]
+fn snapshot_options_reject_zero_deadline_and_preserve_default() {
+    assert_eq!(
+        SnapshotTransferOptions::default().transfer_timeout,
+        Duration::from_secs(60)
+    );
+    assert!(matches!(
+        SnapshotSender::with_options(
+            config(),
+            Arc::new(ProgressLog::default()),
+            SnapshotTransferOptions {
+                transfer_timeout: Duration::ZERO
+            }
+        ),
+        Err(SnapshotTransferError::InvalidConfig(_))
+    ));
 }
 
 #[derive(Clone, Default)]

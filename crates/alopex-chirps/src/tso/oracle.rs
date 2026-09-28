@@ -10,17 +10,29 @@ pub const TSO_GROUP_ID: GroupId = GroupId(u64::MAX);
 
 #[derive(Clone, Copy, Debug)]
 pub struct TsoConfig {
-    pub batch_size: u32,
-    pub prefetch_threshold: u32,
     pub timestamp_ttl: Duration,
 }
 
 impl Default for TsoConfig {
     fn default() -> Self {
         Self {
+            timestamp_ttl: Duration::from_secs(3),
+        }
+    }
+}
+
+/// Additive allocation controls, separate from the v0.6.1 configuration literal.
+#[derive(Clone, Copy, Debug)]
+pub struct TsoOracleOptions {
+    pub batch_size: u32,
+    pub prefetch_threshold: u32,
+}
+
+impl Default for TsoOracleOptions {
+    fn default() -> Self {
+        Self {
             batch_size: 10_000,
             prefetch_threshold: 1_000,
-            timestamp_ttl: Duration::from_secs(3),
         }
     }
 }
@@ -42,18 +54,29 @@ impl TimestampOracle {
         clock: Arc<dyn Clock>,
         config: TsoConfig,
     ) -> Result<Self, TsoError> {
+        Self::with_options(node_id, group, clock, config, TsoOracleOptions::default())
+    }
+
+    /// Creates an oracle with explicit allocation validation controls.
+    pub fn with_options(
+        node_id: u64,
+        group: Arc<GroupHandle>,
+        clock: Arc<dyn Clock>,
+        config: TsoConfig,
+        options: TsoOracleOptions,
+    ) -> Result<Self, TsoError> {
         if group.group_id() != TSO_GROUP_ID {
             return Err(TsoError::InvalidTsoGroup {
                 expected: TSO_GROUP_ID,
                 actual: group.group_id(),
             });
         }
-        if config.batch_size == 0 {
+        if options.batch_size == 0 {
             return Err(TsoError::InvalidConfig(
                 "batch_size must be greater than zero".into(),
             ));
         }
-        if config.prefetch_threshold > config.batch_size {
+        if options.prefetch_threshold > options.batch_size {
             return Err(TsoError::InvalidConfig(
                 "prefetch_threshold must not exceed batch_size".into(),
             ));

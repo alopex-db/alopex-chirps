@@ -258,7 +258,6 @@ impl BackoffSleeper for TokioBackoffSleeper {
 #[derive(Clone, Copy, Debug)]
 pub struct TsoClientConfig {
     pub batch_size: u32,
-    pub prefetch_threshold: u32,
     pub max_retries: u32,
     pub initial_backoff: Duration,
     pub max_backoff: Duration,
@@ -268,10 +267,23 @@ impl Default for TsoClientConfig {
     fn default() -> Self {
         Self {
             batch_size: 10_000,
-            prefetch_threshold: 1_000,
             max_retries: 10,
             initial_backoff: Duration::from_millis(10),
             max_backoff: Duration::from_secs(1),
+        }
+    }
+}
+
+/// Additive client cache controls, preserving the legacy configuration shape.
+#[derive(Clone, Copy, Debug)]
+pub struct TsoClientOptions {
+    pub prefetch_threshold: u32,
+}
+
+impl Default for TsoClientOptions {
+    fn default() -> Self {
+        Self {
+            prefetch_threshold: 1_000,
         }
     }
 }
@@ -301,6 +313,7 @@ pub struct TsoClient {
     credential: Vec<u8>,
     leader: Option<u64>,
     config: TsoClientConfig,
+    options: TsoClientOptions,
     cache: VecDeque<CachedRange>,
     last_returned: Option<HybridTimestamp>,
 }
@@ -323,6 +336,26 @@ impl TsoClient {
         )
     }
 
+    /// Creates a client with explicit cache prefetch controls.
+    pub fn with_options(
+        transport: Arc<dyn TsoTransport>,
+        requester: u64,
+        credential: Vec<u8>,
+        leader: Option<u64>,
+        config: TsoClientConfig,
+        options: TsoClientOptions,
+    ) -> Result<Self, TsoError> {
+        Self::with_sleeper_and_options(
+            transport,
+            Arc::new(TokioBackoffSleeper),
+            requester,
+            credential,
+            leader,
+            config,
+            options,
+        )
+    }
+
     pub fn with_sleeper(
         transport: Arc<dyn TsoTransport>,
         sleeper: Arc<dyn BackoffSleeper>,
@@ -330,6 +363,27 @@ impl TsoClient {
         credential: Vec<u8>,
         leader: Option<u64>,
         config: TsoClientConfig,
+    ) -> Result<Self, TsoError> {
+        Self::with_sleeper_and_options(
+            transport,
+            sleeper,
+            requester,
+            credential,
+            leader,
+            config,
+            TsoClientOptions::default(),
+        )
+    }
+
+    /// Creates a client with explicit backoff and cache prefetch controls.
+    pub fn with_sleeper_and_options(
+        transport: Arc<dyn TsoTransport>,
+        sleeper: Arc<dyn BackoffSleeper>,
+        requester: u64,
+        credential: Vec<u8>,
+        leader: Option<u64>,
+        config: TsoClientConfig,
+        options: TsoClientOptions,
     ) -> Result<Self, TsoError> {
         if config.batch_size == 0 {
             return Err(TsoError::InvalidConfig(
@@ -348,6 +402,7 @@ impl TsoClient {
             credential,
             leader,
             config,
+            options,
             cache: VecDeque::new(),
             last_returned: None,
         })
@@ -374,7 +429,7 @@ impl TsoClient {
         let mut values = Vec::with_capacity(count as usize);
         while values.len() < count as usize {
             if self.cache_remaining() > 0
-                && self.cache_remaining() <= u64::from(self.config.prefetch_threshold)
+                && self.cache_remaining() <= u64::from(self.options.prefetch_threshold)
             {
                 self.refill(self.config.batch_size).await?;
             }

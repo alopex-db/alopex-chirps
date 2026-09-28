@@ -1,8 +1,8 @@
 #![cfg(feature = "tso")]
 
 use alopex_chirps::tso::{
-    BackoffSleeper, HybridTimestamp, TimestampRange, TsoClient, TsoClientConfig, TsoError,
-    TsoRequest, TsoTransport,
+    BackoffSleeper, HybridTimestamp, TimestampRange, TsoClient, TsoClientConfig, TsoClientOptions,
+    TsoError, TsoRequest, TsoTransport,
 };
 use async_trait::async_trait;
 use std::collections::VecDeque;
@@ -64,7 +64,6 @@ fn range(physical: u64, logical: u32, count: u32) -> TimestampRange {
 fn config(batch_size: u32) -> TsoClientConfig {
     TsoClientConfig {
         batch_size,
-        prefetch_threshold: 0,
         max_retries: 3,
         initial_backoff: Duration::from_millis(10),
         max_backoff: Duration::from_millis(100),
@@ -75,13 +74,16 @@ fn config(batch_size: u32) -> TsoClientConfig {
 async fn empty_cache_fetches_and_consumes_a_committed_batch() {
     let transport = Arc::new(ScriptedTransport::with_responses(vec![Ok(range(10, 0, 3))]));
     let sleeper = Arc::new(RecordingSleeper::default());
-    let mut client = TsoClient::with_sleeper(
+    let mut client = TsoClient::with_sleeper_and_options(
         transport.clone(),
         sleeper,
         7,
         b"credential".to_vec(),
         Some(1),
         config(3),
+        TsoClientOptions {
+            prefetch_threshold: 0,
+        },
     )
     .unwrap();
 
@@ -106,13 +108,16 @@ async fn not_leader_refreshes_hint_and_retries() {
         Ok(range(20, 0, 2)),
     ]));
     let sleeper = Arc::new(RecordingSleeper::default());
-    let mut client = TsoClient::with_sleeper(
+    let mut client = TsoClient::with_sleeper_and_options(
         transport.clone(),
         sleeper,
         7,
         b"credential".to_vec(),
         Some(1),
         config(2),
+        TsoClientOptions {
+            prefetch_threshold: 0,
+        },
     )
     .unwrap();
 
@@ -135,13 +140,16 @@ async fn leader_rediscovery_transport_failure_uses_backoff() {
         Ok(2),
     ]);
     let sleeper = Arc::new(RecordingSleeper::default());
-    let mut client = TsoClient::with_sleeper(
+    let mut client = TsoClient::with_sleeper_and_options(
         transport.clone(),
         sleeper.clone(),
         7,
         b"credential".to_vec(),
         Some(1),
         config(1),
+        TsoClientOptions {
+            prefetch_threshold: 0,
+        },
     )
     .unwrap();
 
@@ -166,13 +174,16 @@ async fn retryable_failure_preserves_cache_and_monotonicity() {
         Ok(range(30, 2, 2)),
     ]));
     let sleeper = Arc::new(RecordingSleeper::default());
-    let mut client = TsoClient::with_sleeper(
+    let mut client = TsoClient::with_sleeper_and_options(
         transport,
         sleeper.clone(),
         7,
         b"credential".to_vec(),
         Some(1),
         config(2),
+        TsoClientOptions {
+            prefetch_threshold: 0,
+        },
     )
     .unwrap();
 
@@ -188,4 +199,41 @@ async fn retryable_failure_preserves_cache_and_monotonicity() {
         sleeper.0.lock().unwrap().as_slice(),
         &[Duration::from_millis(10), Duration::from_millis(20)]
     );
+}
+
+#[tokio::test]
+async fn additive_prefetch_options_preserve_zero_threshold_and_legacy_default() {
+    for threshold in [None, Some(0), Some(1), Some(2), Some(u32::MAX)] {
+        let transport = Arc::new(ScriptedTransport::with_responses(vec![
+            Ok(range(10, 0, 3)),
+            Ok(range(10, 3, 3)),
+            Ok(range(10, 6, 3)),
+        ]));
+        let mut client = match threshold {
+            None => TsoClient::new(transport.clone(), 7, vec![], Some(1), config(3)),
+            Some(prefetch_threshold) => TsoClient::with_options(
+                transport.clone(),
+                7,
+                vec![],
+                Some(1),
+                config(3),
+                TsoClientOptions { prefetch_threshold },
+            ),
+        }
+        .unwrap();
+        assert_eq!(
+            client.get_timestamp().await.unwrap(),
+            HybridTimestamp::new(10, 0)
+        );
+        assert_eq!(
+            client.get_timestamp().await.unwrap(),
+            HybridTimestamp::new(10, 1)
+        );
+        let expected = match threshold {
+            None | Some(3..=u32::MAX) => 3,
+            Some(2) => 2,
+            Some(_) => 1,
+        };
+        assert_eq!(transport.requests.lock().unwrap().len(), expected);
+    }
 }

@@ -1,7 +1,9 @@
 #![cfg(all(feature = "multi-raft", feature = "snapshot", feature = "tso"))]
 
-use alopex_chirps::snapshot::SnapshotTransferConfig;
-use alopex_chirps::tso::{ChirpsTsoTransport, TsoClientConfig, TsoConfig};
+use alopex_chirps::snapshot::{SnapshotTransferConfig, SnapshotTransferOptions};
+use alopex_chirps::tso::{
+    ChirpsTsoTransport, TsoClientConfig, TsoClientOptions, TsoConfig, TsoOracleOptions,
+};
 use alopex_chirps::{ChirpsMetricsCollector, MeshHandle, RaftNode};
 use std::time::Duration;
 
@@ -11,14 +13,21 @@ fn public_work_order_two_apis_exist() {
     let _ = ChirpsTsoTransport::new;
     let _ = RaftNode::is_started;
 
-    let _ = TsoConfig {
+    let _ = TsoOracleOptions {
         batch_size: 10_000,
         prefetch_threshold: 1_000,
+    };
+    let _ = TsoClientOptions {
+        prefetch_threshold: 1_000,
+    };
+    let _ = SnapshotTransferOptions {
+        transfer_timeout: Duration::from_secs(60),
+    };
+    let _ = TsoConfig {
         timestamp_ttl: Duration::from_secs(3),
     };
     let _ = TsoClientConfig {
         batch_size: 10_000,
-        prefetch_threshold: 1_000,
         max_retries: 10,
         initial_backoff: Duration::from_millis(10),
         max_backoff: Duration::from_secs(1),
@@ -28,7 +37,6 @@ fn public_work_order_two_apis_exist() {
         chunk_threshold: 10 * 1024,
         max_concurrent_chunks: 4,
         max_retries: 3,
-        transfer_timeout: Duration::from_secs(60),
     };
 }
 
