@@ -179,6 +179,7 @@ if [[ "$structure_only" == true ]]; then
   "$repo_root/scripts/verify-release-contract.sh" \
     --version 0.7.0 --structure-only --schema "$schema"
   "$repo_root/scripts/release/verify-published-v0.7.sh" --self-test
+  python3 "$repo_root/scripts/release/test-owned-target.py"
   for check in public-structure consumer-evidence perf-verifier api-evidence semantic-hooks publication-workflow; do
     python3 "$repo_root/scripts/release/test-v07-${check}.py"
   done

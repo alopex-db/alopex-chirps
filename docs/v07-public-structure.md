@@ -31,9 +31,11 @@ are the existing source/configuration contracts, not newly invented schemas.
 Runtime configuration and deployment evidence still require their existing
 semantic validators after candidate freeze.
 
-Complete RELEASE-STRUCTURE also requires the authoritative task-ID/reference
-and eight-field Prompt validation and the owned-target cleanup checks. The
-private task input's trusted CI supply route is not yet established. No fixed
+The public gate also executes the shared owned-target helper's negative and
+idempotency tests. Complete RELEASE-STRUCTURE still requires the authoritative
+task-ID/reference and eight-field Prompt validation. Its read-only checker is
+documented in [task structure validation](v07-task-structure.md), but the private
+task input's trusted CI supply route is not yet established. No fixed
 private workspace path, copied task text, optional-input success, or self-declared
 report substitutes for that input. Public source checks need no server binary,
 corpus, post-freeze evidence, Cargo build, or network.
