@@ -224,6 +224,10 @@ enum Adapter {
     },
     #[cfg(test)]
     Test { delay: Duration },
+    #[cfg(test)]
+    ControlledTest {
+        reject: Arc<std::sync::atomic::AtomicBool>,
+    },
 }
 
 struct Measurement {
@@ -425,44 +429,34 @@ async fn collect(
     ));
 
     let observation_id = observation_id(plan, phase, sample, expected_arm, safety_control)?;
-    let begin = run_probe(
-        &plan.probe,
-        &plan.workload.credential_reference,
-        ProbeRequest {
-            schema: "chirps.durable-perf-audit-request/v1",
-            action: ProbeAction::Begin,
-            observation_id: &observation_id,
-            phase,
-            arm: expected_arm,
-            sample_index: sample,
-            safety_control,
-            completed_operations: 0,
-            payload_sha256: &plan.workload.payload_sha256,
+    let measurement = measure_with_probe(
+        &adapter,
+        &payload,
+        &plan.axes,
+        plan.workload.operation_timeout_millis,
+        || {
+            run_probe(
+                &plan.probe,
+                &plan.workload.credential_reference,
+                ProbeRequest {
+                    schema: "chirps.durable-perf-audit-request/v1",
+                    action: ProbeAction::Begin,
+                    observation_id: &observation_id,
+                    phase,
+                    arm: expected_arm,
+                    sample_index: sample,
+                    safety_control,
+                    completed_operations: 0,
+                    payload_sha256: &plan.workload.payload_sha256,
+                },
+            )
         },
-    )?;
-
-    let measurement = async {
-        let first_measurement_sequence = run_warmup(
-            &adapter,
-            &payload,
-            &plan.axes,
-            plan.workload.operation_timeout_millis,
-        )
-        .await?;
-        run_measurement(
-            Arc::clone(&adapter),
-            Arc::clone(&payload),
-            &plan.axes,
-            plan.workload.operation_timeout_millis,
-            first_measurement_sequence,
-        )
-        .await
-    }
+    )
     .await;
     tokio::time::sleep(Duration::from_millis(plan.axes.drain_millis)).await;
     let completed_operations = measurement
         .as_ref()
-        .map(|measurement| measurement.completed_operations)
+        .map(|(_, measurement)| measurement.completed_operations)
         .unwrap_or(0);
     let finish = run_probe(
         &plan.probe,
@@ -486,7 +480,7 @@ async fn collect(
         .shutdown(plan.workload.operation_timeout_millis)
         .await;
 
-    let measurement = measurement?;
+    let (begin, measurement) = measurement?;
     let finish = finish?;
     shutdown?;
     let audit = finish
@@ -530,6 +524,28 @@ async fn collect(
             raw_latency_micros: measurement.raw_latency_micros,
         },
     })
+}
+
+async fn measure_with_probe<T>(
+    adapter: &Arc<Mutex<Adapter>>,
+    payload: &Arc<Vec<u8>>,
+    axes: &ComparableAxes,
+    operation_timeout_millis: u64,
+    begin: impl FnOnce() -> Result<T>,
+) -> Result<(T, Measurement)> {
+    let first_sequence = run_warmup(adapter, payload, axes, operation_timeout_millis).await?;
+    // Warmup is a clean prerequisite, not a safety-ablation observation. Start
+    // auditing/injection only once its complete arrival window has finished.
+    let observation = begin()?;
+    let measurement = run_measurement(
+        Arc::clone(adapter),
+        Arc::clone(payload),
+        axes,
+        operation_timeout_millis,
+        first_sequence,
+    )
+    .await?;
+    Ok((observation, measurement))
 }
 
 async fn run_warmup(
@@ -629,6 +645,13 @@ async fn run_scheduled_operations(
             while let Some(outcome) = operations.join_next().await {
                 outcomes.push(outcome.context("measurement operation task failed")?);
             }
+            // Fast operations can finish before the last arrival interval ends.
+            // Retain the declared window in the throughput denominator; slow
+            // completions still extend it and their full latency remains visible.
+            let window_end = measurement_start
+                .checked_add(Duration::from_millis(duration_millis))
+                .context("measurement window overflow")?;
+            tokio::time::sleep_until(window_end).await;
             let elapsed = measurement_start.elapsed();
             outcomes.sort_unstable_by_key(|(operation, _, _)| *operation);
 
@@ -698,6 +721,14 @@ impl Adapter {
                 tokio::time::sleep(*delay).await;
                 Ok(())
             }
+            #[cfg(test)]
+            Self::ControlledTest { reject } => {
+                anyhow::ensure!(
+                    !reject.load(std::sync::atomic::Ordering::Acquire),
+                    "injected operation error"
+                );
+                Ok(())
+            }
         }
     }
 
@@ -717,7 +748,7 @@ impl Adapter {
                     .await?;
             }
             #[cfg(test)]
-            Self::Test { .. } => {}
+            Self::Test { .. } | Self::ControlledTest { .. } => {}
         }
         Ok(())
     }
@@ -880,6 +911,7 @@ async fn build_full(
 }
 
 fn validate_plan(plan: &PerformancePlan) -> Result<()> {
+    validate_direct_boundary(plan.axes.full_confirmation_profile)?;
     anyhow::ensure!(plan.samples > 0, "sample count is zero");
     anyhow::ensure!(
         plan.workload.partition_id == 0,
@@ -991,6 +1023,16 @@ fn validate_plan(plan: &PerformancePlan) -> Result<()> {
         "ordering key is empty"
     );
     verify_probe(&plan.probe)
+}
+
+fn validate_direct_boundary(profile: FullConfirmationProfile) -> Result<()> {
+    // Official SDK send confirms ordinary broker acceptance. It does not return
+    // the compatible extension's exact OS-synced receipt used by the Full arm.
+    anyhow::ensure!(
+        profile == FullConfirmationProfile::BrokerAccepted,
+        "Direct SDK control cannot attest OsSyncedAccepted; a matching strong control is required"
+    );
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -1476,6 +1518,71 @@ mod tests {
         response.safety_control = request.safety_control;
         response.metrics = None;
         assert!(validate_audit_response(&request, response).is_err());
+    }
+
+    #[tokio::test]
+    async fn fast_workload_still_measures_the_declared_arrival_window() {
+        let mut axes = audit_response().observed_axes;
+        axes.offered_load_per_second = 100;
+        axes.measure_millis = 20;
+        let adapter = Arc::new(Mutex::new(Adapter::Test {
+            delay: Duration::ZERO,
+        }));
+        let measurement = run_measurement(adapter, Arc::new(vec![1]), &axes, 1_000, 0)
+            .await
+            .unwrap();
+        assert_eq!(measurement.completed_operations, 2);
+        assert!(measurement.elapsed >= Duration::from_millis(20));
+        assert!(
+            measurement.completed_operations as f64 / measurement.elapsed.as_secs_f64() <= 100.0
+        );
+    }
+
+    #[test]
+    fn ordinary_sdk_control_cannot_be_compared_to_os_synced_full_sends() {
+        assert!(validate_direct_boundary(FullConfirmationProfile::BrokerAccepted).is_ok());
+        assert!(validate_direct_boundary(FullConfirmationProfile::OsSyncedAccepted).is_err());
+    }
+
+    #[tokio::test]
+    async fn safety_control_errors_are_measured_after_clean_warmup() {
+        let mut axes = audit_response().observed_axes;
+        axes.offered_load_per_second = 100;
+        axes.warmup_millis = 10;
+        axes.measure_millis = 10;
+        let reject = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let adapter = Arc::new(Mutex::new(Adapter::ControlledTest {
+            reject: Arc::clone(&reject),
+        }));
+        let (_, measurement) =
+            measure_with_probe(&adapter, &Arc::new(vec![1]), &axes, 1_000, || {
+                reject.store(true, std::sync::atomic::Ordering::Release);
+                Ok(())
+            })
+            .await
+            .expect("a safety control must produce an observed failure, not abort warmup");
+        assert_eq!(measurement.completed_operations, 0);
+        assert_eq!(measurement.errors, 1);
+        assert_eq!(measurement.timeouts, 0);
+        assert_eq!(measurement.raw_latency_micros.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_warmup_never_activates_a_safety_control() {
+        let mut axes = audit_response().observed_axes;
+        axes.offered_load_per_second = 100;
+        axes.warmup_millis = 10;
+        let adapter = Arc::new(Mutex::new(Adapter::ControlledTest {
+            reject: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        }));
+        let mut activated = false;
+        let result = measure_with_probe(&adapter, &Arc::new(vec![1]), &axes, 1_000, || {
+            activated = true;
+            Ok(())
+        })
+        .await;
+        assert!(result.is_err());
+        assert!(!activated);
     }
 
     #[tokio::test]
