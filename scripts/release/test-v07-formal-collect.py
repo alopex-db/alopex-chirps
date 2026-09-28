@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Collector contract tests; no solver or container runtime is executed."""
+import contextlib
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -28,6 +30,43 @@ class CollectorContract(unittest.TestCase):
         path=Path(self.temp.name)/self.id().split('.')[-1]
         shutil.copytree(self.snapshot,path)
         return path
+    def test_default_timeout_remains_short_and_full_inventory_selected(self):
+        args=collector.argument_parser().parse_args(['snapshot','output'])
+        self.assertEqual(args.timeout,600)
+        self.assertEqual((args.smoke,args.job,args.kind),(False,[],None))
+    def test_explicit_timeout_boundaries(self):
+        for seconds in (1,2700,2701,7199,7200):
+            with self.subTest(seconds=seconds):
+                args=collector.argument_parser().parse_args(['snapshot','output','--timeout',str(seconds)])
+                self.assertEqual(args.timeout,seconds)
+    def test_explicit_upper_limit_reaches_runtime_and_report(self):
+        # Synthetic orchestration fixture; it is never accepted as release evidence.
+        output=Path(self.temp.name)/'explicit-budget-runtime'
+        job=dict(id='fixture-normal',kind='normal',tla='Fixture.tla',
+                 config='fixture-config',bound=24,expected=0)
+        process=Mock(returncode=0);process.poll.return_value=0
+        image=json.dumps([dict(Digest=collector.IMAGE.split('@')[1],Id='synthetic')])
+        with patch('sys.argv',['collector','snapshot',str(output),'--timeout','7200']), \
+             patch.object(collector,'jobs',return_value=({'source_commit':'synthetic'},[job])), \
+             patch.object(collector.subprocess,'check_output',return_value=image), \
+             patch.object(collector.subprocess,'Popen',return_value=process) as launch, \
+             patch.object(collector,'cleanup_owned_container'), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(collector.main(),0)
+        report=json.loads((output/'report.json').read_text())
+        self.assertEqual(report['resources']['timeout_seconds'],7200)
+        self.assertEqual(report['mode'],'development-subset')
+        self.assertEqual(report['jobs'][0]['bound'],24)
+        self.assertIn('--length=24',launch.call_args.args[0])
+        self.assertIn(collector.IMAGE,launch.call_args.args[0])
+    def test_invalid_timeout_rejected_before_inputs_or_runtime(self):
+        for value in ('-1','0','7201','999999999999999999999','nan','inf','1.5'):
+            with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()):
+                with patch('sys.argv',['collector','missing-snapshot','new-output','--timeout',value]), \
+                     patch.object(collector,'jobs') as jobs, \
+                     patch.object(collector.subprocess,'Popen') as launch:
+                    with self.assertRaises(SystemExit) as error:collector.main()
+                    self.assertEqual(error.exception.code,2)
+                    jobs.assert_not_called();launch.assert_not_called()
     def test_complete_inventory_and_bounds(self):
         identity,jobs=collector.jobs(self.snapshot)
         self.assertEqual(identity['source_commit'],self.commit)

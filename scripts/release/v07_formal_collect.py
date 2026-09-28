@@ -19,6 +19,7 @@ import yaml
 
 IMAGE = 'ghcr.io/apalache-mc/apalache@sha256:fde994fd109323934b9abb7ad169de37b29acf2141483367f2913cae30ff3795'
 MAX_BYTES = 1024 ** 3
+MAX_JOB_TIMEOUT_SECONDS = 7200
 
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
@@ -111,20 +112,31 @@ def cleanup_owned_container(name,process):
     if inspection.returncode!=1:
         raise RuntimeError('could not establish owned-container removal: '+name)
 
-def main():
+def timeout_seconds(value):
+    try:
+        seconds=int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError('timeout must be an integer number of seconds') from None
+    if not 1 <= seconds <= MAX_JOB_TIMEOUT_SECONDS:
+        raise argparse.ArgumentTypeError(f'timeout must be 1..{MAX_JOB_TIMEOUT_SECONDS} seconds')
+    return seconds
+
+def argument_parser():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('snapshot',type=Path)
     parser.add_argument('output',type=Path)
     parser.add_argument('--smoke',action='store_true')
-    parser.add_argument('--timeout',type=int,default=600)
+    parser.add_argument('--timeout',type=timeout_seconds,default=600)
     parser.add_argument('--workers',type=int,choices=(1,2),default=1)
     parser.add_argument('--job',action='append',default=[])
     parser.add_argument('--kind',choices=('typecheck','normal','profile','witness'))
+    return parser
+
+def main():
+    parser=argument_parser()
     args=parser.parse_args()
     snapshot=args.snapshot.resolve();output=args.output.resolve()
     identity, planned=jobs(snapshot)
-    if args.timeout <= 0 or args.timeout > 2700:
-        parser.error('timeout must be 1..2700 seconds')
     if sum((args.smoke, bool(args.job), bool(args.kind))) > 1:
         parser.error('select only one of smoke/job/kind')
     if args.job:

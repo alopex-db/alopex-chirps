@@ -30,7 +30,9 @@ evidence even when its model text resembles the new candidate.
 
 Each worker is limited to 1 CPU, 2 GiB memory/swap, and a 1,400 MiB Java heap.
 The output budget across workers is 1 GiB, monitored every 500 ms; a small
-sampling overshoot is possible. The timeout is per job and at most 2,700 seconds.
+sampling overshoot is possible. The timeout is a per-job monotonic duration:
+600 seconds by default, or explicitly `--timeout 1` through `--timeout 7200`.
+The upper limit is an operational budget, not a model bound.
 An interrupted, timed-out, or budget-exceeding run preserves its partial output.
 Only containers with names allocated by this collector are stopped and removed;
 existing containers, image stores, and source inputs are untouched. Container
@@ -40,10 +42,26 @@ The full run completes phases in order: typecheck, normal, RED, witness.
 For cost investigation only, `--kind normal`, repeated `--job ID`, or `--smoke`
 select a subset. The report records every planned job and marks such runs
 `development-subset`; subsets cannot establish complete model evidence. A
-SendLease typecheck took about four minutes on a shared development host; its
-normal bound-24 run did not finish in ten minutes. Budget several hours for the
-full matrix and measure the actual candidate; never lower bounds or omit
-invariants, profiles, or witnesses to fit a time budget.
+historical development run completed normal SendLease, Subscription and
+MetadataRecovery checks in about 2,364, 1,289 and 250 monotonic seconds. The
+unchanged LifecycleState bound-24 check timed out at 2,701.683 seconds (exit 143),
+so the former 2,700-second ceiling did not suffice for that full normal check.
+Its original collection remains failed; the timeout is not a counterexample.
+The host was already x86_64 and the pinned image linux/amd64, so an architecture
+change alone is not an established remedy.
+
+Before collecting final evidence, freeze the candidate and reserve a native
+amd64 worker with two CPUs and four GiB for the two collector workers, avoiding
+competing heavy builds. After separately planning the longer job budget, use
+`--workers 2 --timeout 7200` with no subset flags and new snapshot/output paths.
+Alternatively, `--workers 1 --timeout 7200` reduces simultaneous resource use to
+one CPU/two GiB and may require more total time. Seven thousand two hundred
+seconds is a selectable budget, not a demonstrated completion guarantee.
+Keep the pinned image, 14 immutable inputs, state space, declared bounds and
+full 160-job acceptance gate unchanged. Retain any further timeout as failure;
+do not rewrite the previous report, reduce bounds, or omit invariants/profiles/
+witnesses. Allow several hours for the full matrix and measure the frozen
+candidate before promising an overall completion time.
 
 ## Independent acceptance still required
 
