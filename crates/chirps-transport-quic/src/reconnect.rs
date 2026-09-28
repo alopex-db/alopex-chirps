@@ -16,6 +16,20 @@ use super::{
     ReceiveHandler, RetransmissionBuffer, TransportCounters, handle_connection,
 };
 
+/// Reservations belong to a resolved identity and location, not a location alone.
+#[derive(Default)]
+struct InflightAttempts(HashSet<(Option<NodeId>, SocketAddr)>);
+
+impl InflightAttempts {
+    fn start(&mut self, node_id: Option<NodeId>, address: SocketAddr) -> bool {
+        self.0.insert((node_id, address))
+    }
+
+    fn finish(&mut self, node_id: Option<NodeId>, address: SocketAddr) {
+        self.0.remove(&(node_id, address));
+    }
+}
+
 #[derive(Debug)]
 pub enum ReconnectCommand {
     Trigger,
@@ -37,7 +51,7 @@ pub fn start_seed_reconnector(
     handshake_config: HandshakeConfig,
     max_connections: usize,
 ) -> mpsc::Sender<ReconnectCommand> {
-    let inflight = Arc::new(Mutex::new(HashSet::new()));
+    let inflight = Arc::new(Mutex::new(InflightAttempts::default()));
     let (tx, mut rx) = mpsc::channel(8);
     let mut ticker = interval(Duration::from_secs(60));
 
@@ -121,7 +135,7 @@ async fn launch_attempts(
     metrics: Arc<TransportCounters>,
     handshake_config: HandshakeConfig,
     max_connections: usize,
-    inflight: Arc<Mutex<HashSet<SocketAddr>>>,
+    inflight: Arc<Mutex<InflightAttempts>>,
 ) {
     let now = std::time::SystemTime::now();
     let candidates = endpoint_resolver
@@ -139,10 +153,9 @@ async fn launch_attempts(
             continue;
         }
         let mut guard = inflight.lock().await;
-        if guard.contains(&seed) {
+        if !guard.start(expected_remote_id, seed) {
             continue;
         }
-        guard.insert(seed);
         drop(guard);
 
         tokio::spawn(reconnect_seed(
@@ -184,7 +197,7 @@ async fn reconnect_seed(
     metrics: Arc<TransportCounters>,
     handshake_config: HandshakeConfig,
     max_connections: usize,
-    inflight: Arc<Mutex<HashSet<SocketAddr>>>,
+    inflight: Arc<Mutex<InflightAttempts>>,
 ) {
     let mut shutdown_rx = shutdown.subscribe();
     let mut backoff = Duration::from_millis(200);
@@ -248,7 +261,7 @@ async fn reconnect_seed(
     }
 
     let mut guard = inflight.lock().await;
-    guard.remove(&seed);
+    guard.finish(expected_remote_id, seed);
 }
 
 async fn is_connected(
@@ -257,8 +270,21 @@ async fn is_connected(
     seed: &SocketAddr,
 ) -> bool {
     let guard = connections.read().await;
-    expected_remote_id.is_some_and(|node_id| guard.contains_key(&node_id))
-        || guard.values().any(|conn| conn.remote_address() == *seed)
+    has_connection(&guard, expected_remote_id, seed, Connection::remote_address)
+}
+
+fn has_connection<T>(
+    connections: &HashMap<NodeId, T>,
+    expected_remote_id: Option<NodeId>,
+    seed: &SocketAddr,
+    remote_address: impl Fn(&T) -> SocketAddr,
+) -> bool {
+    match expected_remote_id {
+        Some(node_id) => connections.contains_key(&node_id),
+        None => connections
+            .values()
+            .any(|conn| remote_address(conn) == *seed),
+    }
 }
 
 fn candidate_is_current(
@@ -278,9 +304,10 @@ fn candidate_is_current(
 
 #[cfg(test)]
 mod tests {
-    use super::candidate_is_current;
+    use super::{InflightAttempts, candidate_is_current, has_connection};
     use alopex_chirps_core::connectivity::{EndpointCandidate, EndpointResolver, PeerEndpoints};
     use alopex_chirps_wire::node_id::NodeId;
+    use std::collections::HashMap;
     use std::net::SocketAddr;
     use std::sync::Arc;
 
@@ -290,6 +317,51 @@ mod tests {
         fn resolve(&self) -> Vec<PeerEndpoints> {
             self.0.clone()
         }
+    }
+
+    #[test]
+    fn reassigned_identity_reserves_and_retires_independent_attempts() {
+        let node_a = Some(NodeId::from([1; 16]));
+        let node_b = Some(NodeId::from([2; 16]));
+        let address: SocketAddr = "127.0.0.1:7000".parse().unwrap();
+        let moved: SocketAddr = "127.0.0.1:7001".parse().unwrap();
+        let mut attempts = InflightAttempts::default();
+        assert!(attempts.start(node_b, address));
+        assert!(!attempts.start(node_b, address));
+        assert!(attempts.start(node_a, address));
+        assert!(attempts.start(None, address));
+        assert!(!attempts.start(None, address));
+        assert!(attempts.start(node_a, moved));
+        attempts.finish(node_b, address);
+        assert!(attempts.start(node_b, address));
+        assert!(!attempts.start(node_a, address));
+        assert!(!attempts.start(None, address));
+        attempts.finish(node_a, address);
+        assert!(attempts.start(node_a, address));
+        assert!(!attempts.start(node_a, moved));
+    }
+
+    #[test]
+    fn known_identity_takes_precedence_over_candidate_address() {
+        let node_a = NodeId::from([1; 16]);
+        let node_b = NodeId::from([2; 16]);
+        let address: SocketAddr = "127.0.0.1:7000".parse().unwrap();
+        let moved: SocketAddr = "127.0.0.1:7001".parse().unwrap();
+        let connections = HashMap::from([(node_b, address)]);
+        assert!(!has_connection(&connections, Some(node_a), &address, |a| {
+            *a
+        }));
+        assert!(has_connection(&connections, Some(node_b), &moved, |_| {
+            panic!("known identity must not inspect addresses")
+        }));
+        assert!(has_connection(&connections, None, &address, |a| *a));
+        assert!(!has_connection(&connections, None, &moved, |a| *a));
+        assert!(!has_connection(
+            &HashMap::<NodeId, SocketAddr>::new(),
+            None,
+            &address,
+            |a| *a
+        ));
     }
 
     #[test]

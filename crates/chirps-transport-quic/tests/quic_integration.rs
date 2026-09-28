@@ -798,3 +798,77 @@ async fn reconnects_when_seed_becomes_available() -> anyhow::Result<()> {
     backend_b.close().await?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "QUIC integration test - requires network, run manually with --ignored"]
+async fn resolver_identity_reassignment_does_not_wait_for_old_attempt() -> anyhow::Result<()> {
+    use alopex_chirps_core::connectivity::{EndpointCandidate, EndpointResolver, PeerEndpoints};
+    use std::sync::RwLock;
+
+    struct Resolver(RwLock<Vec<PeerEndpoints>>);
+    impl EndpointResolver for Resolver {
+        fn resolve(&self) -> Vec<PeerEndpoints> {
+            self.0.read().unwrap().clone()
+        }
+    }
+
+    let tls = TestTls::two_nodes();
+    let old_node = NodeId::from([1; 16]);
+    let new_node = NodeId::from([2; 16]);
+    let client_node = NodeId::from([3; 16]);
+    // Receipt of an actual Initial proves the old identity's attempt is in flight.
+    let silent_peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+    let address = silent_peer.local_addr()?;
+    let resolver = Arc::new(Resolver(RwLock::new(vec![PeerEndpoints::new(
+        Some(old_node),
+        vec![EndpointCandidate::static_seed(address)],
+    )])));
+    let client = QuicBackend::new_with_endpoint_resolver(
+        client_node,
+        tls.config(0, free_addr()?, vec![]),
+        resolver.clone(),
+    )
+    .await?;
+    let mut initial = [0; 2048];
+    tokio::time::timeout(Duration::from_secs(3), silent_peer.recv_from(&mut initial)).await??;
+
+    *resolver.0.write().unwrap() = vec![PeerEndpoints::new(
+        Some(new_node),
+        vec![EndpointCandidate::static_seed(address)],
+    )];
+    drop(silent_peer);
+    let server = QuicBackend::new(new_node, tls.config(1, address, vec![])).await?;
+    let mut incoming = server.subscribe().await?;
+    client.reconnect_to_seeds().await?;
+    // The periodic reconnect tick is 60 seconds. The changed binding must launch now.
+    wait_for_connected_with_timeout(&client, 1, Duration::from_secs(8)).await;
+    assert!(
+        client
+            .connected_peers()
+            .iter()
+            .any(|(id, _)| *id == new_node)
+    );
+    assert!(
+        !client
+            .connected_peers()
+            .iter()
+            .any(|(id, _)| *id == old_node)
+    );
+    client
+        .send(
+            new_node,
+            Frame::Ping {
+                seq: 78,
+                from: client_node,
+            },
+        )
+        .await?;
+    let received = tokio::time::timeout(Duration::from_secs(2), incoming.recv()).await?;
+    assert!(
+        matches!(received, Some((from, Frame::Ping { seq: 78, from: ping_from }))
+        if from == client_node && ping_from == client_node)
+    );
+    client.close().await?;
+    server.close().await?;
+    Ok(())
+}
