@@ -38,7 +38,7 @@ runtime_build_sha = "336d20c53b4bba663c257bdc0271373cfc2f1864"
 
 [container]
 dockerfile = "server/iggy-compatible/Dockerfile"
-dockerfile_sha256 = "135f25801b42c443d94cc77df66b66f70c66d0a02d08a675f99c9c03a1852bd9"
+dockerfile_sha256 = "04adcdf8441d27d97ec0074cb78ad424d0253ab48d80ac7fc76b311345bdad71"
 platform = "linux/amd64"
 runtime_image = "docker.io/library/debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16"
 runtime_snapshot = "20260810T000000Z"
