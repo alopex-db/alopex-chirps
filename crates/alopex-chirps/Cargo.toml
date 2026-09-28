@@ -55,6 +55,8 @@ rand = "0.8"
 [[bench]]
 name = "raft_bench"
 harness = false
+# This benchmark implements OpenRaft's storage-v2 traits directly.
+required-features = ["multi-raft"]
 
 [[bench]]
 name = "hlc_bench"

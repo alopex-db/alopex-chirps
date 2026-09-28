@@ -7,7 +7,12 @@ use alopex_chirps_raft_storage::types::{
 };
 use alopex_chirps_wire::node_id::NodeId;
 use anyhow::{Result, bail};
-use openraft::storage::{LogFlushed, RaftLogStorage, RaftSnapshotBuilder, RaftStateMachine};
+#[cfg(not(feature = "multi-raft"))]
+use openraft::storage::Adaptor;
+use openraft::storage::RaftSnapshotBuilder;
+// The legacy adapter keeps these single-group tests runnable without storage-v2.
+#[allow(deprecated)]
+use openraft::storage::RaftStorage;
 use openraft::{
     CommittedLeaderId, ErrorSubject, ErrorVerb, OptionalSend, RaftLogReader, StorageError,
     StorageIOError,
@@ -113,8 +118,10 @@ impl RaftLogReader<ChirpsTypeConfig> for MemoryStore {
     }
 }
 
-impl RaftLogStorage<ChirpsTypeConfig> for MemoryStore {
+#[allow(deprecated)]
+impl RaftStorage<ChirpsTypeConfig> for MemoryStore {
     type LogReader = MemoryStore;
+    type SnapshotBuilder = MemorySnapshotBuilder;
 
     async fn save_vote(
         &mut self,
@@ -162,27 +169,20 @@ impl RaftLogStorage<ChirpsTypeConfig> for MemoryStore {
         self.clone()
     }
 
-    async fn append<I>(
-        &mut self,
-        entries: I,
-        callback: LogFlushed<ChirpsTypeConfig>,
-    ) -> Result<(), StorageError<ChirpsNodeId>>
+    async fn append_to_log<I>(&mut self, entries: I) -> Result<(), StorageError<ChirpsNodeId>>
     where
         I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + OptionalSend,
-        I::IntoIter: OptionalSend,
     {
-        let mut guard = self.inner.lock().await;
         let new_entries: Vec<_> = entries.into_iter().collect();
+        let mut guard = self.inner.lock().await;
         if let Some(first) = new_entries.first() {
             guard.logs.retain(|e| e.log_id.index < first.log_id.index);
             guard.logs.extend(new_entries);
         }
-        drop(guard);
-        callback.log_io_completed(Ok(()));
         Ok(())
     }
 
-    async fn truncate(
+    async fn delete_conflict_logs_since(
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
@@ -191,7 +191,7 @@ impl RaftLogStorage<ChirpsTypeConfig> for MemoryStore {
         Ok(())
     }
 
-    async fn purge(
+    async fn purge_logs_upto(
         &mut self,
         log_id: LogId<ChirpsNodeId>,
     ) -> Result<(), StorageError<ChirpsNodeId>> {
@@ -200,12 +200,7 @@ impl RaftLogStorage<ChirpsTypeConfig> for MemoryStore {
         guard.last_purged = Some(log_id);
         Ok(())
     }
-}
-
-impl RaftStateMachine<ChirpsTypeConfig> for MemoryStore {
-    type SnapshotBuilder = MemorySnapshotBuilder;
-
-    async fn applied_state(
+    async fn last_applied_state(
         &mut self,
     ) -> Result<
         (
@@ -218,11 +213,10 @@ impl RaftStateMachine<ChirpsTypeConfig> for MemoryStore {
         Ok((guard.last_applied, guard.last_membership.clone()))
     }
 
-    async fn apply<I>(&mut self, entries: I) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>>
-    where
-        I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + OptionalSend,
-        I::IntoIter: OptionalSend,
-    {
+    async fn apply_to_state_machine(
+        &mut self,
+        entries: &[Entry<ChirpsTypeConfig>],
+    ) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>> {
         let mut guard = self.inner.lock().await;
         let mut responses = Vec::new();
         for entry in entries {
@@ -319,6 +313,119 @@ impl RaftStateMachine<ChirpsTypeConfig> for MemoryStore {
     }
 }
 
+// Exercise the same in-memory semantics through both OpenRaft API versions.
+// The legacy Adaptor is unavailable when storage-v2 is enabled.
+#[cfg(feature = "multi-raft")]
+#[allow(deprecated)]
+mod storage_v2 {
+    use super::*;
+    use openraft::storage::{LogFlushed, RaftLogStorage, RaftStateMachine};
+
+    impl RaftLogStorage<ChirpsTypeConfig> for MemoryStore {
+        type LogReader = MemoryStore;
+
+        async fn save_vote(
+            &mut self,
+            vote: &Vote<ChirpsNodeId>,
+        ) -> Result<(), StorageError<ChirpsNodeId>> {
+            RaftStorage::save_vote(self, vote).await
+        }
+        async fn read_vote(
+            &mut self,
+        ) -> Result<Option<Vote<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
+            RaftStorage::read_vote(self).await
+        }
+        async fn get_log_state(
+            &mut self,
+        ) -> Result<LogState<ChirpsTypeConfig>, StorageError<ChirpsNodeId>> {
+            RaftStorage::get_log_state(self).await
+        }
+        async fn save_committed(
+            &mut self,
+            committed: Option<LogId<ChirpsNodeId>>,
+        ) -> Result<(), StorageError<ChirpsNodeId>> {
+            RaftStorage::save_committed(self, committed).await
+        }
+        async fn read_committed(
+            &mut self,
+        ) -> Result<Option<LogId<ChirpsNodeId>>, StorageError<ChirpsNodeId>> {
+            RaftStorage::read_committed(self).await
+        }
+        async fn get_log_reader(&mut self) -> Self::LogReader {
+            self.clone()
+        }
+        async fn append<I>(
+            &mut self,
+            entries: I,
+            callback: LogFlushed<ChirpsTypeConfig>,
+        ) -> Result<(), StorageError<ChirpsNodeId>>
+        where
+            I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + OptionalSend,
+            I::IntoIter: OptionalSend,
+        {
+            RaftStorage::append_to_log(self, entries).await?;
+            callback.log_io_completed(Ok(()));
+            Ok(())
+        }
+        async fn truncate(
+            &mut self,
+            log_id: LogId<ChirpsNodeId>,
+        ) -> Result<(), StorageError<ChirpsNodeId>> {
+            RaftStorage::delete_conflict_logs_since(self, log_id).await
+        }
+        async fn purge(
+            &mut self,
+            log_id: LogId<ChirpsNodeId>,
+        ) -> Result<(), StorageError<ChirpsNodeId>> {
+            RaftStorage::purge_logs_upto(self, log_id).await
+        }
+    }
+
+    impl RaftStateMachine<ChirpsTypeConfig> for MemoryStore {
+        type SnapshotBuilder = MemorySnapshotBuilder;
+
+        async fn applied_state(
+            &mut self,
+        ) -> Result<
+            (
+                Option<LogId<ChirpsNodeId>>,
+                StoredMembership<ChirpsNodeId, BasicNode>,
+            ),
+            StorageError<ChirpsNodeId>,
+        > {
+            RaftStorage::last_applied_state(self).await
+        }
+        async fn apply<I>(&mut self, entries: I) -> Result<Vec<Vec<u8>>, StorageError<ChirpsNodeId>>
+        where
+            I: IntoIterator<Item = Entry<ChirpsTypeConfig>> + OptionalSend,
+            I::IntoIter: OptionalSend,
+        {
+            let entries: Vec<_> = entries.into_iter().collect();
+            RaftStorage::apply_to_state_machine(self, &entries).await
+        }
+        async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
+            RaftStorage::get_snapshot_builder(self).await
+        }
+        async fn begin_receiving_snapshot(
+            &mut self,
+        ) -> Result<Box<Cursor<Vec<u8>>>, StorageError<ChirpsNodeId>> {
+            RaftStorage::begin_receiving_snapshot(self).await
+        }
+        async fn install_snapshot(
+            &mut self,
+            meta: &SnapshotMeta<ChirpsNodeId, BasicNode>,
+            snapshot: Box<Cursor<Vec<u8>>>,
+        ) -> Result<(), StorageError<ChirpsNodeId>> {
+            RaftStorage::install_snapshot(self, meta, snapshot).await
+        }
+        async fn get_current_snapshot(
+            &mut self,
+        ) -> Result<Option<Snapshot<ChirpsTypeConfig>>, StorageError<ChirpsNodeId>> {
+            RaftStorage::get_current_snapshot(self).await
+        }
+    }
+}
+
 fn to_io_error(
     subject: ErrorSubject<ChirpsNodeId>,
     verb: ErrorVerb,
@@ -411,8 +518,12 @@ impl TestCluster {
             data: Arc::new(Mutex::new(Vec::new())),
         };
         let store = MemoryStore::new(state_handle.clone());
+        #[cfg(not(feature = "multi-raft"))]
+        let (log_store, state_machine) = Adaptor::new(store);
+        #[cfg(feature = "multi-raft")]
+        let (log_store, state_machine) = (store.clone(), store);
 
-        let mut cfg = RaftConfig {
+        let cfg = RaftConfig {
             group_id: self.group_id,
             node_id: id,
             election_timeout_ms: 120,
@@ -422,18 +533,19 @@ impl TestCluster {
             ..Default::default()
         };
         #[cfg(feature = "snapshot")]
-        {
-            cfg.snapshot_chunk_threshold = 1;
-            cfg.snapshot_chunk_size = 4;
-            cfg.snapshot_max_concurrent_chunks = 2;
-            cfg.snapshot_max_retries = 1;
-        }
+        let cfg = RaftConfig {
+            snapshot_chunk_threshold: 1,
+            snapshot_chunk_size: 4,
+            snapshot_max_concurrent_chunks: 2,
+            snapshot_max_retries: 1,
+            ..cfg
+        };
 
         let node = RaftNode::new(
             cfg,
             ChirpsRaftTransport::factory(transport.clone()),
-            store.clone(),
-            store,
+            log_store,
+            state_machine,
             transport.clone(),
         )
         .await?;

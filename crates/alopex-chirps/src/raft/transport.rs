@@ -1173,31 +1173,34 @@ mod tests {
                 .is_empty()
         );
 
-        transport.close_rpc_admission();
-        assert!(
-            transport
-                .send_rpc::<Infallible>(
-                    2,
-                    RPCTypes::Vote,
-                    RaftMessage::Vote {
-                        group_id: GroupId(4),
-                        request: VoteRequest {
-                            vote: Vote::new(1, 1),
-                            last_log_id: None,
+        #[cfg(feature = "multi-raft")]
+        {
+            transport.close_rpc_admission();
+            assert!(
+                transport
+                    .send_rpc::<Infallible>(
+                        2,
+                        RPCTypes::Vote,
+                        RaftMessage::Vote {
+                            group_id: GroupId(4),
+                            request: VoteRequest {
+                                vote: Vote::new(1, 1),
+                                last_log_id: None,
+                            },
                         },
-                    },
-                    RPCOption::new(Duration::from_secs(60)),
-                )
-                .await
-                .is_err()
-        );
-        transport.cancel_pending_rpcs();
-        assert!(
-            transport
-                .pending
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .is_empty()
-        );
+                        RPCOption::new(Duration::from_secs(60)),
+                    )
+                    .await
+                    .is_err()
+            );
+            transport.cancel_pending_rpcs();
+            assert!(
+                transport
+                    .pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_empty()
+            );
+        }
     }
 }
