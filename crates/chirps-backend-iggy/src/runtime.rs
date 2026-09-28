@@ -525,11 +525,11 @@ impl SendCapacityRelease {
 
 impl Drop for SendCapacityRelease {
     fn drop(&mut self) {
-        if let Some(tokens) = self.tokens.take() {
-            if let Ok(mut capacity) = self.capacity.lock() {
-                for token in tokens {
-                    let _ = capacity.release_terminal(token);
-                }
+        if let Some(tokens) = self.tokens.take()
+            && let Ok(mut capacity) = self.capacity.lock()
+        {
+            for token in tokens {
+                let _ = capacity.release_terminal(token);
             }
         }
     }
@@ -545,6 +545,7 @@ impl LocalStateRuntime {
         fs::create_dir_all(checkpoint_root).map_err(|_| RuntimeBuildError::Compaction)?;
         let lock = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(checkpoint_root.join(".chirps-compaction.lock"))
@@ -1058,15 +1059,14 @@ impl DurableRuntime {
             };
             let capacity_release =
                 SendCapacityRelease::new(self.local_state.capacity.clone(), payload, concurrency);
-            let result = execute_send(
+            execute_send(
                 &mut self.lifecycle,
                 port,
                 prepared,
                 boundary,
                 capacity_release,
             )
-            .await;
-            result
+            .await
         }
         .await;
         let labels = send_metric_labels(boundary, &result);
@@ -1374,16 +1374,14 @@ impl DurableRuntime {
                 .subscriptions
                 .get_mut(&subscription_id)
                 .and_then(|subscription| subscription.in_flight_token.take())
-            {
-                if self
+                && self
                     .local_state
                     .capacity
                     .lock()
                     .and_then(|mut capacity| capacity.release_terminal(token))
                     .is_err()
-                {
-                    self.local_state.faulted = true;
-                }
+            {
+                self.local_state.faulted = true;
             }
         } else {
             self.local_state
@@ -1475,7 +1473,7 @@ impl DurableRuntime {
 
     /// Returns the recovered compaction generation and exact capacity usage.
     pub fn local_state_status(&self) -> Result<RuntimeLocalStateStatus, RuntimeLocalStateError> {
-        self.local_state.status().map_err(Into::into)
+        self.local_state.status()
     }
 
     /// Runs one fault-free generation cutover using the configured durable clock.

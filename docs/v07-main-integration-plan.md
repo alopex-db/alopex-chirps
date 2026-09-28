@@ -109,3 +109,41 @@ lines 528 and 1373, unspecified truncation at line 547, let-and-return at line
 1069, redundant conversion at line 1478, and `state/compaction.rs` tuple type
 complexity at line 670. Those files are identical to the original v0.7 branch
 in this merge; a separate focused change will address them.
+
+## Backend lint follow-up plan
+
+The follow-up preserves runtime behavior while addressing the six reported
+lints. `.chirps-compaction.lock` is an advisory ownership lock, so opening it
+must retain existing contents (`truncate(false)`), including before ownership
+has been acquired. Nested conditional simplification preserves short-circuit
+order; the compaction alias preserves the exact tuple type.
+
+Focused checks: backend `runtime::tests` covers capacity ownership and shutdown,
+and `state::compaction::tests` covers materialization and recovery. Repeat the
+same facade lint command after these changes. No additional mutation campaign
+is required for these equivalent expression/type cleanups. Initial backend unit
+compilation exposed a pre-existing external specification dependency: corpus
+tests include requirements/design files outside the Git repository. That
+prerequisite must be restored from the original files without substituting
+fixtures or skipping tests.
+
+### Backend follow-up results
+
+After restoring the original requirements/design files to their expected local
+workspace location, the focused backend checks passed:
+
+```console
+cargo test --locked --offline -p alopex-chirps-backend-iggy --lib runtime::tests -- --test-threads=1
+cargo test --locked --offline -p alopex-chirps-backend-iggy --lib state::compaction::tests -- --test-threads=1
+```
+
+Runtime: 4 passed. Compaction: 8 passed, including all cutover faults,
+materialization, and reproducible provisional corpus generation. The corpus
+check requires `CARGO_TARGET_DIR` to name the local build directory. Original
+specification files remain outside the repository and are not republished here.
+
+The exact facade scoped Clippy command recorded above now passes with
+`-D warnings`. Final formatting and whitespace checks also pass. The earlier
+lint and missing-spec failures remain recorded above; these later successful
+runs address their identified causes. The pure lint follow-up introduced no
+new behavior or dependency path and required no additional mutation campaign.

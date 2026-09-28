@@ -652,6 +652,8 @@ pub(crate) struct RecoveredCompaction {
     suffix: BTreeMap<u64, Vec<u8>>,
 }
 
+type MaterializedCompactionState = (Option<Vec<u8>>, BTreeMap<[u8; 16], Vec<u8>>);
+
 impl RecoveredCompaction {
     pub(crate) const fn generation(&self) -> u64 {
         self.base.generation
@@ -667,7 +669,7 @@ impl RecoveredCompaction {
 
     pub(crate) fn materialized_state(
         &self,
-    ) -> Result<(Option<Vec<u8>>, BTreeMap<[u8; 16], Vec<u8>>), CompactionError> {
+    ) -> Result<MaterializedCompactionState, CompactionError> {
         let mut checkpoint = self.base.checkpoint.clone();
         let mut identities = self.base.identities.clone();
         for (sequence, bytes) in &self.suffix {
