@@ -66,3 +66,36 @@ Run the collector's non-container contract tests with:
 ```sh
 python3 -B scripts/release/test-v07-formal-collect.py
 ```
+
+## Raw evidence verifier
+
+`scripts/release/v07_formal_evidence.py` reads the caller's trusted Git checkout,
+reconstructs the complete matrix and generated configurations, and validates
+retained artifacts without running candidate scripts or trusting PASS labels.
+
+```sh
+python3 -B scripts/release/v07_formal_evidence.py \
+  --source-root "$TRUSTED_SOURCE_ROOT" --source-commit "$FULL_COMMIT" \
+  --report "$NEW_OUTPUT/report.json"
+```
+
+The production API is
+`verify_formal_report(source_root, report_path, source_commit)`. It requires all
+160 jobs. `--development-subset` is explicitly non-release and returns
+`development-verified`, never full evidence. Catalog completeness probes and
+exact-commit refinement checks remain separate mandatory evidence.
+
+Apalache numbers normalized verification conditions, so a numbered invariant
+violation does not alone identify the original property. For every RED/witness,
+the verifier checks that the actual CFG and VCGen contain exactly `TypeOK` and
+the catalog target, then evaluates the trusted model's finite `TypeOK` contract
+on every ITF state. This excludes accidental TypeOK counterexamples. The trace's
+constants must exactly match the generated CFG. Witnesses additionally evaluate
+the trusted reachability predicate on the actual terminal state, requiring it
+to remain absent in preceding states. Unknown syntax fails closed.
+
+These evaluators deliberately cover only the four models' finite TypeOK domains
+and current witness predicates. They are not general TLA+ interpreters and do
+not independently re-prove transition reachability; that evidence comes from
+the pinned checker and its preserved raw execution. Evidence provenance and CI
+attestation must establish the origin of these raw artifacts.
