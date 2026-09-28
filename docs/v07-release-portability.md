@@ -121,3 +121,23 @@ independently bound inputs with a local argument-count allowance.
 Facade library, profile, and v0.6.1 downstream tests and the file-transfer
 persistence target pass after integration. These source-equivalent lint edits
 do not add behavior or require another mutation run.
+
+## Windows owner-lock contention
+
+The creation store retains its nonblocking lifetime `fs2` exclusive lock. Lock
+contention is identified by `fs2::lock_contended_error().raw_os_error()` instead
+of assuming `ErrorKind::WouldBlock`: Windows returns `ERROR_LOCK_VIOLATION` (33),
+which the native Rust probe classified as `Uncategorized`. Other I/O failures
+retain their storage-error classification; they are not relabeled as contention.
+
+A native Windows two-process `LockFileEx` probe used fs2's exclusive/nonblocking
+flags and byte range. The previous predicate failed, the revised predicate
+recognized the actual contention, and acquisition succeeded after the owner
+released its handle. This small probe used the production predicate and native
+Windows APIs, not the complete crate; the full Windows CI test remains the
+end-to-end confirmation. Local regressions cover the existing two-process owner
+lock, the exact OS error classification, and preservation of unrelated I/O errors.
+The focused state suite passed 41 tests. Scoped mutation analysis of lock
+acquisition and classification caught five mutations; two were unviable because
+`DirectoryLock` has no `Default`. No survivor remained. The initial mutation that
+classified every lock failure as contention led to the unrelated-error regression.

@@ -579,11 +579,25 @@ fn acquire_directory_lock(directory: &Path) -> Result<DirectoryLock, CreationSto
         .write(true)
         .open(directory.join(LOCK_FILE))
         .map_err(|error| CreationStoreError::Io(error.kind()))?;
-    match FileExt::try_lock_exclusive(&lock) {
+    let result = FileExt::try_lock_exclusive(&lock);
+    complete_directory_lock(lock, result)
+}
+
+fn complete_directory_lock(
+    lock: File,
+    result: io::Result<()>,
+) -> Result<DirectoryLock, CreationStoreError> {
+    match result {
         Ok(()) => Ok(DirectoryLock::Held(lock)),
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(DirectoryLock::Unavailable),
+        Err(error) if is_lock_contention(&error) => Ok(DirectoryLock::Unavailable),
         Err(error) => Err(CreationStoreError::Io(error.kind())),
     }
+}
+
+// fs2 reports EWOULDBLOCK on Unix but ERROR_LOCK_VIOLATION on Windows.
+// ErrorKind does not preserve that distinction consistently across platforms.
+fn is_lock_contention(error: &io::Error) -> bool {
+    error.raw_os_error() == fs2::lock_contended_error().raw_os_error()
 }
 
 fn prepare_directory(directory: &Path) -> Result<(), CreationStoreError> {
@@ -1095,7 +1109,8 @@ mod tests {
     use super::{
         CORPUS_CASES, CREATION_FILE, CorpusInputs, CreationNamespace, CreationRequest,
         CreationStore, CreationStoreError, CreationStoreResult, OWNER_FILE,
-        generate_creation_corpus, snapshot_files, verify_creation_corpus,
+        complete_directory_lock, generate_creation_corpus, is_lock_contention, snapshot_files,
+        verify_creation_corpus,
     };
     use crate::state::InstallFault;
     use alopex_chirps_core::durable::{
@@ -1103,11 +1118,11 @@ mod tests {
         ResourceEpoch, ResourceId, SubscriptionCreationOutcome, SubscriptionId,
     };
     use alopex_chirps_wire::node_id::NodeId;
-    use std::fs;
     use std::path::Path;
     use std::process::Command;
     use std::thread;
     use std::time::{Duration, Instant};
+    use std::{fs, io};
     use tempfile::tempdir;
 
     const CHILD_PATH_ENV: &str = "CHIRPS_TASK_4_1_CHILD_PATH";
@@ -1452,6 +1467,48 @@ mod tests {
             CreationStore.open(&first_directory, namespace(), resource_epoch()),
             Err(CreationStoreError::Owner(_))
         ));
+    }
+
+    #[test]
+    fn owner_lock_preserves_non_contention_failure_categories() {
+        assert!(matches!(
+            complete_directory_lock(tempfile::tempfile().unwrap(), Ok(())),
+            Ok(super::DirectoryLock::Held(_))
+        ));
+        assert!(matches!(
+            complete_directory_lock(
+                tempfile::tempfile().unwrap(),
+                Err(fs2::lock_contended_error())
+            ),
+            Ok(super::DirectoryLock::Unavailable)
+        ));
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::NotFound,
+            io::ErrorKind::Interrupted,
+        ] {
+            assert!(matches!(
+                complete_directory_lock(tempfile::tempfile().unwrap(), Err(io::Error::from(kind))),
+                Err(CreationStoreError::Io(observed)) if observed == kind
+            ));
+        }
+    }
+
+    #[test]
+    fn owner_lock_contention_is_distinct_from_other_storage_errors() {
+        assert!(is_lock_contention(&fs2::lock_contended_error()));
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::NotFound,
+            io::ErrorKind::Interrupted,
+            io::ErrorKind::WouldBlock,
+        ] {
+            // An ErrorKind alone is not proof that the OS refused this lock.
+            assert!(!is_lock_contention(&io::Error::from(kind)));
+        }
+        for code in [0, 2, 5, 13] {
+            assert!(!is_lock_contention(&io::Error::from_raw_os_error(code)));
+        }
     }
 
     #[test]
