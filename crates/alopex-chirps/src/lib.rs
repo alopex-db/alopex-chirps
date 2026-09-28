@@ -32,11 +32,12 @@ pub use crate::durable::{
     DurableCapacityConfig, DurableCapacityLimit, DurableCapacityUsage, DurableCheckpointConfig,
     DurableClockReading, DurableClockSource, DurableClockTrust, DurableCompactionOutcome,
     DurableConfig, DurableCredential, DurableCredentialProvider, DurableCredentialProviderError,
-    DurableDeliveryClock, DurableExtensionConfig, DurableHandle, DurableLeaseConfig,
-    DurableLocalStateError, DurableLocalStateStatus, DurableObservabilityReport,
-    DurablePartitionProjection, DurablePoll, DurablePrepareError, DurableProfile,
-    DurableResourceConfig, DurableRoutingConfig, DurableSendError, DurableShutdownError,
-    DurableShutdownTrigger, DurableStateCategory, DurableSubscriptionError, DurableTlsConfig,
+    DurableDeliveryClock, DurableDevelopmentResourceConfig, DurableExtensionConfig, DurableHandle,
+    DurableLeaseConfig, DurableLocalStateError, DurableLocalStateStatus,
+    DurableObservabilityReport, DurablePartitionProjection, DurablePoll, DurablePrepareError,
+    DurableProfile, DurableResourceConfig, DurableRoutingConfig, DurableSendError,
+    DurableShutdownError, DurableShutdownTrigger, DurableStateCategory, DurableSubscriptionError,
+    DurableTlsConfig,
 };
 use crate::error::MeshError;
 #[cfg(feature = "hlc")]

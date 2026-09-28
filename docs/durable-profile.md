@@ -110,7 +110,7 @@ The matrix is deliberately narrow. Both profiles require TCP/TLS server authenti
 
 | Dimension | Official development profile | Compatible production/strong profile |
 | --- | --- | --- |
-| Public selector | `DurableProfile::broker_accepted(actual_startup_config)` | `DurableProfile::OsSyncedAccepted` |
+| Public selector | `DurableConfig::broker_accepted(..., actual_startup_config, ..., DurableDevelopmentResourceConfig, ...)` | `DurableProfile::OsSyncedAccepted` |
 | Server source | Apache Iggy `server-0.8.0`, baseline commit `f5350d999d883fd3ca9dd33b3dc2754ddb0df049` | Chirps-compatible source commit `336d20c53b4bba663c257bdc0271373cfc2f1864`, tree `b2099c2dc404534429e210069990a10496d4fefd`, based on the same Iggy commit |
 | Published/attested artifact | Chirps v0.7 does not declare an official development image digest; the exact startup configuration is supplied and hashed at connect time | Candidate server binary SHA-256 `3840ead85e35a20c0c86b519c15b87edf2fe08a9dc866b4746915ed8cb312f88`; runtime base image `debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16` |
 | Transport/protocol | Adapter-owned TCP/TLS; official Iggy protocol/model crates `0.10.0`; standard login/resource readback/send | Adapter-owned TCP/TLS; official outer framing `0.10.0` plus private extension v1 |

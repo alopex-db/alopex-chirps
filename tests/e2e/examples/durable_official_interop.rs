@@ -1,26 +1,19 @@
 //! Real standard-protocol interoperability with the unmodified official baseline.
-use alopex_chirps::NodeId;
-use alopex_chirps_backend_iggy::{
-    codec::{self, EnvelopeFields},
-    producer::{DevelopmentAppendConnection, DevelopmentBrokerConfigReadback, ProducerCoordinator},
-    protocol::ResourceLocation,
-    transport::{LoginRequestFrame, TransportLimits},
+use alopex_chirps::{
+    DURABLE_CHECKPOINT_JOURNAL_LIMIT_BYTES, DurableBuilder, DurableCheckpointConfig, DurableConfig,
+    DurableCredential, DurableCredentialProvider, DurableCredentialProviderError,
+    DurableDevelopmentResourceConfig, DurableRoutingConfig, DurableSendError, DurableTlsConfig,
+    NodeId,
 };
-use alopex_chirps_core::durable::{
-    ConfirmationBoundary, DurableMessageRoute, DurableSendOutcome, PreflightFailureKind,
-    PrepareFailure, PreparedDurableSend, ResourceId,
-};
+use alopex_chirps_backend_iggy::codec;
+#[cfg(test)]
+use alopex_chirps_backend_iggy::codec::EnvelopeFields;
+use alopex_chirps_core::durable::{ConfirmationBoundary, DurableSendOutcome, PreparedDurableSend};
+#[cfg(test)]
+use alopex_chirps_core::durable::{DurableMessageRoute, PrepareFailure};
 use anyhow::{Context, Result, ensure};
-use bytes::BytesMut;
 use chirps_e2e::v07::{ROOT_PASSWORD, ROOT_USERNAME, ServerProcess, provision_durable_fixture};
 use iggy::prelude::*;
-use iggy_binary_protocol::{
-    RequestFrame, WireEncode, WireName, codes::LOGIN_USER_CODE, requests::users::LoginUserRequest,
-};
-use rustls::{
-    ClientConfig, RootCertStore,
-    pki_types::{CertificateDer, ServerName},
-};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{fs, io::Read, path::Path, sync::Arc, time::Duration};
@@ -124,18 +117,25 @@ async fn sdk(server: &ServerProcess) -> Result<IggyClient> {
     Ok(client)
 }
 
-fn login() -> Result<LoginRequestFrame> {
-    let payload = LoginUserRequest {
-        username: WireName::new(ROOT_USERNAME)?,
-        password: ROOT_PASSWORD.to_owned(),
-        version: Some(env!("CARGO_PKG_VERSION").to_owned()),
-        context: Some(String::new()),
+struct OfficialCredentials;
+
+#[async_trait::async_trait]
+impl DurableCredentialProvider for OfficialCredentials {
+    async fn resolve(
+        &self,
+        reference: &str,
+    ) -> Result<DurableCredential, DurableCredentialProviderError> {
+        if reference != "official-fixture-root" {
+            return Err(DurableCredentialProviderError::Rejected);
+        }
+        Ok(DurableCredential::username_password(
+            ROOT_USERNAME.to_owned(),
+            ROOT_PASSWORD.to_owned(),
+        ))
     }
-    .to_bytes();
-    let mut frame = BytesMut::new();
-    RequestFrame::encode(LOGIN_USER_CODE, &payload, &mut frame)?;
-    Ok(LoginRequestFrame::try_from(frame.freeze())?)
 }
+
+#[cfg(test)]
 
 fn prepare(
     source: NodeId,
@@ -204,72 +204,63 @@ async fn exercise(server: &mut ServerProcess) -> Result<Value> {
         provision_durable_fixture(&bootstrap, "official-interop", "standard-send").await?;
     bootstrap.shutdown().await?;
     let config = fs::read(server.configuration_path())?;
-    let readback = DevelopmentBrokerConfigReadback::verify_actual_startup_config(&config)?;
-    let mut roots = RootCertStore::empty();
-    roots.add(CertificateDer::from(server.certificate_der()))?;
-    let tls = Arc::new(
-        ClientConfig::builder_with_provider(
-            Arc::new(rustls::crypto::aws_lc_rs::default_provider()),
-        )
-        .with_safe_default_protocol_versions()?
-        .with_root_certificates(roots)
-        .with_no_client_auth(),
-    );
-    // This UUID is a local attempt correlation value, not an official capability.
-    let local_correlation = NodeId::new();
-    let location = ResourceLocation::new(
-        ResourceId::from_bytes(*local_correlation.as_bytes()),
-        0,
-        resource.stream_id,
-        resource.topic_id,
-        resource.partition_id,
-    )?;
-    let connection = Arc::new(
-        DevelopmentAppendConnection::connect_tls_and_authenticate(
-            server.address(),
-            ServerName::try_from("localhost")?,
-            tls,
-            TransportLimits::new(1024 * 1024)?,
-            login()?,
-            location,
-            readback,
-            Instant::now() + Duration::from_secs(10),
-        )
-        .await?,
-    );
-    ensure!(
-        connection.broker_config_digest() == Sha256::digest(&config).as_slice(),
-        "actual startup config binding differs"
-    );
-    let coordinator = ProducerCoordinator::new(Arc::clone(&connection));
     let source = NodeId::new();
     let target = NodeId::new();
+    let checkpoints = tempfile::tempdir()?;
+    let facade_config = DurableConfig::broker_accepted(
+        server.address(),
+        DurableTlsConfig::new("localhost".to_owned(), vec![server.certificate_der()]),
+        "official-fixture-root".to_owned(),
+        config.clone(),
+        DurableRoutingConfig::new(1, 1),
+        DurableDevelopmentResourceConfig::new(
+            resource.stream_id,
+            resource.topic_id,
+            vec![resource.partition_id],
+        ),
+        DurableCheckpointConfig::new(
+            checkpoints.path().to_path_buf(),
+            1,
+            DURABLE_CHECKPOINT_JOURNAL_LIMIT_BYTES,
+        ),
+        1024 * 1024,
+    );
+    let mut handle = DurableBuilder::new(source)
+        .connect(
+            facade_config,
+            &OfficialCredentials,
+            Instant::now() + Duration::from_secs(10),
+        )
+        .await?;
     let payloads = [
         b"official\0broker-accepted-one".to_vec(),
         (0..=255).collect::<Vec<u8>>(),
     ];
     let ledger = payloads
         .iter()
-        .map(|payload| prepare(source, target, resource.partition_id, payload))
+        .map(|payload| {
+            handle
+                .prepare(target, b"official-interoperability".to_vec(), payload)
+                .map_err(Into::into)
+        })
         .collect::<Result<Vec<_>>>()?;
-    let strong_error = coordinator
-        .preflight(&ledger[0], ConfirmationBoundary::OsSyncedAccepted)
-        .err()
-        .context("official connection accepted the strong boundary")?;
+    let strong_error = timeout(
+        Duration::from_secs(10),
+        handle.send(&ledger[0], ConfirmationBoundary::OsSyncedAccepted),
+    )
+    .await?
+    .err()
+    .context("public facade accepted the strong boundary")?;
     ensure!(
-        strong_error.kind() == PreflightFailureKind::Unsupported,
-        "strong boundary rejected for an unrelated reason"
+        strong_error == DurableSendError::Unavailable,
+        "strong boundary returned an unexpected public category"
     );
     for prepared in &ledger {
-        let started = coordinator
-            .preflight(prepared, ConfirmationBoundary::BrokerAccepted)
-            .map_err(|error| anyhow::anyhow!("preflight: {error:?}"))?
-            .start()?;
-        let mut attempt = coordinator.execute(started);
-        let terminal = timeout(Duration::from_secs(10), attempt.terminal()).await?;
-        let result = terminal
-            .result()
-            .map_err(|error| anyhow::anyhow!("terminal: {error:?}"))?;
+        let result = timeout(
+            Duration::from_secs(10),
+            handle.send(prepared, ConfirmationBoundary::BrokerAccepted),
+        )
+        .await??;
         ensure!(
             result.outcome() == DurableSendOutcome::BrokerAccepted && result.receipt().is_none(),
             "standard ACK was upgraded or did not confirm broker acceptance"
@@ -308,20 +299,15 @@ async fn exercise(server: &mut ServerProcess) -> Result<Value> {
         })
         .collect::<Result<Vec<_>>>()?;
     reader.shutdown().await?;
-    drop(coordinator);
-    let connection = Arc::try_unwrap(connection)
-        .map_err(|_| anyhow::anyhow!("adapter connection still has an owner"))?;
-    let shutdown = connection
+    let shutdown = handle
         .shutdown(Instant::now() + Duration::from_secs(5))
-        .await;
+        .await?;
     ensure!(
-        shutdown.socket_close_requested()
-            && shutdown.all_workers_joined()
-            && shutdown.panicked_worker_count() == 0,
-        "adapter shutdown did not join cleanly"
+        shutdown.transport_closed() && shutdown.workers_joined(),
+        "public facade shutdown did not join cleanly"
     );
     Ok(
-        json!({"boundary": "BrokerAccepted", "strong_preflight": "Unsupported", "strong_receipt": false, "startup_config_hex": hex(&config), "startup_config_sha256": digest(&config), "stream_id":resource.stream_id, "topic_id":resource.topic_id, "partition_id":resource.partition_id, "local_correlation_uuid":hex(local_correlation.as_bytes()), "local_correlation_is_broker_identity":false, "expected":ledger.iter().zip(&payloads).map(|(prepared,payload)| json!({"message_id":hex(prepared.message_id().as_bytes()), "canonical_hex":hex(prepared.canonical_bytes()), "payload_hex":hex(payload), "source":hex(source.as_bytes()), "target":hex(target.as_bytes()), "generation":1, "partition":resource.partition_id, "ordering_key_hex":hex(prepared.ordering_key())})).collect::<Vec<_>>(), "observed":observed}),
+        json!({"boundary": "BrokerAccepted", "strong_preflight": "Unavailable", "strong_receipt": false, "startup_config_hex": hex(&config), "startup_config_sha256": digest(&config), "stream_id":resource.stream_id, "topic_id":resource.topic_id, "partition_id":resource.partition_id, "expected":ledger.iter().zip(&payloads).map(|(prepared,payload)| json!({"message_id":hex(prepared.message_id().as_bytes()), "canonical_hex":hex(prepared.canonical_bytes()), "payload_hex":hex(payload), "source":hex(source.as_bytes()), "target":hex(target.as_bytes()), "generation":1, "partition":resource.partition_id, "ordering_key_hex":hex(prepared.ordering_key())})).collect::<Vec<_>>(), "observed":observed}),
     )
 }
 
@@ -369,7 +355,7 @@ async fn main() -> Result<()> {
     fs::write(
         output.join("report.json"),
         serde_json::to_vec_pretty(
-            &json!({"schema":"chirps.v0.7.official-interoperability/v1", "source_commit":args[1], "api_surface":"DevelopmentAppendConnection", "public_durable_config_validated":false, "official_manifest_sha256":digest(&manifest_bytes), "server_binary_sha256":binary_identity.1, "client_binary_sha256":client_identity.1, "server_source_commit":BASELINE, "observation":observation, "cleanup":{"graceful":true,"forced":false}, "result":"pass"}),
+            &json!({"schema":"chirps.v0.7.official-interoperability/v2", "source_commit":args[1], "api_surface":"DurableConfig", "public_durable_config_validated":true, "official_manifest_sha256":digest(&manifest_bytes), "server_binary_sha256":binary_identity.1, "client_binary_sha256":client_identity.1, "server_source_commit":BASELINE, "observation":observation, "cleanup":{"graceful":true,"forced":false}, "result":"pass"}),
         )?,
     )?;
     Ok(())

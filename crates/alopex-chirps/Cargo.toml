@@ -43,6 +43,7 @@ subtle = "2.6"
 futures = "0.3"
 
 [dev-dependencies]
+proptest = "1"
 alopex-chirps-mock.workspace = true
 tempfile = "3"
 rcgen = "0.12"
