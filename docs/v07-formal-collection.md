@@ -99,3 +99,20 @@ and current witness predicates. They are not general TLA+ interpreters and do
 not independently re-prove transition reachability; that evidence comes from
 the pinned checker and its preserved raw execution. Evidence provenance and CI
 attestation must establish the origin of these raw artifacts.
+
+Catalog observations have a separate collector and verifier. Run them outside
+solver resource allocations; they use at most 0.2 CPU and 256 MiB, one at a time.
+Each has a 30-second timeout and retains failure logs. The verifier requires all
+11 observations, exact source/command/image binding, and the precise expected
+diagnostic and exit code for each negative probe. An unrelated permission error
+or a missing tool in the wrong probe cannot masquerade as a successful negative.
+
+```sh
+python3 -B scripts/release/v07_formal_catalog.py collect "$NEW_SNAPSHOT" "$NEW_CATALOG_OUTPUT"
+python3 -B scripts/release/v07_formal_catalog.py verify \
+  --source-root "$TRUSTED_SOURCE_ROOT" --source-commit "$FULL_COMMIT" \
+  --report "$NEW_CATALOG_OUTPUT/report.json"
+```
+
+The programmatic API is
+`verify_catalog_report(source_root, report_path, source_commit)`.
