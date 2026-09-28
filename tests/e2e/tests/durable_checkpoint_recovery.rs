@@ -1258,6 +1258,7 @@ fn read_regular_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>> {
         "unsafe or oversized corpus file"
     );
     let file = File::open(path)?;
+    #[cfg(unix)]
     let opened = file.metadata()?;
     #[cfg(unix)]
     ensure!(
