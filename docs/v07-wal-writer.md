@@ -68,3 +68,41 @@ were not selected for this safe file-I/O adapter change.
 
 This evidence covers the storage change. Full candidate compatibility, CI,
 performance and release gates still run on the final integrated source.
+
+## Coordinator follow-up from independent review
+
+Review found two pre-existing durability defects in the coordinator:
+
+- A barrier cleared all selected dirty flags before syncing any file. If a
+  middle file failed to sync, later unattempted files stayed incorrectly clean.
+  The error path now restores the failed and unattempted participants for retry.
+- A caller could append after an active barrier selected its writers, join the
+  barrier, and return success before its own file was synced. A successful waiter
+  now checks for pending live participants while holding the coordinator gate
+  and starts the next required barrier before acknowledging completion.
+
+Both failures were reproduced with real WAL files and deterministic callback/
+channel scheduling. The failure test checks retry and exact recovered records.
+The race test waits until the second caller has joined the in-flight barrier;
+it checks file contents and the number of barrier generations. The paired case
+confirms already-selected appends share one barrier. A retired writer whose
+dirty allocation is still alive cannot create a spurious barrier. Test-only
+waiter instrumentation does not exist in production builds.
+
+```text
+Target: WalDurabilityCoordinator::sync_with / sync_participants_with
+Mutation check: changed-line scope, 9 mutants; initially 6 caught, 2 survivors,
+                1 unviable. Added coalescing and retired-owner assertions;
+                both survivors caught in focused reruns.
+Survivors: none in the selected production logic. Test-only counter arithmetic
+           excluded; constructor Default mutant is unviable.
+Strengthening: deterministic sync-error/retry and concurrent barrier regressions.
+Verification: storage all-feature tests 35 passed; 5 existing doctests ignored;
+              stable all-target/all-feature Clippy -D warnings and fmt PASS.
+```
+
+The scoped coupling report still covers five modules. The sync callback remains
+private and production always supplies the actual Core writer sync function.
+The coordinator retains its shared storage-type boundary; no public type or
+error signature changed. Failure propagation and thread ordering are checked
+by execution, beyond the static coupling tool's visibility.

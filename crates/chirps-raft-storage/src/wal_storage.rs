@@ -148,6 +148,8 @@ struct CoordinatorGate {
     syncing: bool,
     generation: u64,
     last_error: Option<String>,
+    #[cfg(test)]
+    waiters: usize,
 }
 
 struct DurabilityParticipant {
@@ -182,6 +184,8 @@ impl WalDurabilityCoordinator {
                 syncing: false,
                 generation: 0,
                 last_error: None,
+                #[cfg(test)]
+                waiters: 0,
             }),
             wake: Condvar::new(),
             batch_wait,
@@ -200,17 +204,40 @@ impl WalDurabilityCoordinator {
     }
 
     fn sync(&self) -> Result<()> {
+        self.sync_with(RealWalSink::sync_writer)
+    }
+
+    fn sync_with(&self, sync_writer: impl FnMut(&mut WalWriter) -> Result<()>) -> Result<()> {
         let mut gate = self.gate.lock().unwrap();
         if gate.syncing {
             let generation = gate.generation;
+            #[cfg(test)]
+            {
+                gate.waiters += 1;
+            }
             while gate.syncing || gate.generation == generation {
                 gate = self.wake.wait(gate).unwrap();
             }
-            return gate
-                .last_error
-                .as_ref()
-                .map(|error| Err(anyhow!(error.clone())))
-                .unwrap_or(Ok(()));
+            #[cfg(test)]
+            {
+                gate.waiters -= 1;
+            }
+            if let Some(error) = &gate.last_error {
+                return Err(anyhow!(error.clone()));
+            }
+            // An append may have joined after the active barrier selected its
+            // writers. Completion alone cannot acknowledge that append. Keep
+            // the gate locked while deciding who starts its required barrier.
+            let pending = self.participants.lock().unwrap().iter().any(|entry| {
+                entry.writer.strong_count() > 0
+                    && entry
+                        .dirty
+                        .upgrade()
+                        .is_some_and(|dirty| dirty.load(Ordering::Acquire))
+            });
+            if !pending {
+                return Ok(());
+            }
         }
         gate.syncing = true;
         let generation = gate.generation + 1;
@@ -222,7 +249,7 @@ impl WalDurabilityCoordinator {
         if self.diagnostics_enabled {
             PROCESS_DURABILITY_BARRIERS.fetch_add(1, Ordering::Relaxed);
         }
-        let result = self.sync_participants();
+        let result = self.sync_participants_with(sync_writer);
 
         let mut gate = self.gate.lock().unwrap();
         gate.last_error = result.as_ref().err().map(ToString::to_string);
@@ -232,7 +259,10 @@ impl WalDurabilityCoordinator {
         result
     }
 
-    fn sync_participants(&self) -> Result<()> {
+    fn sync_participants_with(
+        &self,
+        mut sync_writer: impl FnMut(&mut WalWriter) -> Result<()>,
+    ) -> Result<()> {
         let writers = {
             let mut participants = self.participants.lock().unwrap();
             let mut writers = Vec::with_capacity(participants.len());
@@ -250,13 +280,17 @@ impl WalDurabilityCoordinator {
             });
             writers
         };
-        for (writer, dirty) in writers {
+        for (index, (writer, _)) in writers.iter().enumerate() {
             if self.diagnostics_enabled {
                 PROCESS_DURABILITY_PARTICIPANT_SYNCS.fetch_add(1, Ordering::Relaxed);
             }
             let mut guard = writer.lock().unwrap();
-            if let Err(error) = RealWalSink::sync_writer(&mut guard) {
-                dirty.store(true, Ordering::Release);
+            if let Err(error) = sync_writer(&mut guard) {
+                // Collection cleared every selected dirty flag. Preserve retry
+                // eligibility for this failed sync and all unattempted writers.
+                for (_, dirty) in &writers[index..] {
+                    dirty.store(true, Ordering::Release);
+                }
                 return Err(error);
             }
         }
@@ -1691,6 +1725,130 @@ mod tests {
         right_thread.join().unwrap().unwrap();
         assert!(root.path().join("left.wal").metadata().unwrap().len() > 0);
         assert!(root.path().join("right.wal").metadata().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn append_after_barrier_selection_is_synced_before_waiter_returns() {
+        check_waiter_barrier(true);
+    }
+
+    #[test]
+    fn already_selected_append_reuses_the_completed_barrier() {
+        check_waiter_barrier(false);
+    }
+
+    fn check_waiter_barrier(append_after_selection: bool) {
+        let root = tempdir().unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+        let mut first =
+            RealWalSink::new(&root.path().join("first.wal"), Arc::clone(&coordinator)).unwrap();
+        let mut late =
+            RealWalSink::new(&root.path().join("late.wal"), Arc::clone(&coordinator)).unwrap();
+        let record = CoreWalRecord::Put(TxnId(7), b"k".to_vec(), b"v".to_vec());
+        first.append(&record, false).unwrap();
+        if !append_after_selection {
+            late.append(&record, false).unwrap();
+        }
+        let (selected_tx, selected_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let first_coordinator = Arc::clone(&coordinator);
+        let leader = thread::spawn(move || {
+            let mut first_writer = true;
+            first_coordinator.sync_with(|writer| {
+                if first_writer {
+                    first_writer = false;
+                    selected_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                }
+                RealWalSink::sync_writer(writer)
+            })
+        });
+        selected_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Model an owner being torn down after selection: its writer has gone,
+        // while the dirty allocation is still alive. It cannot join a barrier.
+        let retired_writer = Arc::new(Mutex::new(
+            WalWriter::new(&root.path().join("retired.wal")).unwrap(),
+        ));
+        let retired_dirty = Arc::new(AtomicBool::new(true));
+        coordinator.register(&retired_writer, &retired_dirty);
+        drop(retired_writer);
+        // Appends after selection need a new barrier; already-selected appends
+        // must reuse the completed barrier without redundant synchronization.
+        if append_after_selection {
+            late.append(&record, false).unwrap();
+        }
+        let late_coordinator = Arc::clone(&coordinator);
+        let waiter = thread::spawn(move || late_coordinator.sync());
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let entered_wait = loop {
+            if coordinator.gate.lock().unwrap().waiters == 1 {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+            thread::yield_now();
+        };
+        release_tx.send(()).unwrap();
+        leader.join().unwrap().unwrap();
+        waiter.join().unwrap().unwrap();
+        assert!(
+            entered_wait,
+            "the late caller must exercise the in-flight barrier path"
+        );
+        assert!(!late.dirty.load(Ordering::Acquire));
+        assert_eq!(
+            coordinator.gate.lock().unwrap().generation,
+            if append_after_selection { 2 } else { 1 }
+        );
+        let records = WalReader::new(&root.path().join("late.wal"))
+            .unwrap()
+            .collect::<alopex_core::error::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(records, vec![record]);
+    }
+
+    #[test]
+    fn failed_group_sync_keeps_unflushed_participants_dirty_for_retry() {
+        let root = tempdir().unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+        let record = CoreWalRecord::Put(TxnId(7), b"k".to_vec(), b"v".to_vec());
+        let mut sinks = (0..3)
+            .map(|index| {
+                RealWalSink::new(
+                    &root.path().join(format!("{index}.wal")),
+                    Arc::clone(&coordinator),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        for sink in &mut sinks {
+            sink.append(&record, false).unwrap();
+        }
+        let mut attempts = 0;
+        let result = coordinator.sync_participants_with(|writer| {
+            attempts += 1;
+            if attempts == 2 {
+                Err(anyhow!("injected sync failure"))
+            } else {
+                RealWalSink::sync_writer(writer)
+            }
+        });
+        assert!(result.is_err());
+        assert_eq!(attempts, 2);
+        assert!(!sinks[0].dirty.load(Ordering::Acquire));
+        assert!(sinks[1].dirty.load(Ordering::Acquire));
+        assert!(sinks[2].dirty.load(Ordering::Acquire));
+        coordinator.sync().unwrap();
+        for (index, sink) in sinks.iter().enumerate() {
+            assert!(!sink.dirty.load(Ordering::Acquire));
+            let records = WalReader::new(&root.path().join(format!("{index}.wal")))
+                .unwrap()
+                .collect::<alopex_core::error::Result<Vec<_>>>()
+                .unwrap();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0], record);
+        }
     }
 
     #[test]
