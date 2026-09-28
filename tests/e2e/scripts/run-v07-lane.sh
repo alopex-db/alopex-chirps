@@ -8,14 +8,14 @@ if ! command -v rtk >/dev/null 2>&1; then
     }
 fi
 
-readonly EXPECTED_SOURCE_COMMIT="76dcccf24b27c61a9434a79b3f81f065c4d3a832"
-readonly EXPECTED_SOURCE_TREE="c63cdecf5edb11650e7db85db3f7ad168a2103f7"
-readonly EXPECTED_PRODUCTION_MANIFEST_SHA256="a18d6fb6bf0a0d3662176dcd0fde91f0e49989c53bc6cffffd21d60a19958ca0"
-readonly EXPECTED_FAULT_MANIFEST_SHA256="1efa54339d9a07372419bc908885a1872456941d589ccecccda4baa65e87c7e1"
+readonly EXPECTED_SOURCE_COMMIT="336d20c53b4bba663c257bdc0271373cfc2f1864"
+readonly EXPECTED_SOURCE_TREE="b2099c2dc404534429e210069990a10496d4fefd"
+readonly EXPECTED_PRODUCTION_MANIFEST_SHA256="83fdb7ed9cc5ba8cdd46277614c29127a7ed450feaf3b86293db42c348261ebb"
+readonly EXPECTED_FAULT_MANIFEST_SHA256="47b74fb97307acae56f6accfe88daf641d96f34bbf8346c269108651c26b3d3c"
 readonly EXPECTED_PRODUCTION_OUTPUT="/home/roomtv/works/alopex-db/release-artifacts/chirps-v0.7.0/server/production/iggy-server"
-readonly EXPECTED_PRODUCTION_SHA256="254865eb345fd2c095513e95c449d183bef9801f472f6dd50310a2d2421e297c"
+readonly EXPECTED_PRODUCTION_SHA256="3840ead85e35a20c0c86b519c15b87edf2fe08a9dc866b4746915ed8cb312f88"
 readonly EXPECTED_FAULT_OUTPUT="/home/roomtv/works/alopex-db/release-artifacts/chirps-v0.7.0/server/test/iggy-server"
-readonly EXPECTED_FAULT_SHA256="2daa29a71b9d7ba4555ad84f2273c0f269744efe6091dd0dc8aa2fa647fb31b4"
+readonly EXPECTED_FAULT_SHA256="b2a4b7bbe7423269aaf972a5824936c12da5805696af590de720931d0ccb79b5"
 readonly e2e_run_token="chirps-v07-e2e-${BASHPID}-${RANDOM}"
 
 usage() {

@@ -8,13 +8,13 @@ if ! command -v rtk >/dev/null 2>&1; then
     }
 fi
 
-readonly EXPECTED_SOURCE_COMMIT="76dcccf24b27c61a9434a79b3f81f065c4d3a832"
-readonly EXPECTED_SOURCE_TREE="c63cdecf5edb11650e7db85db3f7ad168a2103f7"
-readonly EXPECTED_LOCK_SHA256="0e4ac6717cfb6ba04894f734b8f56afc56e265925fdd805242b6e39d4d676b41"
+readonly EXPECTED_SOURCE_COMMIT="336d20c53b4bba663c257bdc0271373cfc2f1864"
+readonly EXPECTED_SOURCE_TREE="b2099c2dc404534429e210069990a10496d4fefd"
+readonly EXPECTED_LOCK_SHA256="9b601087feed75db7cc6e3e5bbe185fbc1cd5ef9ea2d84dbda8b6a9deb40f6c8"
 readonly EXPECTED_TOOLCHAIN_SHA256="c73ceece264a4826462f5e22926b8909955e5c98cd391733846540d4ed9e6f21"
 readonly EXPECTED_RUSTC_COMMIT="4a4ef493e3a1488c6e321570238084b38948f6db"
 readonly EXPECTED_CARGO_COMMIT="85eff7c80277b57f78b11e28d14154ab12fcf643"
-readonly EXPECTED_DOCKERFILE_SHA256="cc37f30000a94ab30022058cea9c99bc7a66c004d28b8f3c9a755446c17ed3bf"
+readonly EXPECTED_DOCKERFILE_SHA256="85f3539cae30b4277d0452163b35b88e0c02cbc9c4049deafd6fbbfed430bbe8"
 readonly SOURCE_DATE_EPOCH="1790115008"
 readonly SOURCE_REPOSITORY="${IGGY_SOURCE_DIR:-/home/roomtv/works/alopex-db/iggy-worktrees/v0.7.0-compatible}"
 TASK_TARGET=""
@@ -128,9 +128,9 @@ expected = {
     ("artifact", "output_path"): "/home/roomtv/works/alopex-db/release-artifacts/chirps-v0.7.0/server/test/iggy-server",
     ("source", "repository"): "https://github.com/apache/iggy.git",
     ("source", "baseline_commit"): "f5350d999d883fd3ca9dd33b3dc2754ddb0df049",
-    ("source", "commit"): "76dcccf24b27c61a9434a79b3f81f065c4d3a832",
-    ("source", "tree"): "c63cdecf5edb11650e7db85db3f7ad168a2103f7",
-    ("source", "cargo_lock_sha256"): "0e4ac6717cfb6ba04894f734b8f56afc56e265925fdd805242b6e39d4d676b41",
+    ("source", "commit"): "336d20c53b4bba663c257bdc0271373cfc2f1864",
+    ("source", "tree"): "b2099c2dc404534429e210069990a10496d4fefd",
+    ("source", "cargo_lock_sha256"): "9b601087feed75db7cc6e3e5bbe185fbc1cd5ef9ea2d84dbda8b6a9deb40f6c8",
     ("source", "clean_required"): True,
     ("toolchain", "channel"): "1.94.0",
     ("toolchain", "rustc_commit"): "4a4ef493e3a1488c6e321570238084b38948f6db",
@@ -142,7 +142,7 @@ expected = {
     ("build", "default_features"): False,
     ("build", "features"): ["mimalloc", "chirps-test-failpoints"],
     ("build", "source_date_epoch"): 1790115008,
-    ("build", "runtime_build_sha"): "76dcccf24b27c61a9434a79b3f81f065c4d3a832",
+    ("build", "runtime_build_sha"): "336d20c53b4bba663c257bdc0271373cfc2f1864",
     ("container", "dockerfile"): "server/iggy-compatible/Dockerfile.test",
     ("container", "platform"): "linux/amd64",
     ("container", "runtime_image"): "docker.io/library/debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16",

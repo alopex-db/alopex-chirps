@@ -9,16 +9,16 @@ if ! command -v rtk >/dev/null 2>&1; then
 fi
 
 readonly EXPECTED_BASELINE_COMMIT="f5350d999d883fd3ca9dd33b3dc2754ddb0df049"
-readonly EXPECTED_SOURCE_COMMIT="76dcccf24b27c61a9434a79b3f81f065c4d3a832"
-readonly EXPECTED_PARENT_COMMIT="f0a629bfd3ea7a56c563f6587e1d4ac4a6512640"
-readonly EXPECTED_SOURCE_TREE="c63cdecf5edb11650e7db85db3f7ad168a2103f7"
+readonly EXPECTED_SOURCE_COMMIT="336d20c53b4bba663c257bdc0271373cfc2f1864"
+readonly EXPECTED_PARENT_COMMIT="93041d5c93bef330587e59f67adecfd154c3a3d6"
+readonly EXPECTED_SOURCE_TREE="b2099c2dc404534429e210069990a10496d4fefd"
 readonly EXPECTED_BUNDLE_REF="refs/heads/chirps/v0.7.0-compatible"
-readonly EXPECTED_BUNDLE_SHA256="ef3a0137841b12032b081c47c80a5cfa2b168d8605082132e4c3b1cf7e42d6c0"
-readonly EXPECTED_DIFF_SHA256="f7379205b55e77f2bb0738745537057c3a4d02cda0c816bc9a0f54cca498467d"
-readonly EXPECTED_LOCK_SHA256="0e4ac6717cfb6ba04894f734b8f56afc56e265925fdd805242b6e39d4d676b41"
+readonly EXPECTED_BUNDLE_SHA256="ad80f78ed10d0f80ebb9d4ab5f24bf0a5f16ebd953a0236e136833bb25abed17"
+readonly EXPECTED_DIFF_SHA256="26061da7e28f6e367133b6ea0ee4e942eb4a087a20c4335298c4e03570678c3c"
+readonly EXPECTED_LOCK_SHA256="9b601087feed75db7cc6e3e5bbe185fbc1cd5ef9ea2d84dbda8b6a9deb40f6c8"
 readonly EXPECTED_TOOLCHAIN_SHA256="c73ceece264a4826462f5e22926b8909955e5c98cd391733846540d4ed9e6f21"
-readonly EXPECTED_PRODUCTION_MANIFEST_SHA256="a18d6fb6bf0a0d3662176dcd0fde91f0e49989c53bc6cffffd21d60a19958ca0"
-readonly EXPECTED_TEST_MANIFEST_SHA256="1efa54339d9a07372419bc908885a1872456941d589ccecccda4baa65e87c7e1"
+readonly EXPECTED_PRODUCTION_MANIFEST_SHA256="83fdb7ed9cc5ba8cdd46277614c29127a7ed450feaf3b86293db42c348261ebb"
+readonly EXPECTED_TEST_MANIFEST_SHA256="47b74fb97307acae56f6accfe88daf641d96f34bbf8346c269108651c26b3d3c"
 
 ROOT="$(cd "$(rtk dirname "${BASH_SOURCE[0]}")/.." && rtk pwd)"
 readonly ROOT
@@ -262,7 +262,7 @@ expected_series = {
     "commit": os.environ["EXPECTED_SOURCE_COMMIT"],
     "parent_commit": os.environ["EXPECTED_PARENT_COMMIT"],
     "tree": os.environ["EXPECTED_SOURCE_TREE"],
-    "commit_count": 3,
+    "commit_count": 6,
     "bundle_format": "git-bundle-v2",
     "bundle_encoding": "base64",
     "bundle_ref": os.environ["EXPECTED_BUNDLE_REF"],
@@ -366,7 +366,7 @@ require_equal "reconstructed parent" \
     "$(rtk proxy git -C "${RECONSTRUCTED}" show -s --format=%P "${EXPECTED_SOURCE_COMMIT}")" \
     "${EXPECTED_PARENT_COMMIT}"
 require_equal "reconstructed commit count" \
-    "$(rtk proxy git -C "${RECONSTRUCTED}" rev-list --count "${EXPECTED_BASELINE_COMMIT}..${EXPECTED_SOURCE_COMMIT}")" "3"
+    "$(rtk proxy git -C "${RECONSTRUCTED}" rev-list --count "${EXPECTED_BASELINE_COMMIT}..${EXPECTED_SOURCE_COMMIT}")" "6"
 require_equal "reconstructed tree" \
     "$(rtk proxy git -C "${RECONSTRUCTED}" rev-parse "${EXPECTED_SOURCE_COMMIT}^{tree}")" \
     "${EXPECTED_SOURCE_TREE}"

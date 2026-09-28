@@ -1,13 +1,13 @@
 FROM --platform=linux/amd64 docker.io/library/debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16
 
 LABEL org.opencontainers.image.source="https://github.com/apache/iggy" \
-      org.opencontainers.image.revision="76dcccf24b27c61a9434a79b3f81f065c4d3a832" \
+      org.opencontainers.image.revision="336d20c53b4bba663c257bdc0271373cfc2f1864" \
       org.opencontainers.image.title="Chirps compatible Iggy fault-test server" \
       org.opencontainers.image.version="0.7.0" \
       org.alopex.chirps.artifact-kind="publish-disabled-test" \
       org.alopex.chirps.publishable="false" \
       org.alopex.chirps.failpoints="enabled" \
-org.alopex.chirps.server-sha256="2daa29a71b9d7ba4555ad84f2273c0f269744efe6091dd0dc8aa2fa647fb31b4"
+org.alopex.chirps.server-sha256="b2a4b7bbe7423269aaf972a5824936c12da5805696af590de720931d0ccb79b5"
 
 # The Debian snapshot matches the production artifact's pinned runtime.
 RUN sed -i \
