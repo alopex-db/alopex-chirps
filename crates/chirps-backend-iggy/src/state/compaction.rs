@@ -2488,14 +2488,10 @@ mod tests {
 
     #[test]
     fn v07_task_4_3_provisional_corpus_is_complete_bound_and_repeatable() {
-        let requirements = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../.spec-workflow/specs/chirps-v0-7-durable-backend/requirements.md"
-        ));
-        let design = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../.spec-workflow/specs/chirps-v0-7-durable-backend/design.md"
-        ));
+        // Generator unit inputs are deliberately synthetic. Release evidence
+        // continues to require the authenticated original specification bytes.
+        let requirements: &[u8] = b"Synthetic unit-test requirements; not release evidence.\n";
+        let design: &[u8] = b"Synthetic unit-test design; not release evidence.\n";
         let sources: &[(&str, &[u8])] = &[
             ("state/capacity.rs", include_bytes!("capacity.rs")),
             ("state/compaction.rs", include_bytes!("compaction.rs")),
@@ -2506,8 +2502,8 @@ mod tests {
             design,
             sources,
         };
-        let output = PathBuf::from(std::env::var("CARGO_TARGET_DIR").unwrap())
-            .join("task-4_3-provisional-corpus");
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("unit-compaction-corpus");
         generate_compaction_corpus(&output, &inputs).unwrap();
         verify_compaction_corpus(&output, &inputs).unwrap();
         let first = corpus_inventory(&output)
@@ -2535,11 +2531,25 @@ mod tests {
         assert!(manifest.contains("root-directory-sync-unknown-old"));
         assert!(manifest.contains("root-directory-sync-unknown-new"));
         assert!(manifest.contains(ROOT_PENDING_FILE));
+        for (requirements, design) in [
+            (b"changed unit requirements".as_slice(), design),
+            (requirements, b"changed unit design".as_slice()),
+        ] {
+            let altered = CompactionCorpusInputs {
+                requirements,
+                design,
+                sources,
+            };
+            assert_eq!(
+                verify_compaction_corpus(&output, &altered).unwrap_err(),
+                CompactionError::CorpusMismatch
+            );
+        }
         assert!(
-            manifest.contains("6fc671aed8f10a7c664ad27d2d6342a57f228375f944942f877b4f2be166aec6")
+            manifest.contains("85c0d95e5e7ca2f85a4092b51ac17c0bdfabef272fc181e66e6a4e5bc8d6e524")
         );
         assert!(
-            manifest.contains("797fe316e18c7145fb3aa1243afc1279df5942d57219ede034c85caf89be7e71")
+            manifest.contains("4da71815b5658adacaa3e6ed607c7d22dd32cd1781494d3361bb55fd9e9016f4")
         );
     }
 }

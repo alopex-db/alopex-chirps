@@ -292,6 +292,44 @@ impl ChunkStreamOpener for GateFirstChunkOpener {
     }
 }
 
+fn take_fault(remaining: &AtomicUsize) -> bool {
+    let mut current = remaining.load(Ordering::SeqCst);
+    while current != 0 {
+        match remaining.compare_exchange_weak(
+            current,
+            current - 1,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => return true,
+            Err(actual) => current = actual,
+        }
+    }
+    false
+}
+
+#[test]
+fn concurrent_faults_consume_each_budget_entry_once() {
+    let remaining = AtomicUsize::new(100);
+    let consumed = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            let remaining = &remaining;
+            let consumed = &consumed;
+            scope.spawn(move || {
+                for _ in 0..40 {
+                    if take_fault(remaining) {
+                        consumed.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            });
+        }
+    });
+    assert_eq!(consumed.load(Ordering::SeqCst), 100);
+    assert_eq!(remaining.load(Ordering::SeqCst), 0);
+    assert!(!take_fault(&remaining));
+}
+
 impl FlakyChunkOpener {
     fn new(inner: Arc<dyn ChunkStreamOpener>, failures: usize) -> Arc<Self> {
         Arc::new(FlakyChunkOpener {
@@ -311,17 +349,7 @@ impl ChunkStreamOpener for FlakyChunkOpener {
         &self,
         target: NodeId,
     ) -> Result<quinn::SendStream, FileTransferError> {
-        if self
-            .remaining_failures
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-                if current == 0 {
-                    None
-                } else {
-                    Some(current - 1)
-                }
-            })
-            .is_ok()
-        {
+        if take_fault(&self.remaining_failures) {
             return Err(FileTransferError::Transport(
                 "simulated stream failure".to_string(),
             ));
@@ -449,11 +477,7 @@ impl CorruptingChunkProxy {
                             Ok(frame) => frame,
                             Err(_) => break,
                         };
-                        let corrupted = remaining_corruptions
-                            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
-                                (remaining > 0).then(|| remaining - 1)
-                            })
-                            .is_ok();
+                        let corrupted = take_fault(&remaining_corruptions);
                         if corrupted {
                             const PAYLOAD_OFFSET: usize = 1 + 16 + 4 + 4;
                             if let Some(byte) = frame.get_mut(PAYLOAD_OFFSET) {

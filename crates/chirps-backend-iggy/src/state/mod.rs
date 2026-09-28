@@ -316,12 +316,12 @@ pub(crate) fn sync_directory(path: &Path) -> io::Result<()> {
     OpenOptions::new().read(true).open(path)?.sync_all()
 }
 
-fn set_owner_only_permissions(file: &File) -> io::Result<()> {
+fn set_owner_only_permissions(_file: &File) -> io::Result<()> {
     #[cfg(unix)]
     {
-        let mut permissions = file.metadata()?.permissions();
+        let mut permissions = _file.metadata()?.permissions();
         permissions.set_mode(0o600);
-        file.set_permissions(permissions)?;
+        _file.set_permissions(permissions)?;
     }
     Ok(())
 }

@@ -1185,7 +1185,9 @@ fn decode_hex_bytes(value: &str, label: &str) -> Result<Vec<u8>> {
     );
     value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let pair = std::str::from_utf8(pair).expect("hex chunks are UTF-8");
             u8::from_str_radix(pair, 16).with_context(|| format!("{label} is not lowercase hex"))
@@ -1236,7 +1238,7 @@ fn parse_args(args: &[String]) -> Result<Cli> {
         "every option requires one value"
     );
     let mut options = BTreeMap::new();
-    for pair in args.chunks_exact(2) {
+    for pair in args.as_chunks::<2>().0.iter() {
         anyhow::ensure!(
             matches!(
                 pair[0].as_str(),

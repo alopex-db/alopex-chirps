@@ -1284,7 +1284,6 @@ mod tests {
     use alopex_chirps_wire::node_id::NodeId;
     use std::fs;
     use std::io::Write;
-    use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn namespace() -> JournalNamespace {
@@ -1704,14 +1703,10 @@ mod tests {
 
     #[test]
     fn v07_task_4_2_provisional_corpus_is_complete_replayable_and_repeatable() {
-        let requirements = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../.spec-workflow/specs/chirps-v0-7-durable-backend/requirements.md"
-        ));
-        let design = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../.spec-workflow/specs/chirps-v0-7-durable-backend/design.md"
-        ));
+        // Generator unit inputs are deliberately synthetic. Release evidence
+        // continues to require the authenticated original specification bytes.
+        let requirements: &[u8] = b"Synthetic unit-test requirements; not release evidence.\n";
+        let design: &[u8] = b"Synthetic unit-test design; not release evidence.\n";
         let sources: &[(&str, &[u8])] = &[
             ("state/identity.rs", include_bytes!("identity.rs")),
             ("state/journal.rs", include_bytes!("journal.rs")),
@@ -1722,8 +1717,8 @@ mod tests {
             design,
             sources,
         };
-        let output = PathBuf::from(std::env::var("CARGO_TARGET_DIR").unwrap())
-            .join("task-4_2-provisional-corpus");
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("unit-journal-corpus");
         generate_journal_corpus(&output, &inputs).unwrap();
         verify_journal_corpus(&output, &inputs).unwrap();
         let first = snapshot_files(&output).unwrap();
@@ -1734,16 +1729,30 @@ mod tests {
         let manifest = fs::read_to_string(output.join("manifest.json")).unwrap();
         assert!(manifest.contains("\"producer_task\": \"4.2\""));
         assert!(
-            manifest.contains("6fc671aed8f10a7c664ad27d2d6342a57f228375f944942f877b4f2be166aec6")
+            manifest.contains("85c0d95e5e7ca2f85a4092b51ac17c0bdfabef272fc181e66e6a4e5bc8d6e524")
         );
         assert!(
-            manifest.contains("797fe316e18c7145fb3aa1243afc1279df5942d57219ede034c85caf89be7e71")
+            manifest.contains("4da71815b5658adacaa3e6ed607c7d22dd32cd1781494d3361bb55fd9e9016f4")
         );
         assert!(manifest.contains("unknown-old"));
         assert!(manifest.contains("unknown-new"));
         assert!(manifest.contains("initial-write-old"));
         assert!(manifest.contains(".checkpoint.journal.pending"));
         assert!(output.join("initial-directory-sync-unknown-old").is_dir());
+        for (requirements, design) in [
+            (b"changed unit requirements".as_slice(), design),
+            (requirements, b"changed unit design".as_slice()),
+        ] {
+            let altered = JournalCorpusInputs {
+                requirements,
+                design,
+                sources,
+            };
+            assert_eq!(
+                verify_journal_corpus(&output, &altered).unwrap_err(),
+                JournalError::CorruptJournal
+            );
+        }
         assert_eq!(
             fs::read_dir(output.join("initial-directory-sync-unknown-old"))
                 .unwrap()

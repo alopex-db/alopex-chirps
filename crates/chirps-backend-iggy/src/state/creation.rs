@@ -1104,7 +1104,7 @@ mod tests {
     };
     use alopex_chirps_wire::node_id::NodeId;
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::process::Command;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -1529,14 +1529,10 @@ mod tests {
                 )
                 .unwrap(),
         );
-        let requirements = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../.spec-workflow/specs/chirps-v0-7-durable-backend/requirements.md"
-        ));
-        let design = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../.spec-workflow/specs/chirps-v0-7-durable-backend/design.md"
-        ));
+        // Generator unit inputs are deliberately synthetic. Release evidence
+        // continues to require the authenticated original specification bytes.
+        let requirements: &[u8] = b"Synthetic unit-test requirements; not release evidence.\n";
+        let design: &[u8] = b"Synthetic unit-test design; not release evidence.\n";
         let sources: &[(&str, &[u8])] = &[
             ("lib.rs", include_bytes!("../lib.rs")),
             ("state/creation.rs", include_bytes!("creation.rs")),
@@ -1548,8 +1544,7 @@ mod tests {
             design,
             sources,
         };
-        let target = PathBuf::from(std::env::var("CARGO_TARGET_DIR").unwrap());
-        let output = target.join("task-4_1-provisional-corpus");
+        let output = root.path().join("unit-creation-corpus");
         generate_creation_corpus(&output, active.creation(), &inputs).unwrap();
         verify_creation_corpus(&output, active.creation(), &inputs).unwrap();
         let first = snapshot_files(&output).unwrap();
@@ -1565,13 +1560,27 @@ mod tests {
         assert_eq!(CORPUS_CASES.len(), 7);
         let manifest = fs::read_to_string(output.join("manifest.json")).unwrap();
         assert!(
-            manifest.contains("6fc671aed8f10a7c664ad27d2d6342a57f228375f944942f877b4f2be166aec6")
+            manifest.contains("85c0d95e5e7ca2f85a4092b51ac17c0bdfabef272fc181e66e6a4e5bc8d6e524")
         );
         assert!(
-            manifest.contains("797fe316e18c7145fb3aa1243afc1279df5942d57219ede034c85caf89be7e71")
+            manifest.contains("4da71815b5658adacaa3e6ed607c7d22dd32cd1781494d3361bb55fd9e9016f4")
         );
         assert!(manifest.contains("\"producer_task\": \"4.1\""));
         assert!(manifest.contains("unknown-old"));
         assert!(manifest.contains("unknown-new"));
+        for (requirements, design) in [
+            (b"changed unit requirements".as_slice(), design),
+            (requirements, b"changed unit design".as_slice()),
+        ] {
+            let altered = CorpusInputs {
+                requirements,
+                design,
+                sources,
+            };
+            assert_eq!(
+                verify_creation_corpus(&output, active.creation(), &altered).unwrap_err(),
+                CreationStoreError::CorruptState
+            );
+        }
     }
 }

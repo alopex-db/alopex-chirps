@@ -2034,7 +2034,7 @@ mod tests {
         ));
         let rejected_coordinator = ProducerCoordinator::new(rejected_port);
         let rejected = rejected_coordinator
-            .preflight(&prepared, ConfirmationBoundary::OsSyncedAccepted)
+            .preflight(&prepared, ConfirmationBoundary::BrokerAccepted)
             .unwrap()
             .start()
             .unwrap();
@@ -2062,7 +2062,7 @@ mod tests {
             accepted_observer.clone(),
         )));
         let accepted = coordinator
-            .preflight(&prepared, ConfirmationBoundary::OsSyncedAccepted)
+            .preflight(&prepared, ConfirmationBoundary::BrokerAccepted)
             .unwrap()
             .start()
             .unwrap();
