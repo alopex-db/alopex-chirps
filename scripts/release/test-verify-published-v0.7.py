@@ -3,7 +3,9 @@
 import copy
 import importlib.util
 import io
+import os
 import json
+import sys
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -57,9 +59,10 @@ class FixtureRemote(v.Remote):
             return copy.deepcopy(self.release)
         return copy.deepcopy(self.assets)
 
-    def asset(self, repository, asset_id):
+    def asset(self, repository, asset_id, expected_size):
         self.calls.append(("asset", repository, asset_id))
-        return self.asset_bytes[asset_id]
+        raw = self.asset_bytes[asset_id]
+        return len(raw), v.sha256(raw)
 
 
 class PublishedVerificationTests(unittest.TestCase):
@@ -156,12 +159,22 @@ class PublishedVerificationTests(unittest.TestCase):
             r.tag("owner/repo", "chirps-v0.7.0")
             r.image_manifest("ghcr.io/owner/image:0.7.0")
             r.github("repos/owner/repo/releases/tags/chirps-v0.7.0")
-            r.asset("owner/repo", 7)
-        calls = [call.args[0] for call in command.call_args_list]
+        with patch.object(r, "command_digest", return_value=(7, v.sha256(b"release"))) as streamed:
+            r.asset("owner/repo", 7, 7)
+        calls = [call.args[0] for call in command.call_args_list] + [streamed.call_args.args[0]]
         self.assertEqual(calls[0][:3], ["git", "ls-remote", "--exit-code"])
         self.assertEqual(calls[1][:3], ["skopeo", "inspect", "--raw"])
         for args in calls[2:]:
             self.assertEqual(args[:4], ["gh", "api", "--method", "GET"])
+
+    def test_asset_streaming_is_bounded_and_detects_failed_process(self):
+        remote = v.Remote()
+        command = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'asset')"]
+        self.assertEqual(remote.command_digest(command, 5), (5, v.sha256(b"asset")))
+        with self.assertRaisesRegex(v.VerificationError, "exceeds stored size"):
+            remote.command_digest(command, 4)
+        with self.assertRaisesRegex(v.VerificationError, "download failed"):
+            remote.command_digest([sys.executable, "-c", "raise SystemExit(1)"], 5)
 
     def test_registry_adapter_streams_get_and_rejects_oversize(self):
         for raw, expected_size, valid in [(b"crate", 5, True), (b"different", 5, False)]:
@@ -199,5 +212,40 @@ class PublishedVerificationTests(unittest.TestCase):
                     self.assertEqual(self.verify(r)["result"], "pass")
 
 
+def fixture_cli():
+    # Test-only launcher: production CLI has no fixture-service bypass.
+    sys.argv = sys.argv[2:]
+    evidence_path = Path(sys.argv[sys.argv.index("--evidence") + 1])
+    evidence = json.loads(evidence_path.read_bytes())
+    bundle = json.loads((evidence_path.parent / evidence["bundle"]["path"]).read_bytes())
+    entry = next(item for item in bundle["artifacts"] if item["id"] == "release-bundle")
+    manifest_path = evidence_path.parent / entry["path"]
+    manifest = json.loads(manifest_path.read_bytes())
+    remote = FixtureRemote()
+    remote.bundle = manifest
+    remote.commit = manifest["source_commit"]
+    remote.tag_name = manifest["tag"]
+    remote.tag_bytes = (f"{remote.object}\trefs/tags/{remote.tag_name}\n"
+                        f"{remote.commit}\trefs/tags/{remote.tag_name}^{{}}\n").encode()
+    remote.crates = {item["name"]: (manifest_path.parent / item["path"]).read_bytes()
+                     for item in manifest["packages"]}
+    import tarfile
+    with tarfile.open(manifest_path.parent / manifest["production_image"]["path"]) as archive:
+        digest = manifest["production_image"]["manifest_digest"].removeprefix("sha256:")
+        remote.image = archive.extractfile("blobs/sha256/" + digest).read()
+    remote.release["tag_name"] = remote.tag_name
+    remote.assets, remote.asset_bytes = [], {}
+    for index, item in enumerate(manifest["github_assets"], 1):
+        remote.assets.append({"id": index, "name": item["name"], "state": "uploaded", "size": item["size"]})
+        remote.asset_bytes[index] = (manifest_path.parent / item["path"]).read_bytes()
+    if os.environ.get("CHIRPS_TEST_REMOTE_DRIFT"):
+        remote.crates[manifest["packages"][0]["name"]] = b"drift"
+    v.Remote = lambda: remote
+    v.main()
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if sys.argv[1:2] == ["--fixture-cli"]:
+        fixture_cli()
+    else:
+        unittest.main()

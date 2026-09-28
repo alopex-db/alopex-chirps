@@ -593,3 +593,35 @@ fi
 }
 
 printf '%s\n' 'v0.7 publication structure passed: approval, exact order, resume, mismatch, and test-artifact controls'
+
+# Exercise the actual wrapper -> Python -> local publisher validation chain.
+# Only the test interpreter substitutes read-only remotes; production has no
+# fixture endpoint switch that could be mistaken for publication evidence.
+cp "$repo_root/scripts/release/verify-published-v0.7.sh" "$fixture_repo/scripts/release/"
+cp "$repo_root/scripts/release/verify-published-v0.7.py" "$fixture_repo/scripts/release/"
+mkdir -p "$scratch/readonly-bin"
+export CHIRPS_TEST_REAL_PYTHON="$(command -v python3)"
+export CHIRPS_TEST_VERIFY_TESTS="$repo_root/scripts/release/test-verify-published-v0.7.py"
+cat > "$scratch/readonly-bin/python3" <<'PYTHON_SH'
+#!/usr/bin/env bash
+if [[ "${1##*/}" == "verify-published-v0.7.py" ]]; then
+  exec "$CHIRPS_TEST_REAL_PYTHON" "$CHIRPS_TEST_VERIFY_TESTS" --fixture-cli "$@"
+fi
+exec "$CHIRPS_TEST_REAL_PYTHON" "$@"
+PYTHON_SH
+chmod +x "$scratch/readonly-bin/python3"
+readonly_args=(
+  --candidate "$candidate" --candidate-sha256 "$(sha256sum "$candidate" | awk '{print $1}')"
+  --evidence "$evidence" --evidence-sha256 "$(sha256sum "$evidence" | awk '{print $1}')"
+  --bundle "$scratch/bundle/bundle.json"
+  --bundle-sha256 "$(sha256sum "$scratch/bundle/bundle.json" | awk '{print $1}')"
+  --tag-object "$(printf 'a%.0s' {1..40})"
+)
+PATH="$scratch/readonly-bin:$PATH" PYTHONDONTWRITEBYTECODE=1 \
+  bash "$fixture_repo/scripts/release/verify-published-v0.7.sh" "${readonly_args[@]}" >/dev/null
+if PATH="$scratch/readonly-bin:$PATH" PYTHONDONTWRITEBYTECODE=1 CHIRPS_TEST_REMOTE_DRIFT=1 \
+  bash "$fixture_repo/scripts/release/verify-published-v0.7.sh" "${readonly_args[@]}" >/dev/null 2>&1; then
+  printf '%s\n' 'published CLI accepted remote archive substitution' >&2
+  exit 1
+fi
+printf '%s\n' 'published CLI fixture passed: full wrapper chain and remote substitution rejection'

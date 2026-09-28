@@ -57,15 +57,19 @@ administrative changes.
 ## Validation
 
 `bash scripts/release/verify-published-v0.7.sh --self-test` exercises stored-byte
-drift plus 13 read-only verifier tests (including 18 missing/changed crate
+drift plus 14 read-only verifier tests (including 18 missing/changed crate
 subcases, annotated/lightweight tag substitution, image bytes, Release state,
 asset omissions/additions/duplicates/substitution, pagination, request failure,
 and mid-verification movement). The adapter tests assert GET-only requests and
-bounded registry streaming.
+bounded registry and asset streaming (including failed and oversized subprocess output).
 
 `bash scripts/release/test-publish-v0.7-bundle.sh` preserves the existing approval,
 order, resume, mismatch and test-artifact negative fixtures. It additionally
 verifies that local validation performs zero requests to the fixture services.
+An end-to-end CLI fixture executes the shell wrapper, Python verifier and shared
+local validator, substituting only the read-only service adapter in the test
+interpreter. It rejects remote byte substitution through that full path; the
+production command has no fixture-service override.
 These local fixtures do not constitute evidence that v0.7 is publicly released;
 the full command must run against the final approved stored bundle after
 publication.

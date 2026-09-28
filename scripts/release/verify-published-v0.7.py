@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 import sys
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -69,10 +70,31 @@ class Remote:
         except json.JSONDecodeError as exc:
             raise VerificationError("GitHub returned invalid JSON") from exc
 
-    def asset(self, repository: str, asset_id: int) -> bytes:
-        return self.command(["gh", "api", "--method", "GET", "--header",
-                             "Accept: application/octet-stream",
-                             f"repos/{repository}/releases/assets/{asset_id}"])
+    def command_digest(self, args: list[str], expected_size: int) -> tuple[int, str]:
+        """Bound RAM, bytes consumed, and process lifetime for large assets."""
+        try:
+            with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
+                deadline = threading.Timer(120, process.kill)
+                deadline.start()
+                digest, size = hashlib.sha256(), 0
+                try:
+                    while chunk := process.stdout.read(min(1024 * 1024, expected_size - size + 1)):
+                        size += len(chunk)
+                        require(size <= expected_size, "GitHub asset exceeds stored size")
+                        digest.update(chunk)
+                    require(process.wait() == 0, "GitHub asset download failed")
+                    return size, digest.hexdigest()
+                finally:
+                    deadline.cancel()
+                    if process.poll() is None:
+                        process.kill()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise VerificationError("read-only asset request failed") from exc
+
+    def asset(self, repository: str, asset_id: int, expected_size: int) -> tuple[int, str]:
+        return self.command_digest(["gh", "api", "--method", "GET", "--header",
+                                    "Accept: application/octet-stream",
+                                    f"repos/{repository}/releases/assets/{asset_id}"], expected_size)
 
 
 def verify_tag(raw: bytes, tag: str, expected_object: str, expected_commit: str) -> None:
@@ -144,8 +166,8 @@ def verify_remote(bundle: dict, tag_object: str, remote: Remote) -> dict:
         stored = expected[item["name"]]
         require(item.get("state") == "uploaded" and item.get("size") == stored["size"],
                 f"GitHub asset metadata differs: {item['name']}")
-        raw = remote.asset(repository, asset_id)
-        require(len(raw) == stored["size"] and sha256(raw) == stored["sha256"],
+        size, digest = remote.asset(repository, asset_id, stored["size"])
+        require(size == stored["size"] and digest == stored["sha256"],
                 f"GitHub asset bytes differ: {item['name']}")
 
     # Detect tag/image movement while registry and release downloads were running.
