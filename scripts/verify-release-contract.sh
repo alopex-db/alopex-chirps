@@ -291,7 +291,7 @@ if publication_env.get("CHIRPS_RELEASE_ENVIRONMENT_APPROVAL") != "release:${{ in
     fail("publication approval is not bound to the explicit commit input")
 
 publication_steps = steps(publication, "publish-v07-bundle")
-if publication_env.get("CHIRPS_POSTPUBLISH_EVIDENCE_DIR") != "${{ runner.temp }}/chirps-v07-registry-consumer":
+if not any('echo "CHIRPS_POSTPUBLISH_EVIDENCE_DIR=${RUNNER_TEMP}/chirps-v07-registry-consumer" >> "$GITHUB_ENV"' in item.get("run", "") for item in publication_steps):
     fail("post-upload consumer evidence must be retained outside publisher scratch")
 consumer_upload = [item for item in publication_steps if item.get("uses") == "actions/upload-artifact@v4" and item.get("with", {}).get("name") == "chirps-v07-registry-consumer-${{ github.run_id }}"]
 if len(consumer_upload) != 1 or consumer_upload[0].get("if") != "always()" or consumer_upload[0].get("with", {}).get("path") != "${{ runner.temp }}/chirps-v07-registry-consumer":
@@ -390,7 +390,7 @@ if mapping(ci_download.get("with"), "ci-gate download.with") != expected_downloa
 ci_commands = run_commands(ci_steps, "ci-gate")
 for job_name, job in (("ci-gate", ci_gate), ("publish-v07-bundle", publication)):
     environment = mapping(job.get("env"), f"{job_name}.env")
-    if environment.get("CHIRPS_PERF_VERIFIER") != "${{ runner.temp }}/chirps-perf-verifier/chirps-durable-perf" or environment.get("CHIRPS_RELEASE_TOOLS_COMMIT") != "${{ github.sha }}":
+    if environment.get("CHIRPS_RELEASE_TOOLS_COMMIT") != "${{ github.sha }}" or not any('echo "CHIRPS_PERF_VERIFIER=${RUNNER_TEMP}/chirps-perf-verifier/chirps-durable-perf" >> "$GITHUB_ENV"' in item.get("run", "") for item in steps(job, job_name)):
         fail("trusted PERF verifier path/source binding drifted")
 expected_tool_build = ["python3", "$GITHUB_WORKSPACE/release-tools/scripts/release/v07_perf_verifier.py", "build", "--source-root", "$GITHUB_WORKSPACE/release-tools", "--source-commit", "${{ github.sha }}", "--output", "${RUNNER_TEMP}/chirps-perf-verifier"]
 if expected_tool_build not in ci_commands:

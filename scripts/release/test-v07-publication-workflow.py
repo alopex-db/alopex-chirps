@@ -26,7 +26,7 @@ class WorkflowTests(unittest.TestCase):
             ('CHIRPS_RELEASE_TOOLS_COMMIT: ${{ github.sha }}', 'CHIRPS_RELEASE_TOOLS_COMMIT: ${{ inputs.commit }}'),
             ('name: chirps-v07-perf-verifier-${{ github.run_id }}', 'name: chirps-v07-perf-verifier-${{ inputs.v07_artifact_run_id }}'),
             ('--source-commit "${{ github.sha }}"', '--source-commit "${{ inputs.commit }}"'),
-            ('CHIRPS_POSTPUBLISH_EVIDENCE_DIR: ${{ runner.temp }}/chirps-v07-registry-consumer', 'CHIRPS_POSTPUBLISH_EVIDENCE_DIR: /tmp/discarded'),
+            ('CHIRPS_POSTPUBLISH_EVIDENCE_DIR=${RUNNER_TEMP}/chirps-v07-registry-consumer', 'CHIRPS_POSTPUBLISH_EVIDENCE_DIR=/tmp/discarded'),
             ('if: always()', 'if: success()'),
         ]
         for old, new in changes:
