@@ -34,6 +34,7 @@ metrics-util = "0.20"
 tokio-test = "0.4"
 tracing-test = "0.2"
 tempfile = "3"
+proptest = "1.11"
 
 [features]
 metrics-export = ["metrics-exporter-prometheus"]

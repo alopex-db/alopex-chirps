@@ -222,6 +222,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
+ "proptest",
  "quinn",
  "rand 0.8.7",
  "rcgen 0.12.1",

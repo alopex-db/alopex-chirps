@@ -2,7 +2,9 @@
 use alopex_chirps_core::backend::MessageBackend;
 use alopex_chirps_core::config::NodeConfig;
 use alopex_chirps_core::error::TransportError;
-use alopex_chirps_transport_quic::{QuicBackend, TransportConfigV04, init_test_tracing};
+use alopex_chirps_transport_quic::{
+    QuicBackend, TransportConfigV04, TransportResourceConfig, init_test_tracing,
+};
 use alopex_chirps_wire::file_transfer::{
     CancelRequest, FileTransferFrame, FileTransferMessage, TransferSessionId,
 };
@@ -79,8 +81,8 @@ impl TestTls {
 fn tuned_transport_config(
     max_connections: usize,
     max_concurrent_uni_streams: u32,
-) -> TransportConfigV04 {
-    TransportConfigV04 {
+) -> TransportResourceConfig {
+    TransportResourceConfig {
         max_connections,
         max_concurrent_uni_streams,
         max_idle_timeout: Duration::from_secs(5),
@@ -122,29 +124,37 @@ async fn production_transport_limits_reach_quinn_and_bound_connections() -> anyh
 
     let mut limited_transport = tuned_transport_config(1, 1);
     limited_transport.max_idle_timeout = Duration::from_secs(3);
-    let backend_a =
-        QuicBackend::new_with_config(node_a, tls.config(0, addr_a, vec![]), limited_transport)
-            .await?;
-    let backend_b = QuicBackend::new_with_config(
+    let backend_a = QuicBackend::new_with_resource_config(
+        node_a,
+        tls.config(0, addr_a, vec![]),
+        TransportConfigV04::default(),
+        limited_transport,
+    )
+    .await?;
+    let backend_b = QuicBackend::new_with_resource_config(
         node_b,
         tls.config(1, addr_b, vec![addr_a]),
+        TransportConfigV04::default(),
         tuned_transport_config(4, 1),
     )
     .await?;
-    let backend_c = QuicBackend::new_with_config(
+    let backend_c = QuicBackend::new_with_resource_config(
         node_c,
         tls.config(2, addr_c, vec![addr_a]),
+        TransportConfigV04::default(),
         tuned_transport_config(4, 1),
     )
     .await?;
 
     wait_for_connected_with_timeout(&backend_a, 1, Duration::from_secs(5)).await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while backend_a.metrics().connection_rejections == 0 && tokio::time::Instant::now() < deadline {
+    while backend_a.resource_metrics().connection_rejections == 0
+        && tokio::time::Instant::now() < deadline
+    {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert_eq!(backend_a.connected_peers().len(), 1);
-    assert!(backend_a.metrics().connection_rejections > 0);
+    assert!(backend_a.resource_metrics().connection_rejections > 0);
 
     let retained_peer = backend_a.connected_peers()[0].0;
     let first_stream = if retained_peer == node_b {
@@ -168,10 +178,12 @@ async fn production_transport_limits_reach_quinn_and_bound_connections() -> anyh
     drop(first_stream);
 
     let idle_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while backend_a.metrics().idle_evictions == 0 && tokio::time::Instant::now() < idle_deadline {
+    while backend_a.resource_metrics().idle_evictions == 0
+        && tokio::time::Instant::now() < idle_deadline
+    {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    assert!(backend_a.metrics().idle_evictions > 0);
+    assert!(backend_a.resource_metrics().idle_evictions > 0);
     assert!(backend_a.connected_peers().len() <= 1);
 
     backend_a.close().await?;
@@ -191,11 +203,17 @@ async fn health_check_does_not_prevent_idle_eviction() -> anyhow::Result<()> {
 
     let mut transport = tuned_transport_config(4, 1);
     transport.max_idle_timeout = Duration::from_secs(3);
-    let backend_a =
-        QuicBackend::new_with_config(node_a, tls.config(0, addr_a, vec![]), transport).await?;
-    let backend_b = QuicBackend::new_with_config(
+    let backend_a = QuicBackend::new_with_resource_config(
+        node_a,
+        tls.config(0, addr_a, vec![]),
+        TransportConfigV04::default(),
+        transport,
+    )
+    .await?;
+    let backend_b = QuicBackend::new_with_resource_config(
         node_b,
         tls.config(1, addr_b, vec![addr_a]),
+        TransportConfigV04::default(),
         tuned_transport_config(4, 1),
     )
     .await?;
@@ -210,7 +228,7 @@ async fn health_check_does_not_prevent_idle_eviction() -> anyhow::Result<()> {
     }
 
     assert!(
-        backend_a.metrics().idle_evictions > 0,
+        backend_a.resource_metrics().idle_evictions > 0,
         "health checks must not refresh activity for idle eviction"
     );
 

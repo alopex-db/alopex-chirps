@@ -10,7 +10,7 @@ use alopex_chirps_file_transfer::{
     TransferMode, TransferOptions, TransferSessionId,
 };
 use alopex_chirps_mock::{MockBackend, MockNetwork};
-use alopex_chirps_transport_quic::TransportConfigV04;
+use alopex_chirps_transport_quic::TransportResourceConfig;
 use alopex_chirps_wire::file_transfer::{
     CancelRequest, FileTransferFrame, FileTransferMessage, ManifestAck, TransferResponse,
 };
@@ -66,7 +66,7 @@ fn build_tls_configs(transport: Option<Arc<TransportConfig>>) -> (ServerConfig, 
 }
 
 fn performance_transport_config() -> Arc<TransportConfig> {
-    let profile = TransportConfigV04::file_transfer_performance();
+    let profile = TransportResourceConfig::file_transfer_performance();
     assert_eq!(
         profile.max_concurrent_uni_streams,
         PERFORMANCE_MAX_UNI_STREAMS

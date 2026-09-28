@@ -56,7 +56,7 @@ pub use config::{
     BandwidthConfig, DEFAULT_MAX_CONNECTIONS, FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES,
     FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS, FILE_TRANSFER_SEND_WINDOW_BYTES,
     FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES, HandshakeConfig, PriorityConfig, QosConfig,
-    QueueLimits, RetransmitConfig, TransportConfigV04,
+    QueueLimits, RetransmitConfig, TransportConfigV04, TransportResourceConfig,
 };
 pub use events::{TransportEvent, emit_event};
 pub use handshake::{
@@ -200,6 +200,11 @@ pub struct TransportMetricsSnapshot {
     pub max_concurrent_sends: u64,
     /// Number of Raft data streams opened (not envelope count).
     pub streams_opened: u64,
+}
+
+/// Connection and receive-stream resource counters added after v0.6.1.
+#[derive(Debug, Clone, Default)]
+pub struct TransportResourceMetricsSnapshot {
     /// Number of established peer connections currently retained.
     pub active_connections: u64,
     /// Number of incoming streams currently being processed.
@@ -372,6 +377,42 @@ impl QuicBackend {
         transport_config: TransportConfigV04,
         endpoint_resolver: Arc<dyn EndpointResolver>,
     ) -> anyhow::Result<Self> {
+        Self::new_with_config_and_resources_and_endpoint_resolver(
+            node_id,
+            config,
+            transport_config,
+            TransportResourceConfig::default(),
+            endpoint_resolver,
+        )
+        .await
+    }
+
+    /// Creates a backend with explicit message and resource limits.
+    pub async fn new_with_resource_config(
+        node_id: NodeId,
+        config: Arc<NodeConfig>,
+        transport_config: TransportConfigV04,
+        resource_config: TransportResourceConfig,
+    ) -> anyhow::Result<Self> {
+        let resolver = Arc::new(StaticEndpointResolver::from_seeds(config.seeds.clone()));
+        Self::new_with_config_and_resources_and_endpoint_resolver(
+            node_id,
+            config,
+            transport_config,
+            resource_config,
+            resolver,
+        )
+        .await
+    }
+
+    /// Creates a backend with explicit message settings, resource limits and locations.
+    pub async fn new_with_config_and_resources_and_endpoint_resolver(
+        node_id: NodeId,
+        config: Arc<NodeConfig>,
+        transport_config: TransportConfigV04,
+        resource_config: TransportResourceConfig,
+        endpoint_resolver: Arc<dyn EndpointResolver>,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
         if transport_config.send_queue_capacity == 0 {
             anyhow::bail!("send_queue_capacity must be greater than zero");
@@ -379,7 +420,7 @@ impl QuicBackend {
         if transport_config.raft_stream_batch_size == 0 {
             anyhow::bail!("raft_stream_batch_size must be greater than zero");
         }
-        let quinn_transport_config = transport_config.to_quinn_transport_config()?;
+        let quinn_transport_config = resource_config.to_quinn_transport_config()?;
         let (server_config, client_config) =
             build_tls_configs(&config, Arc::clone(&quinn_transport_config))?;
         let mut endpoint = Endpoint::server(server_config, config.bind_addr)?;
@@ -396,7 +437,7 @@ impl QuicBackend {
         let metrics = Arc::new(TransportCounters::default());
         ensure_metrics_recorder();
         ::metrics::gauge!("chirps_quic_connections_limit")
-            .set(transport_config.max_connections as f64);
+            .set(resource_config.max_connections as f64);
         let metrics_ext = Arc::new(ExtendedTransportMetrics::new_with_enabled(
             transport_config.diagnostics_enabled,
         ));
@@ -424,7 +465,7 @@ impl QuicBackend {
             node_id,
             Arc::clone(&metrics),
             transport_config.handshake.clone(),
-            transport_config.max_connections,
+            resource_config.max_connections,
         );
         let backend = QuicBackend {
             node_id,
@@ -447,7 +488,7 @@ impl QuicBackend {
             metrics_ext: Arc::clone(&metrics_ext),
             receive_handler: Arc::clone(&receive_handler),
             handshake_config: transport_config.handshake.clone(),
-            max_connections: transport_config.max_connections,
+            max_connections: resource_config.max_connections,
         };
 
         backend.spawn_accept_loop();
@@ -474,7 +515,7 @@ impl QuicBackend {
             Arc::clone(&backend.peer_capabilities),
             Arc::clone(&backend.metrics),
             backend.shutdown.clone(),
-            transport_config.max_idle_timeout,
+            resource_config.max_idle_timeout,
         );
         spawn_health_check_loop(
             Arc::clone(&backend.connections),
@@ -483,9 +524,7 @@ impl QuicBackend {
             Arc::clone(&backend.metrics),
             Arc::clone(&backend.raft_batch_streams),
             backend.shutdown.clone(),
-            transport_config
-                .max_idle_timeout
-                .min(Duration::from_secs(5)),
+            resource_config.max_idle_timeout.min(Duration::from_secs(5)),
             backend.send_timeout,
         );
         let _ = backend.reconnect_tx.try_send(ReconnectCommand::Trigger);
@@ -582,6 +621,12 @@ impl QuicBackend {
             concurrent_sends: self.metrics.concurrent_sends.load(Ordering::Relaxed),
             max_concurrent_sends: self.metrics.max_concurrent_sends.load(Ordering::Relaxed),
             streams_opened: self.metrics.streams_opened.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Returns connection-limit, receive-stream and idle-eviction counters.
+    pub fn resource_metrics(&self) -> TransportResourceMetricsSnapshot {
+        TransportResourceMetricsSnapshot {
             active_connections: self.metrics.active_connections.load(Ordering::Relaxed),
             active_streams: self.metrics.active_streams.load(Ordering::Relaxed),
             max_active_streams: self.metrics.max_active_streams.load(Ordering::Relaxed),

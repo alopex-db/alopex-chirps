@@ -15,20 +15,6 @@ pub const DEFAULT_MAX_CONNECTIONS: usize = 64;
 /// Chirps v0.4 向けのトランスポート設定集。
 #[derive(Clone, Debug)]
 pub struct TransportConfigV04 {
-    /// Maximum bytes the peer may send without acknowledgement on one stream.
-    pub stream_receive_window: u64,
-    /// Maximum bytes the peer may send without acknowledgement on one connection.
-    pub receive_window: u64,
-    /// Maximum bytes Chirps may send without acknowledgement.
-    pub send_window: u64,
-    /// Maximum number of concurrently open peer-initiated unidirectional streams.
-    pub max_concurrent_uni_streams: u32,
-    /// QUIC idle timeout.  This is also the threshold used to evict idle peers.
-    pub max_idle_timeout: Duration,
-    /// Optional QUIC keep-alive interval.  It must be shorter than the idle timeout.
-    pub keep_alive_interval: Option<Duration>,
-    /// Maximum number of established peer connections retained by this backend.
-    pub max_connections: usize,
     /// 送信処理のタイムアウト。
     pub send_timeout: Duration,
     /// Whether data sends wait for peer-side stream stop notifications.
@@ -56,13 +42,6 @@ pub struct TransportConfigV04 {
 impl Default for TransportConfigV04 {
     fn default() -> Self {
         Self {
-            stream_receive_window: FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES,
-            receive_window: FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES,
-            send_window: FILE_TRANSFER_SEND_WINDOW_BYTES,
-            max_concurrent_uni_streams: FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS,
-            max_idle_timeout: Duration::from_secs(30),
-            keep_alive_interval: None,
-            max_connections: DEFAULT_MAX_CONNECTIONS,
             send_timeout: Duration::from_millis(200),
             await_peer_stop: true,
             diagnostics_enabled: true,
@@ -77,15 +56,56 @@ impl Default for TransportConfigV04 {
 }
 
 impl TransportConfigV04 {
-    /// Returns the production profile used for the v0.5.2 File Transfer SLO.
+    /// Returns the production message profile used for File Transfer.
+    /// Resource windows use [`TransportResourceConfig::file_transfer_performance`].
     pub fn file_transfer_performance() -> Self {
+        Self::default()
+    }
+
+    /// Builds the default production resource profile for Quinn.
+    /// Use [`TransportResourceConfig`] to customize resource limits.
+    pub fn to_quinn_transport_config(&self) -> anyhow::Result<Arc<quinn::TransportConfig>> {
+        TransportResourceConfig::default().to_quinn_transport_config()
+    }
+}
+
+/// QUIC flow control and connection limits, separate from the v0.6.1 message config.
+#[derive(Clone, Debug)]
+pub struct TransportResourceConfig {
+    /// Maximum bytes the peer may send without acknowledgement on one stream.
+    pub stream_receive_window: u64,
+    /// Maximum bytes the peer may send without acknowledgement on one connection.
+    pub receive_window: u64,
+    /// Maximum bytes Chirps may send without acknowledgement.
+    pub send_window: u64,
+    /// Maximum number of concurrently open peer-initiated unidirectional streams.
+    pub max_concurrent_uni_streams: u32,
+    /// QUIC idle timeout.  This is also the threshold used to evict idle peers.
+    pub max_idle_timeout: Duration,
+    /// Optional QUIC keep-alive interval.  It must be shorter than the idle timeout.
+    pub keep_alive_interval: Option<Duration>,
+    /// Maximum number of established peer connections retained by this backend.
+    pub max_connections: usize,
+}
+
+impl Default for TransportResourceConfig {
+    fn default() -> Self {
         Self {
             stream_receive_window: FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES,
             receive_window: FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES,
             send_window: FILE_TRANSFER_SEND_WINDOW_BYTES,
             max_concurrent_uni_streams: FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS,
-            ..Self::default()
+            max_idle_timeout: Duration::from_secs(30),
+            keep_alive_interval: None,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
         }
+    }
+}
+
+impl TransportResourceConfig {
+    /// Returns the production resource profile used for the File Transfer SLO.
+    pub fn file_transfer_performance() -> Self {
+        Self::default()
     }
 
     /// Builds the Quinn transport configuration represented by this Chirps config.
@@ -132,7 +152,8 @@ impl TransportConfigV04 {
 
 #[cfg(test)]
 mod tests {
-    use super::TransportConfigV04;
+    use super::{TransportConfigV04, TransportResourceConfig};
+    use proptest::prelude::*;
     use std::time::Duration;
 
     #[test]
@@ -171,8 +192,8 @@ mod tests {
 
     #[test]
     fn production_defaults_match_file_transfer_profile() {
-        let default = TransportConfigV04::default();
-        let profile = TransportConfigV04::file_transfer_performance();
+        let default = TransportResourceConfig::default();
+        let profile = TransportResourceConfig::file_transfer_performance();
         assert_eq!(default.stream_receive_window, 16 * 1024 * 1024);
         assert_eq!(default.receive_window, 64 * 1024 * 1024);
         assert_eq!(default.send_window, 64 * 1024 * 1024);
@@ -195,12 +216,69 @@ mod tests {
 
     #[test]
     fn quinn_transport_config_rejects_unsafe_values() {
-        let config = TransportConfigV04 {
+        let config = TransportResourceConfig {
             keep_alive_interval: Some(Duration::from_secs(30)),
             max_idle_timeout: Duration::from_secs(30),
             ..Default::default()
         };
         assert!(config.to_quinn_transport_config().is_err());
+    }
+
+    #[test]
+    fn resource_profile_accepts_valid_equality_and_rejects_protocol_overflow() {
+        assert!(
+            TransportResourceConfig::default()
+                .to_quinn_transport_config()
+                .is_ok()
+        );
+        let equal_windows = TransportResourceConfig {
+            stream_receive_window: 1,
+            receive_window: 1,
+            keep_alive_interval: Some(Duration::from_secs(1)),
+            ..Default::default()
+        };
+        assert!(equal_windows.to_quinn_transport_config().is_ok());
+        let oversized_window = TransportResourceConfig {
+            stream_receive_window: 1 << 62,
+            receive_window: 1 << 62,
+            ..Default::default()
+        };
+        assert!(oversized_window.to_quinn_transport_config().is_err());
+        let oversized_idle = TransportResourceConfig {
+            max_idle_timeout: Duration::from_millis(1 << 62),
+            ..Default::default()
+        };
+        assert!(oversized_idle.to_quinn_transport_config().is_err());
+    }
+
+    proptest! {
+        #[test]
+        fn resource_validation_matches_admissible_domain(
+            stream in 0u64..10,
+            receive in 0u64..10,
+            send in 0u64..10,
+            streams in 0u32..10,
+            connections in 0usize..10,
+            idle_ms in 0u64..10,
+            keep_alive_ms in proptest::option::of(0u64..10),
+        ) {
+            let resource = TransportResourceConfig {
+                stream_receive_window: stream,
+                receive_window: receive,
+                send_window: send,
+                max_concurrent_uni_streams: streams,
+                max_connections: connections,
+                max_idle_timeout: Duration::from_millis(idle_ms),
+                keep_alive_interval: keep_alive_ms.map(Duration::from_millis),
+            };
+            // Independent domain model: each capacity is positive, a connection
+            // covers one stream, and keep-alive lies strictly inside idle time.
+            let capacities = [stream, receive, send, u64::from(streams), connections as u64, idle_ms];
+            let admissible = capacities.iter().all(|capacity| (1..=9).contains(capacity))
+                && (stream..=9).contains(&receive)
+                && keep_alive_ms.is_none_or(|keep| (0..idle_ms).contains(&keep));
+            prop_assert_eq!(resource.to_quinn_transport_config().is_ok(), admissible);
+        }
     }
 }
 
