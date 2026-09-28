@@ -69,6 +69,8 @@ def inspect_oci_server(path: Path, expected_manifest_digest: str) -> tuple[str, 
                     if source is None:
                         fail(f"OCI archive entry {name} is unreadable")
                     files[name] = source.read()
+                elif member.isdir() and name in {"", "blobs", "blobs/sha256"}:
+                    continue
                 elif name in {"index.json", "oci-layout"} or name.startswith("blobs/"):
                     fail(f"OCI archive metadata entry {name} is not a regular file")
     except (OSError, tarfile.TarError) as exc:

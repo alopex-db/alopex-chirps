@@ -55,7 +55,8 @@ rejected. OCI inspection limits archives to 1 GiB, individual entries to
 512 MiB, and entries to 100,000; each layer has the same expanded-byte budget.
 
 The measured server root must equal the running process's explicit
-`IGGY_SYSTEM_PATH`. The server command digest hashes raw `/proc/PID/cmdline`.
+`IGGY_SYSTEM_PATH`, and the pinned configuration file must equal its explicit
+absolute `IGGY_CONFIG_PATH`. The server command digest hashes raw `/proc/PID/cmdline`.
 The environment digest hashes canonical JSON of its `IGGY_*` environment,
 excluding password, token and secret values. It never stores those values.
 The configuration axis hashes canonical JSON with `file_sha256`,

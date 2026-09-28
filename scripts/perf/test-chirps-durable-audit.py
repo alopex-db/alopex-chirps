@@ -44,6 +44,10 @@ def image(path, server, server_name="usr/local/bin/iggy-server"):
     }}}))
     manifest = blob(audit.canonical({"schemaVersion": 2, "config": config, "layers": [blob(layer.getvalue())]}))
     with tarfile.open(path, "w") as archive:
+        for name in ("./", "blobs/", "blobs/sha256/"):
+            entry = tarfile.TarInfo(name)
+            entry.type = tarfile.DIRTYPE
+            archive.addfile(entry)
         member(archive, "index.json", audit.canonical({"manifests": [manifest]}))
         member(archive, "oci-layout", b'{"imageLayoutVersion":"1.0.0"}')
         for name, raw in blobs.items():
@@ -139,6 +143,25 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertIn("fell behind", result["error"])
 
+    def test_slow_final_sample_cannot_hide_gap_or_deadline(self):
+        config_path = self.root / "config.json"
+        config_path.write_text("{}")
+        config = {"sample_interval_millis": 10, "max_observation_millis": 5000,
+            "server": {"data_root": str(self.root)}, "checkpoint_root": str(self.root)}
+        state = {"config_path": str(config_path), "config_sha256": audit.file_digest(config_path),
+            "binding": {"client": {}, "server": {}}, "disk_bytes_before": 0}
+        for index, (completed, error) in enumerate(((100_000_000, "fell behind"), (6_000_000_000, "duration exceeded"))):
+            with self.subTest(completed=completed):
+                directory = self.root / str(index)
+                directory.mkdir()
+                audit.write_json(directory / "state.json", state)
+                (directory / "stop").touch()
+                with patch.object(audit, "load_config", return_value=config), patch.object(audit, "process_start", return_value=1), patch.object(audit, "rss_bytes", return_value=1000), patch.object(audit, "disk_bytes", return_value=0), patch.object(audit.time, "monotonic_ns", side_effect=[0, 1, completed]):
+                    audit.sample(directory / "state.json")
+                result = audit.read_json(directory / "sampler-result.json")
+                self.assertEqual(result["status"], "fail")
+                self.assertIn(error, result["error"])
+
     @unittest.skipUnless(sys.platform == "linux", "real /proc execution requires Linux")
     def test_real_sampler_binds_processes_and_detects_disk_and_rss(self):
         state, data, checkpoints = [self.root / name for name in ("state", "data", "checkpoints")]
@@ -146,14 +169,15 @@ class AuditTests(unittest.TestCase):
             path.mkdir(mode=0o700)
         env = os.environ.copy()
         env["IGGY_SYSTEM_PATH"] = str(data)
+        configuration = self.root / "server-config.toml"
+        configuration.write_text('# synthetic test process, not an Iggy benchmark\n')
+        env["IGGY_CONFIG_PATH"] = str(configuration)
         server = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(90)"], env=env)
         self.addCleanup(lambda: server.wait(timeout=5))
         self.addCleanup(server.terminate)
         identity = audit.process_identity(server.pid)
         manifest = self.root / "server.toml"
         manifest.write_text('[artifact]\nkind="production"\npublishable=true\noutput_sha256="' + identity["executable_sha256"] + '"\n[source]\ncommit="' + "1" * 40 + '"\n')
-        configuration = self.root / "server-config.toml"
-        configuration.write_text('# synthetic test process, not an Iggy benchmark\n')
         payload = self.root / "payload"
         payload.write_bytes(b"synthetic")
         partitions = self.root / "partitions.json"
@@ -227,6 +251,12 @@ class AuditTests(unittest.TestCase):
             changed["server"][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
                 audit.observed_binding(changed, os.getpid())
+        other_configuration = self.root / "unrelated-config.toml"
+        other_configuration.write_bytes(configuration.read_bytes())
+        changed = copy.deepcopy(config)
+        changed["server"]["config"] = ref(other_configuration)
+        with self.assertRaisesRegex(ValueError, "IGGY_CONFIG_PATH"):
+            audit.observed_binding(changed, os.getpid())
         with self.assertRaises(ValueError):
             audit.audit(path, config_hash, {**request, "observation_id": "c" * 64, "checkpoint_root": str(data)})
         request.update(observation_id="e" * 64)

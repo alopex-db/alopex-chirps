@@ -228,6 +228,7 @@ def observed_binding(config: dict, client_pid: int) -> dict:
     command = digest_bytes((Path("/proc") / str(server["pid"]) / "cmdline").read_bytes())
     environment = environment_digest(server["pid"])
     ensure(command == config["server"]["command_sha256"] and environment == config["server"]["environment_sha256"], "running server command/configuration environment differs")
+    ensure(server_environment(server["pid"]).get("IGGY_CONFIG_PATH") == str(configuration), "pinned configuration differs from running server IGGY_CONFIG_PATH")
     ensure(server_environment(server["pid"]).get("IGGY_SYSTEM_PATH") == str(absolute(config["server"]["data_root"])), "measured data root differs from running server IGGY_SYSTEM_PATH")
     payload = checked_file(config["payload"])
     partitions = checked_file(config["partition_set"])
@@ -296,9 +297,12 @@ def sample(state_path: Path) -> None:
                 client = rss_bytes(state["binding"]["client"])
                 server = rss_bytes(state["binding"]["server"])
                 disk = disk_bytes([absolute(config["server"]["data_root"]), absolute(config["checkpoint_root"])])
+                completed = time.monotonic_ns()
+                ensure(completed < deadline, "maximum observation duration exceeded")
+                ensure(completed - last <= config["sample_interval_millis"] * 5_000_000, "RSS sampling fell behind its declared interval")
                 disk_peak = max(disk_peak, disk - state["disk_bytes_before"])
                 peak = max(peak, client + server)
-                max_gap = max(max_gap, now - last)
+                max_gap = max(max_gap, completed - last)
                 ensure(max_gap <= config["sample_interval_millis"] * 5_000_000, "RSS sampling fell behind its declared interval")
                 last = now
                 count += 1
