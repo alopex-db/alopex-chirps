@@ -22,6 +22,8 @@ mkdir -p "$scratch/bundle" "$scratch/server" \
 cp "$repo_root/scripts/release/publish-v0.7-bundle.sh" "$publisher"
 cp "$repo_root/scripts/release/verify-v0.7-evidence.py" \
   "$fixture_repo/scripts/release/verify-v0.7-evidence.py"
+cp "$repo_root/scripts/release/v07_e2e_evidence.py" \
+  "$repo_root/scripts/release/test-v07-e2e-evidence.py" "$fixture_repo/scripts/release/"
 cp "$repo_root/docs/release/v0.7.0-evidence-schema.json" \
   "$fixture_repo/docs/release/v0.7.0-evidence-schema.json"
 test_server_sha256="$(printf '%s\n' 'fixture-publish-disabled-test-server' | sha256sum | awk '{print $1}')"
@@ -32,6 +34,7 @@ python3 - "$scratch/bundle" "$fixture_repo/docs/release/v0.7.0-evidence-schema.j
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import json
 import sys
@@ -40,6 +43,11 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 schema_path = Path(sys.argv[2])
+sys.dont_write_bytecode = True
+fixture_script = schema_path.parents[2] / "scripts/release/test-v07-e2e-evidence.py"
+fixture_spec = importlib.util.spec_from_file_location("e2e_fixtures", fixture_script)
+fixture_module = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(fixture_module)
 source_commit = "1" * 40
 production_server = b"fixture-production-server\n"
 test_server = b"fixture-publish-disabled-test-server\n"
@@ -198,6 +206,9 @@ evidence_files = {
     )
     for kind in required_kinds - {"process"}
 }
+for kind, lane in (("process", "production"), ("fault", "fault")):
+    lane_path = fixture_module.write_lane_fixture(root / "runtime" / lane, lane, source_commit, "2" * 40)
+    evidence_files[kind] = {"path": lane_path.relative_to(root).as_posix(), "sha256": hashlib.sha256(lane_path.read_bytes()).hexdigest()}
 
 candidate = {
     "schema": "chirps.v0.7.candidate/v1",
@@ -305,6 +316,12 @@ def write_evidence(index_name: str, bundle_name: str, release_name: str) -> None
                 "sha256": stored["sha256"],
             }
         )
+    entries.append({
+        "id": "fixture-production-e2e", "kind": "process", "result": "pass",
+        "candidate_sha256": candidate_sha256,
+        "environment_sha256": candidate["environment_sha256"],
+        **evidence_files["process"],
+    })
     entries.sort(key=lambda entry: entry["id"])
     evidence_bundle = {
         "schema": "chirps.v0.7.bundle/v1",

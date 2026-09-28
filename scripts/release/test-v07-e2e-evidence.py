@@ -30,7 +30,7 @@ class EvidenceTests(unittest.TestCase):
         self.iggy = "2" * 40
         self.test_names = ["integration::accept", "integration::reject"]
 
-    def fixture(self, target="durable_send"):
+    def fixture(self, target="durable_send", lane="fault"):
         directory = self.root / target
         directory.mkdir()
         build = [
@@ -46,7 +46,7 @@ class EvidenceTests(unittest.TestCase):
         write(directory / "corpus.json", {"synthetic.json": "3" * 64})
         write(directory / "environment.json", {key: "synthetic" for key in ("system", "release", "machine", "node", "rustc", "cargo")})
         report = {
-            "schema": e2e.SCHEMA, "lane": "fault", "target": target, "status": "pass",
+            "schema": e2e.SCHEMA, "lane": lane, "target": target, "status": "pass",
             "source": {"source_commit": self.source, "source_tree": "4" * 40, "lock_sha256": "5" * 64},
             "server": {"source_commit": self.iggy, "source_tree": "6" * 40, "manifest_sha256": "7" * 64, "binary_sha256": "8" * 64},
             "environment": e2e.reference(directory / "environment.json", directory),
@@ -210,6 +210,22 @@ class EvidenceTests(unittest.TestCase):
                 e2e.collect(repo, self.root / "failed", "fault", "durable_send", 10)
         failed = e2e.load(self.root / "failed/durable_send/report.json")
         self.assertEqual(failed["status"], "fail")
+
+
+def write_lane_fixture(root: Path, lane: str, source: str, iggy: str) -> Path:
+    """Explicitly synthetic logs for release-gate rejection tests only."""
+    case = EvidenceTests()
+    case.root = root
+    root.mkdir(parents=True, exist_ok=True)
+    case.source, case.iggy = source, iggy
+    case.test_names = ["synthetic::accept", "synthetic::reject"]
+    refs = {}
+    for target in e2e.TARGETS[lane]:
+        path, _ = case.fixture(target, lane)
+        refs[target] = e2e.reference(path, root)
+    path = root / "lane.json"
+    write(path, {"schema": e2e.LANE_SCHEMA, "lane": lane, "targets": refs})
+    return path
 
 
 if __name__ == "__main__":

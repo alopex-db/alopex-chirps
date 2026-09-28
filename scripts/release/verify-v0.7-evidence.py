@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import re
 import sys
 import tempfile
 from pathlib import Path
 from typing import Callable
+
+sys.dont_write_bytecode = True
+from v07_e2e_evidence import verify_lane
 
 VERSION = "0.7.0"
 SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
@@ -388,6 +392,26 @@ def verify(evidence_path: Path, schema_path: Path) -> None:
         }
         if evidence_digests != {candidate[candidate_field]}:
             fail(f"candidate.{candidate_field} differs from {kind} evidence")
+    verify_e2e_categories(root, entries, candidate)
+
+
+def verify_e2e_categories(root: Path, entries: list[dict], candidate: dict) -> None:
+    """Re-evaluate complete process/fault results, not only their pass labels."""
+    identities = []
+    for kind, lane in (("process", "production"), ("fault", "fault")):
+        # The stored release-bundle inventory is an additional process artifact;
+        # publication validates its content. It cannot stand in for E2E evidence.
+        reports = [entry for entry in entries if entry["kind"] == kind and entry["id"] != "release-bundle"]
+        if len(reports) != 1:
+            fail(f"{kind} requires exactly one complete {lane} E2E lane report")
+        path = safe_file(root, reports[0]["path"], f"{kind} lane")
+        try:
+            identities.append(verify_lane(path, lane, candidate["source_commit"], candidate["iggy_commit"]))
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            fail(f"{kind} E2E evidence rejected: {error}")
+    production, fault = identities
+    if production["source"] != fault["source"] or production["corpus"]["sha256"] != fault["corpus"]["sha256"] or production["environment"]["sha256"] != fault["environment"]["sha256"]:
+        fail("production and fault E2E lanes mix source, corpus, or environment identities")
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -405,6 +429,16 @@ def self_test(schema_path: Path) -> None:
         for kind in sorted(REQUIRED_KINDS):
             path = root / "artifacts" / f"{kind}.json"
             write_json(path, {"schema": f"chirps.self-test.{kind}/v1"})
+            artifact_digests[kind] = sha256_file(path)
+        fixture_spec = importlib.util.spec_from_file_location(
+            "e2e_fixtures", Path(__file__).with_name("test-v07-e2e-evidence.py")
+        )
+        fixture_module = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(fixture_module)
+        runtime_paths = {}
+        for kind, lane in (("process", "production"), ("fault", "fault")):
+            path = fixture_module.write_lane_fixture(root / "runtime" / lane, lane, "1" * 40, "2" * 40)
+            runtime_paths[kind] = path.relative_to(root).as_posix()
             artifact_digests[kind] = sha256_file(path)
         candidate = {
             "schema": CANDIDATE_SCHEMA,
@@ -435,7 +469,7 @@ def self_test(schema_path: Path) -> None:
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,
                 "environment_sha256": candidate["environment_sha256"],
-                "path": f"artifacts/{kind}.json",
+                "path": runtime_paths.get(kind, f"artifacts/{kind}.json"),
                 "sha256": artifact_digests[kind],
             }
             for kind in sorted(REQUIRED_KINDS)
@@ -631,7 +665,26 @@ def self_test(schema_path: Path) -> None:
         expect_rejected("tampered-bundle", lambda: verify(index_path, schema_path))
         bundle_path.write_bytes(original_bundle)
 
+        # Rebind all outer hashes after replacing a runtime report. This must
+        # fail on execution semantics, not on the already-tested byte binding.
+        changed_entries = copy.deepcopy(entries)
+        runtime_entry = next(entry for entry in changed_entries if entry["kind"] == "fault")
+        fake_path = root / "forged-pass.json"
+        write_json(fake_path, {"schema": "chirps.v0.7.e2e-lane/v1", "lane": "fault", "targets": {}})
+        runtime_entry.update(path=fake_path.name, sha256=sha256_file(fake_path))
+        fake_bundle = copy.deepcopy(bundle)
+        fake_bundle["artifacts"] = changed_entries
+        fake_bundle_path = root / "forged-pass-bundle.json"
+        write_json(fake_bundle_path, fake_bundle)
+        fake_index = copy.deepcopy(index)
+        fake_index["evidence"] = changed_entries
+        fake_index["bundle"] = {"path": fake_bundle_path.name, "sha256": sha256_file(fake_bundle_path)}
+        fake_index_path = root / "forged-pass-index.json"
+        write_json(fake_index_path, fake_index)
+        expect_rejected("forged-runtime-pass", lambda: verify(fake_index_path, schema_path))
+
         expected = {
+            "forged-runtime-pass",
             "canonical-path-alias",
             "missing-field",
             "missing-bundle",

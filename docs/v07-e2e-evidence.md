@@ -30,6 +30,14 @@ mixed candidates, mixed server/environment/corpus identities, changed
 commands, missing targets, path traversal and changed bytes. A `pass` label
 alone is insufficient.
 
+The release evidence verifier requires exactly one complete production lane
+under `process` and one complete fault lane under `fault`. An additional
+`release-bundle` process entry only identifies stored publication bytes; it
+does not satisfy the production E2E requirement. The verifier applies these
+checks on both release-gate and publisher entry points. A negative fixture
+recomputes all outer hashes around an empty passing-looking fault report and
+confirms that publication evidence is still rejected.
+
 Run collector/verifier regression tests with:
 
 ```sh
