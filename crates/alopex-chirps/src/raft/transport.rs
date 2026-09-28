@@ -422,6 +422,8 @@ impl ChirpsRaftTransport {
     }
 
     /// 内部でRPCを送信しレスポンスを待つ共通処理。
+    // Openraft RPC traits require this error type; preserve it through the adapter.
+    #[allow(clippy::result_large_err)]
     async fn send_rpc<E>(
         &self,
         target: ChirpsNodeId,

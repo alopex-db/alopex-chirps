@@ -217,6 +217,8 @@ pub struct RaftNode {
 
 impl RaftNode {
     /// Raftノードを初期化する。openraft::Raftの生成に必要なConfigを組み立てる。
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn new<NF, LS, SM>(
         config: RaftConfig,
         network: NF,
@@ -266,6 +268,8 @@ impl RaftNode {
 
     /// Raft protocol is active as soon as `new` completes. `start` is an
     /// idempotent lifecycle acknowledgement retained for the public v0.5 API.
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn start(&self) -> RaftResult<()> {
         self.started.store(true, Ordering::Release);
         Ok(())
@@ -277,6 +281,8 @@ impl RaftNode {
     }
 
     /// クラスターを初期化する。初回のみ呼び出すこと。
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn initialize(&self, members: BTreeSet<ChirpsNodeId>) -> RaftResult<()> {
         let result = self
             .raft
@@ -319,6 +325,8 @@ impl RaftNode {
     }
 
     /// クライアントコマンドを提案する。NotLeaderの場合はリーダーIDを返す。
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn propose(&self, command: Vec<u8>) -> RaftResult<Vec<u8>> {
         let started = Instant::now();
         match self.raft.client_write(command).await {
@@ -382,6 +390,8 @@ impl RaftNode {
     }
 
     /// メンバーシップ変更（Joint Consensus対応）。
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn change_membership(&self, members: BTreeSet<ChirpsNodeId>) -> RaftResult<()> {
         self.raft
             .change_membership(members, false)
@@ -391,6 +401,8 @@ impl RaftNode {
     }
 
     /// Learner追加。
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn add_learner(&self, node_id: ChirpsNodeId, node: BasicNode) -> RaftResult<()> {
         self.raft
             .add_learner(node_id, node, true)
@@ -400,6 +412,8 @@ impl RaftNode {
     }
 
     /// 受信メッセージをopenraftへ橋渡しし、レスポンスを返す。
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn handle_message(&self, payload: RaftFramePayload) -> RaftResult<RaftMessage> {
         if payload.message.group_id() != self.config.group_id {
             return Err(RaftError::InvalidMessage(format!(
@@ -477,6 +491,8 @@ impl RaftNode {
     }
 
     #[cfg(feature = "snapshot")]
+    // Propagate the same public RaftError as handle_message without box/unbox churn.
+    #[allow(clippy::result_large_err)]
     async fn handle_snapshot_transfer(
         &self,
         request: RaftSnapshotRequest,
@@ -626,6 +642,8 @@ impl RaftNode {
 
     /// Runs the externally-triggered heartbeat hook. Election timeout
     /// detection remains owned by OpenRaft's background protocol task.
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn tick(&self) -> RaftResult<()> {
         self.raft
             .trigger()
@@ -645,6 +663,8 @@ impl RaftNode {
     }
 
     /// スナップショット生成を手動でトリガーする。
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn trigger_snapshot(&self) -> RaftResult<()> {
         self.raft
             .trigger()
@@ -670,6 +690,8 @@ impl RaftNode {
     ///
     /// Calling shutdown more than once is safe. The method does not return
     /// until the core task has stopped and the observer task has been joined.
+    // Preserve the public v0.6.1 RaftError/StorageError type without boxing.
+    #[allow(clippy::result_large_err)]
     pub async fn shutdown(&self) -> RaftResult<()> {
         self.raft
             .shutdown()

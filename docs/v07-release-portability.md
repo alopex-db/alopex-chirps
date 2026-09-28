@@ -108,3 +108,16 @@ complete the running validation and retain the cache for the ongoing integration
 then inventory it at handoff. Logs and mutation/coupling reports remain outside
 tracked source. Windows and beta fixes still need confirmation on their CI
 platforms; macOS success is not a substitute for those jobs.
+
+### Integrated WAL and final stable lint follow-up
+
+After integrating the Core 0.8.15 WAL adapter, the complete command
+`cargo +stable clippy --locked --offline --all-targets --all-features -- -D warnings`
+passes. The additional stable diagnostics used equivalent `as_chunks` iteration
+and simplified test expressions. Large Openraft errors retain their existing
+public types: allowances are confined to the affected functions and explain the
+compatibility constraint. The test-only materialization helper retains explicit
+independently bound inputs with a local argument-count allowance.
+Facade library, profile, and v0.6.1 downstream tests and the file-transfer
+persistence target pass after integration. These source-equivalent lint edits
+do not add behavior or require another mutation run.
