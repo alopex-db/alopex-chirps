@@ -70,6 +70,11 @@ pub trait StateMachine: Send + Sync + 'static {
     ) -> StateMachineResult<Self::Response>;
 
     /// 現在状態のスナップショットを生成する。
+    ///
+    /// v0.6 compatibility contract: snapshots are asynchronous readers owned
+    /// by the storage boundary. A typed `Snapshot` associated type is not
+    /// introduced until the planned v0.7 facade, so existing implementations
+    /// must keep using [`AsyncSnapshotData`].
     async fn snapshot(&self) -> StateMachineResult<Box<dyn AsyncSnapshotData>>;
 
     /// スナップショットから状態を復元する。
@@ -199,6 +204,11 @@ pub trait StateMachine: Send + Sync + 'static {
 ///     async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {}
 /// }
 /// ```
+///
+/// This is the OpenRaft v0.9 storage-v2 contract used by Chirps v0.6. The
+/// v0.5 design names (`append_entries`, `get_entries`, and `truncate_before`)
+/// are migration terminology, not additional methods; a compatibility facade
+/// is intentionally deferred to v0.7.
 #[async_trait]
 pub trait RaftStorage<C: RaftTypeConfig>: Send + Sync + 'static {
     /// ログ読み出し用リーダー。

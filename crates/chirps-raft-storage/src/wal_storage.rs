@@ -639,14 +639,19 @@ where
 
     fn insert_entry(&mut self, entry: Entry<ChirpsTypeConfig>) {
         let index = entry.log_id.index;
-        let replaced = self.log_cache.insert(index, entry).is_some();
-        if !replaced {
-            self.log_order.push_back(index);
-        }
+        self.log_cache.insert(index, entry);
+        self.touch_cache(index);
         while self.log_cache.len() > self.config.log_cache_size {
-            if let Some(oldest) = self.log_order.pop_front() {
-                self.log_cache.remove(&oldest);
+            if let Some(least_recently_used) = self.log_order.pop_front() {
+                self.log_cache.remove(&least_recently_used);
             }
+        }
+    }
+
+    fn touch_cache(&mut self, index: u64) {
+        self.log_order.retain(|cached| *cached != index);
+        if self.log_cache.contains_key(&index) {
+            self.log_order.push_back(index);
         }
     }
 
@@ -875,26 +880,32 @@ where
     where
         RB: RangeBounds<u64> + Clone + Debug + OptionalSend,
     {
-        let mut seen = HashSet::new();
-        let mut entries: Vec<Entry<ChirpsTypeConfig>> = self
+        let cached_entries: Vec<Entry<ChirpsTypeConfig>> = self
             .log_cache
             .range(range.clone())
-            .map(|(_, e)| {
-                seen.insert(e.log_id.index);
-                e.clone()
-            })
+            .map(|(_, e)| e.clone())
             .collect();
+        let mut seen = HashSet::new();
+        let mut entries = Vec::with_capacity(cached_entries.len());
+        for entry in cached_entries {
+            seen.insert(entry.log_id.index);
+            entries.push(entry);
+        }
 
         let wal_entries = with_blocking_wal_io(|| self.read_entries_from_wal(range.clone()))
             .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Read))?;
 
         for entry in wal_entries {
             if seen.insert(entry.log_id.index) {
+                self.insert_entry(entry.clone());
                 entries.push(entry);
             }
         }
 
         entries.sort_by_key(|e| e.log_id.index);
+        for entry in &entries {
+            self.touch_cache(entry.log_id.index);
+        }
         Ok(entries)
     }
 
@@ -1631,6 +1642,28 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].log_id.index, 1);
         assert_eq!(entries[1].log_id.index, 2);
+    }
+
+    #[tokio::test]
+    async fn log_cache_evicts_least_recently_used_entry() {
+        let dir = tempdir().unwrap();
+        let mut cfg = base_config(dir.path());
+        cfg.log_cache_size = 2;
+        let mut storage = WalRaftStorage::new(cfg, GroupId(40), 40, MockStateMachine).unwrap();
+
+        storage
+            .append_for_test(vec![sample_entry(1), sample_entry(2)])
+            .await
+            .unwrap();
+        storage.try_get_log_entries(1..=1).await.unwrap();
+        storage
+            .append_for_test(vec![sample_entry(3)])
+            .await
+            .unwrap();
+
+        assert!(storage.log_cache.contains_key(&1));
+        assert!(!storage.log_cache.contains_key(&2));
+        assert!(storage.log_cache.contains_key(&3));
     }
 
     #[tokio::test]

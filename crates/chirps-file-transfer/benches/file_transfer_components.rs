@@ -11,11 +11,12 @@ use alopex_chirps_file_transfer::{
     TransferSessionId, TransferState, compress_owned_bytes, decompress_owned_bytes,
     write_owned_chunk_at,
 };
+use alopex_chirps_transport_quic::TransportConfigV04;
 use alopex_chirps_wire::node_id::NodeId;
 use criterion::{
     BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
 };
-use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, TransportConfig};
+use quinn::{ClientConfig, Connection, Endpoint, ServerConfig};
 use rcgen::generate_simple_self_signed;
 use rustls::RootCertStore;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
@@ -28,9 +29,6 @@ const FILE_BYTES: usize = 128 * 1024 * 1024;
 const CHUNK_BYTES: usize = 1024 * 1024;
 const PIPELINE_CHUNKS: usize = FILE_BYTES / CHUNK_BYTES;
 const SERVER_NAME: &str = "localhost";
-const STREAM_WINDOW_BYTES: u32 = 16 * 1024 * 1024;
-const CONNECTION_WINDOW_BYTES: u32 = 64 * 1024 * 1024;
-const MAX_UNI_STREAMS: u32 = 256;
 
 struct FileFixture {
     _directory: TempDir,
@@ -136,13 +134,9 @@ fn tls_configs() -> (ServerConfig, ClientConfig) {
         .add(CertificateDer::from(certificate_der))
         .expect("trusted certificate");
     let mut client = ClientConfig::with_root_certificates(Arc::new(roots)).expect("client config");
-    let mut transport = TransportConfig::default();
-    transport
-        .stream_receive_window(STREAM_WINDOW_BYTES.into())
-        .receive_window(CONNECTION_WINDOW_BYTES.into())
-        .send_window(CONNECTION_WINDOW_BYTES as u64)
-        .max_concurrent_uni_streams(MAX_UNI_STREAMS.into());
-    let transport = Arc::new(transport);
+    let transport = TransportConfigV04::file_transfer_performance()
+        .to_quinn_transport_config()
+        .expect("valid File Transfer performance profile");
     server.transport_config(Arc::clone(&transport));
     client.transport_config(transport);
     (server, client)

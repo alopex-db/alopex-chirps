@@ -9,6 +9,28 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 
+#[async_trait::async_trait]
+impl<F> crate::mesh::RaftFrameHandler for MultiRaftManager<F>
+where
+    F: RaftStorageFactory,
+{
+    async fn handle_raft_frame(
+        &self,
+        source: NodeId,
+        destination: NodeId,
+        frame: Frame,
+    ) -> Result<(), String> {
+        match self.dispatch_frame(source, destination, frame).await {
+            Ok(Some(response)) => self
+                .send_routed_response(response)
+                .await
+                .map_err(|error| error.to_string()),
+            Ok(None) => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+}
+
 /// Owns the lifecycle registry for all Raft groups on one Chirps node.
 pub struct MultiRaftManager<F> {
     transport: Arc<ChirpsRaftTransport>,
@@ -222,6 +244,30 @@ where
         self.groups_read().len()
     }
 
+    pub(crate) fn node_id(&self) -> u64 {
+        self.transport.node_id()
+    }
+
+    pub(crate) fn identity_frame(&self) -> Frame {
+        self.transport.identity_frame()
+    }
+
+    pub(crate) fn register_node_id(&self, raft_node_id: u64, wire_node_id: NodeId) {
+        self.transport.register_node_id(raft_node_id, wire_node_id);
+        for group in self.groups_read().values() {
+            group.register_node_id(raft_node_id, wire_node_id);
+        }
+    }
+
+    fn learn_source_node_id(&self, source: NodeId, payload: &RaftFramePayload) -> Option<u64> {
+        if let Some(raft_node_id) = self.transport.decode_node_id(source) {
+            return Some(raft_node_id);
+        }
+        let raft_node_id = payload.message.source_node_id()?;
+        self.register_node_id(raft_node_id, source);
+        Some(raft_node_id)
+    }
+
     pub async fn remove_group(&self, group_id: GroupId) -> Result<bool, MultiRaftError> {
         let _lifecycle = self.lifecycle.lock().await;
         let Some(group) = self.groups_read().get(&group_id).cloned() else {
@@ -313,9 +359,9 @@ where
 
     /// Decodes and routes one request frame for compatibility callers.
     ///
-    /// Wire node IDs are accepted only in the canonical representation used by
-    /// `ChirpsRaftTransport`: eight zero bytes followed by the big-endian Raft
-    /// node ID. Non-Raft frames, malformed payloads, and non-canonical node IDs
+    /// Wire node IDs are accepted when registered on `ChirpsRaftTransport` or
+    /// in the canonical eight-zero-byte representation used by deterministic
+    /// transports. Non-Raft frames, malformed payloads, and unknown node IDs
     /// are rejected before any group is looked up or mutated. Actual receive
     /// loops must use [`Self::dispatch_frame`] so correlated responses wake the
     /// correct pending group RPC.
@@ -325,18 +371,19 @@ where
         destination: NodeId,
         frame: Frame,
     ) -> Result<RoutedRaftResponse, MultiRaftError> {
-        let source =
-            decode_wire_node_id(source).ok_or_else(|| MultiRaftError::InvalidTransportRoute {
-                reason: "source NodeId is not a canonical Raft node ID".to_owned(),
-            })?;
-        let destination = decode_wire_node_id(destination).ok_or_else(|| {
-            MultiRaftError::InvalidTransportRoute {
-                reason: "destination NodeId is not a canonical Raft node ID".to_owned(),
-            }
-        })?;
         let payload = ChirpsRaftTransport::decode_frame(frame).ok_or_else(|| {
             MultiRaftError::InvalidTransportRoute {
                 reason: "frame is not a valid group-consistent Raft frame".to_owned(),
+            }
+        })?;
+        let source = self.learn_source_node_id(source, &payload).ok_or_else(|| {
+            MultiRaftError::InvalidTransportRoute {
+                reason: "source NodeId is not registered and carries no Raft identity".to_owned(),
+            }
+        })?;
+        let destination = self.transport.decode_node_id(destination).ok_or_else(|| {
+            MultiRaftError::InvalidTransportRoute {
+                reason: "destination NodeId is not registered or canonical".to_owned(),
             }
         })?;
         self.route_message(source, destination, payload).await
@@ -353,18 +400,19 @@ where
         destination: NodeId,
         frame: Frame,
     ) -> Result<Option<RoutedRaftResponse>, MultiRaftError> {
-        let source =
-            decode_wire_node_id(source).ok_or_else(|| MultiRaftError::InvalidTransportRoute {
-                reason: "source NodeId is not a canonical Raft node ID".to_owned(),
-            })?;
-        let destination = decode_wire_node_id(destination).ok_or_else(|| {
-            MultiRaftError::InvalidTransportRoute {
-                reason: "destination NodeId is not a canonical Raft node ID".to_owned(),
-            }
-        })?;
         let payload = ChirpsRaftTransport::decode_frame(frame).ok_or_else(|| {
             MultiRaftError::InvalidTransportRoute {
                 reason: "frame is not a valid group-consistent Raft frame".to_owned(),
+            }
+        })?;
+        let source = self.learn_source_node_id(source, &payload).ok_or_else(|| {
+            MultiRaftError::InvalidTransportRoute {
+                reason: "source NodeId is not registered and carries no Raft identity".to_owned(),
+            }
+        })?;
+        let destination = self.transport.decode_node_id(destination).ok_or_else(|| {
+            MultiRaftError::InvalidTransportRoute {
+                reason: "destination NodeId is not registered or canonical".to_owned(),
             }
         })?;
         self.dispatch_message(source, destination, payload).await
@@ -460,14 +508,6 @@ where
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-}
-
-fn decode_wire_node_id(node_id: NodeId) -> Option<u64> {
-    let bytes = node_id.as_bytes();
-    if bytes[..8] != [0; 8] {
-        return None;
-    }
-    Some(u64::from_be_bytes(bytes[8..].try_into().ok()?))
 }
 
 fn is_response(message: &RaftMessage) -> bool {

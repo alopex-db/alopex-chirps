@@ -20,6 +20,66 @@ v0.7.0はrelease-candidate検証中です。公開保証とsupported matrixの�
 - exactly-once、unlimited replay、post-horizon dedup、global/cross-partition order、replication/quorum/HA/failover、mTLS、device power-loss耐性、cross-host rebalance、atomic data snapshot/restore、Durable broadcastは非保証とした。
 
 ## [0.5.2] - 2026-08-02
+## [0.6.3] - 2026-08-11
+
+### 破壊的変更
+
+- 相互 TLS（mTLS）を必須化した。`chirps-v0-5-requirements.md:247` が v0.5
+  から要求していた相互 TLS 認証が未実装だったため、v0.6.3 で server 側の
+  client certificate 検証を必須化した。
+
+### 追加・変更
+
+- profile 別受信 buffer と staged backpressure、node-wide memory budget、
+  `get_memory_stats()` / `resize_memory_budget()` / `trigger_gc()`、統合 cache
+  manager を追加した。
+- Raft log cache の LRU eviction、QUIC connection health check、証明書・trust
+  anchor cache、Multi-Raft / TSO の公開 mesh 経路を追加した。
+- StateMachine / RaftStorage の v0.6 storage-v2 移行 Rustdoc と File Transfer
+  histogram の設計記録を現行実装へ揃えた。
+
+### アップグレード手順
+
+1. 全ノードを v0.6.3 へ切り替える前に、各ノードの
+   `NodeConfig::trusted_cert_paths` にクラスタ CA 証明書、または許可する全
+   peer 証明書を設定し、ファイルが全ノードから読めることを確認する。
+2. その後、各ノードへ client certificate と対応する private key を設定して
+   起動する。server は `WebPkiClientVerifier` で client certificate を検証する。
+3. client certificate を提示しない旧版ノードは handshake に失敗するため、
+   trusted paths と証明書を揃える前に混在クラスタへ投入しない。
+
+## [0.6.2] - 2026-08-11
+
+### 追加・変更
+
+- production QUIC 経路へ flow-control window、unidirectional stream 数、idle timeout、keep-alive の設定を接続し、接続数上限と idle 接続退避を追加した。
+- File Transfer の 16 MiB / 64 MiB / 256 streams 性能プロファイルを製品設定へ移し、bench・example・integration test で共有するようにした。
+- QUIC の接続数、処理中 stream 数、再送バッファ使用量、接続拒否、idle 退避を Prometheus で観測できるようにした。
+
+## [0.6.1] - 2026-08-10
+
+### 修正
+
+- v0.6.0 の patch release として、feature 組み合わせの compile gate と代表デモの再実行経路を整備した。
+
+## [0.6.0] - 2026-08-09
+
+### 追加
+
+- Multi-Raft: `MultiRaftManager` と `RaftStorageFactory` を追加し、group ごとの storage 隔離、routing、tick を実装した。`GroupHandle` は group あたり 8 proposal の backpressure gate を持つ。
+- Raft TSO: `TimestampOracle` と `TsoClient` を追加した。leader handoff と clock rollback を含む単調性を検証している。
+- Gossip HLC: `HybridTimestamp` と `HlcGossip` を SWIM / Gossip message へ統合し、per-peer の因果順序と重複排除、clock skew の拒否を実装した。
+- Raft snapshot 転送: chunk 単位の再送、並列度の上限、atomic install を実装した。
+- Prometheus metrics API: 共有 registry、認証付き endpoint、Grafana dashboard (`docs/observability/grafana/chirps-v0.6.json`) を追加した。
+- `MeshHandle::file_transfer(config)`: 公開 API から File Transfer service を構築できるようにした（v0.5.2 から繰り越し）。
+- 決定的ネットワーク障害ハーネス: seed 展開、fresh replay、失敗の最小化に対応した `chirps-deterministic-harness` を追加した。
+- v0.7 Durable の前方互換契約: profile-aware routing、capability / error、Durable envelope の予約、fallback 禁止を契約テストで固定した。Iggy 永続化の実装は v0.7。
+
+### 変更
+
+- `alopex-core` を path 依存から crates.io 公開版 (`0.3`) へ移行し、registry-only fixture で検証するようにした。
+
+## [0.5.2] - 2026-08-11
 
 ### 修正
 

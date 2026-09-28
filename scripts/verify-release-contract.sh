@@ -6,14 +6,14 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage: verify-release-contract.sh --version X.Y.Z [--require-ready]
-       [--manifest FILE] [--source-commit SHA]
+       [--manifest FILE] [--source-commit SHA] [--repo-root DIR]
        [--structure-only] [--candidate FILE --evidence FILE --bundle FILE]
        [--schema FILE]
        verify-release-contract.sh --publication-workflow
 
 Checks docs/release/vX.Y.Z.md for traceability, exclusions, and approval
 sections. --require-ready additionally rejects a non-READY release status and
-unproven/TODO markers. v0.6.0 additionally requires a version-bound evidence
+unproven/TODO markers. Versions with a required-evidence catalog require a version-bound evidence
 manifest, target-version gate, exact required evidence set, and artifact SHA-256
 verification before --require-ready can succeed.
 
@@ -25,7 +25,8 @@ protected-environment exact-byte publication dataflow without publishing.
 USAGE
 }
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$tool_root"
 version=""
 require_ready=false
 manifest=""
@@ -48,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --bundle) bundle="${2:?missing value for --bundle}"; shift 2 ;;
     --schema) schema="${2:?missing value for --schema}"; shift 2 ;;
     --publication-workflow) publication_workflow=true; shift ;;
+    --repo-root) repo_root="${2:?missing value for --repo-root}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -350,9 +352,23 @@ if mapping(publish_tag_checkout.get("with"), "publish-tag checkout.with").get("r
 
 ci_gate = mapping(jobs["ci-gate"], "ci-gate")
 ci_steps = steps(ci_gate, "ci-gate")
-ci_checkout = one_step_with_use(ci_steps, "actions/checkout@v4", "ci-gate")
+ci_checkouts = [item for item in ci_steps if item.get("uses") == "actions/checkout@v4"]
+if len(ci_checkouts) != 2:
+    fail("ci-gate must contain separate source and release-tools checkouts")
+checkout_by_path = {
+    mapping(item.get("with"), "ci-gate checkout.with").get("path"): item
+    for item in ci_checkouts
+}
+if set(checkout_by_path) != {"source", "release-tools"}:
+    fail("ci-gate checkout paths must isolate source and release-tools")
+ci_checkout = checkout_by_path["source"]
 if mapping(ci_checkout.get("with"), "ci-gate checkout.with").get("ref") != "${{ inputs.commit }}":
     fail("ci-gate checkout does not use the explicit commit input")
+if mapping(checkout_by_path["release-tools"].get("with"), "release-tools checkout.with").get("ref") != "${{ github.sha }}":
+    fail("release-tools checkout does not use the workflow revision")
+ci_defaults = mapping(ci_gate.get("defaults"), "ci-gate.defaults")
+if mapping(ci_defaults.get("run"), "ci-gate.defaults.run").get("working-directory") != "source":
+    fail("ci-gate commands must run in the candidate source checkout")
 ci_download = one_step_with_use(ci_steps, "actions/download-artifact@v4", "ci-gate")
 if mapping(ci_download.get("with"), "ci-gate download.with") != expected_download:
     fail("ci-gate and publication job do not consume the same stored artifact")
@@ -547,16 +563,21 @@ if [[ "$require_ready" == true ]]; then
   }
 fi
 
+requirements="$repo_root/docs/release/evidence/v${version}/required-evidence.json"
 if [[ -n "$manifest" ]]; then
+  [[ -f "$requirements" ]] || {
+    printf 'manifest supplied but release evidence catalog is missing: %s\n' "$requirements" >&2
+    exit 1
+  }
   source_commit="${source_commit:-$(git -C "$repo_root" rev-parse HEAD)}"
-  python3 "$repo_root/scripts/release/verify-evidence-manifest.py" \
+  python3 "$tool_root/scripts/release/verify-evidence-manifest.py" \
     --manifest "$manifest" \
     --requirements "$repo_root/docs/release/evidence/v${version}/required-evidence.json" \
     --schema "$repo_root/docs/release/evidence/v${version}/manifest.schema.json" \
     --version "$version" \
     --source-commit "$source_commit"
-elif [[ "$require_ready" == true && "$version" == "0.6.0" ]]; then
-  printf '%s\n' 'v0.6.0 READY verification requires --manifest and its target-version gate' >&2
+elif [[ "$require_ready" == true && -f "$requirements" ]]; then
+  printf 'READY verification requires --manifest and the target-version gate for %s\n' "$version" >&2
   exit 1
 fi
 

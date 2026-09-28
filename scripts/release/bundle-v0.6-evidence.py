@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preflight and assemble a cryptographically bound v0.6 evidence bundle."""
+"""Preflight and assemble a cryptographically bound release evidence bundle."""
 
 from __future__ import annotations
 
@@ -49,15 +49,15 @@ def catalog_sources(repo: Path, catalog: dict) -> list[tuple[str, Path]]:
         except ValueError:
             fail(f"source_path escapes repository for {evidence_id}")
         if not source.is_file():
-            fail(f"required v0.6 evidence is missing: {source_path}")
+            fail(f"required release evidence is missing: {source_path}")
         result.append((evidence_id, source))
     return result
 
 
-def manifest_entry(evidence_id: str, artifact: Path, relative: Path, commit: str) -> dict:
+def manifest_entry(evidence_id: str, artifact: Path, relative: Path, commit: str, version: str) -> dict:
     return {
         "id": evidence_id,
-        "release_version": "0.6.0",
+        "release_version": version,
         "source_commit": commit,
         "result": "pass",
         "path": relative.as_posix(),
@@ -69,19 +69,22 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, required=True)
     parser.add_argument("--catalog", type=Path, required=True)
+    parser.add_argument("--version", required=True)
     parser.add_argument("--source-commit")
     parser.add_argument("--registry-evidence", type=Path)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--target-command", action="append", default=[])
     parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args()
     try:
         repo = args.repo_root.resolve()
         catalog = load(args.catalog)
-        if catalog.get("release_version") != "0.6.0":
-            fail("required-evidence catalog is not for v0.6.0")
+        commit_version = args.version
+        if catalog.get("release_version") != commit_version:
+            fail("required-evidence catalog targets another release version")
         sources = catalog_sources(repo, catalog)
         if args.preflight:
-            print(f"v0.6 evidence preflight passed: {len(sources)} checked-in artifacts")
+            print(f"release evidence preflight passed: {len(sources)} checked-in artifacts")
             return 0
 
         if not args.source_commit or not SHA40.fullmatch(args.source_commit):
@@ -91,7 +94,7 @@ def main() -> int:
         registry = load(args.registry_evidence)
         if (
             registry.get("schema") != "chirps.registry-dependency-evidence/v1"
-            or registry.get("release_version") != "0.6.0"
+            or registry.get("release_version") != commit_version
             or registry.get("source_commit") != args.source_commit
             or registry.get("result") != "pass"
         ):
@@ -109,7 +112,7 @@ def main() -> int:
             destination = artifacts / f"{evidence_id}.json"
             shutil.copyfile(source, destination)
             entries.append(
-                manifest_entry(evidence_id, destination, destination.relative_to(output), args.source_commit)
+                manifest_entry(evidence_id, destination, destination.relative_to(output), args.source_commit, commit_version)
             )
 
         registry_destination = artifacts / "alopex-core-registry.json"
@@ -117,23 +120,20 @@ def main() -> int:
         entries.append(
             manifest_entry(
                 "alopex-core-registry", registry_destination,
-                registry_destination.relative_to(output), args.source_commit
+                registry_destination.relative_to(output), args.source_commit, commit_version
             )
         )
 
         target_report = output / "target-gate.json"
+        target_commands = args.target_command or []
         target_report.write_text(
             json.dumps(
                 {
                     "schema": "chirps.target-version-gate/v1",
-                    "release_version": "0.6.0",
+                    "release_version": commit_version,
                     "source_commit": args.source_commit,
                     "result": "pass",
-                    "commands": [
-                        "cargo test --locked -p alopex-chirps --all-features -- --test-threads=1",
-                        "cargo test --locked -p chirps-deterministic-harness",
-                        "cargo build --locked -p alopex-chirps-raft-storage (isolated registry-only workspace)",
-                    ],
+                    "commands": target_commands,
                 },
                 indent=2,
                 sort_keys=True,
@@ -142,11 +142,11 @@ def main() -> int:
         )
         target_entry = manifest_entry(
             catalog["target_gate_id"], target_report,
-            target_report.relative_to(output), args.source_commit
+            target_report.relative_to(output), args.source_commit, commit_version
         )
         manifest = {
             "schema": "chirps.release-evidence/v1",
-            "release_version": "0.6.0",
+            "release_version": commit_version,
             "source_commit": args.source_commit,
             "contract": catalog["contract"],
             "target_gate": target_entry,
@@ -156,9 +156,9 @@ def main() -> int:
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
     except (OSError, ValueError) as exc:
-        print(f"v0.6 evidence bundle rejected: {exc}", file=sys.stderr)
+        print(f"release evidence bundle rejected: {exc}", file=sys.stderr)
         return 1
-    print(f"v0.6 evidence bundle assembled: {args.output_dir / 'manifest.json'}")
+    print(f"release evidence bundle assembled: {args.output_dir / 'manifest.json'}")
     return 0
 
 

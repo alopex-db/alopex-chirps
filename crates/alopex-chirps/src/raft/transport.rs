@@ -14,10 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 #[cfg(feature = "snapshot")]
 use std::future::Future;
-#[cfg(feature = "snapshot")]
-use std::sync::RwLock;
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use tokio::sync::oneshot;
@@ -100,12 +98,16 @@ pub struct ChirpsRaftTransport {
     next_corr: AtomicU64,
     accepting_rpcs: AtomicBool,
     pending: Arc<Mutex<HashMap<u64, PendingRpc>>>,
+    node_ids: Arc<RwLock<HashMap<ChirpsNodeId, NodeId>>>,
     metrics_collector: Mutex<Option<Arc<RaftMetricsCollector>>>,
     #[cfg(feature = "snapshot")]
     snapshot_config: RwLock<SnapshotTransferConfig>,
     #[cfg(feature = "snapshot")]
     snapshot_progress: RwLock<Arc<dyn SnapshotProgressObserver>>,
 }
+
+#[cfg(feature = "multi-raft")]
+const RAFT_IDENTITY_MAGIC: &[u8] = b"chirps-raft-node-id/v1\0";
 
 impl ChirpsRaftTransport {
     /// 新しいトランスポートを作成する。
@@ -117,6 +119,7 @@ impl ChirpsRaftTransport {
             next_corr: AtomicU64::new(1),
             accepting_rpcs: AtomicBool::new(true),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            node_ids: Arc::new(RwLock::new(HashMap::new())),
             metrics_collector: Mutex::new(None),
             #[cfg(feature = "snapshot")]
             snapshot_config: RwLock::new(SnapshotTransferConfig::default()),
@@ -131,6 +134,14 @@ impl ChirpsRaftTransport {
     /// between groups.
     pub fn fork_for_group(&self, group_id: GroupId) -> Self {
         let fork = Self::new(Arc::clone(&self.backend), group_id, self.node_id);
+        *fork
+            .node_ids
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = self
+            .node_ids
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         if let Some(collector) = self.metrics_collector() {
             fork.set_metrics_collector(collector);
         }
@@ -157,6 +168,59 @@ impl ChirpsRaftTransport {
 
     pub fn node_id(&self) -> ChirpsNodeId {
         self.node_id
+    }
+
+    /// Builds the internal identity advertisement used by the Mesh wiring.
+    /// The envelope remains a regular `Frame::User`; only its reserved
+    /// application payload identifies the Raft node.
+    #[cfg(feature = "multi-raft")]
+    pub(crate) fn identity_frame(&self) -> Frame {
+        let mut payload = Vec::with_capacity(RAFT_IDENTITY_MAGIC.len() + 8);
+        payload.extend_from_slice(RAFT_IDENTITY_MAGIC);
+        payload.extend_from_slice(&self.node_id.to_be_bytes());
+        Frame::User(alopex_chirps_wire::frame::UserMessage { payload })
+    }
+
+    #[cfg(feature = "multi-raft")]
+    pub(crate) fn decode_identity_frame(frame: &Frame) -> Option<ChirpsNodeId> {
+        let Frame::User(alopex_chirps_wire::frame::UserMessage { payload }) = frame else {
+            return None;
+        };
+        let id = payload.strip_prefix(RAFT_IDENTITY_MAGIC)?;
+        Some(u64::from_be_bytes(id.try_into().ok()?))
+    }
+
+    /// Associates a Raft node ID with the stable wire identity used by the
+    /// QUIC mesh. The canonical zero-prefixed identity remains the fallback
+    /// for deterministic transports and existing callers.
+    pub fn register_node_id(&self, raft_node_id: ChirpsNodeId, wire_node_id: NodeId) {
+        self.node_ids
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(raft_node_id, wire_node_id);
+    }
+
+    #[cfg(feature = "multi-raft")]
+    pub(crate) fn decode_node_id(&self, wire_node_id: NodeId) -> Option<ChirpsNodeId> {
+        if let Some((raft_node_id, _)) = self
+            .node_ids
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .find(|(_, candidate)| **candidate == wire_node_id)
+        {
+            return Some(*raft_node_id);
+        }
+        decode_canonical_node_id(wire_node_id)
+    }
+
+    fn encode_node_id(&self, raft_node_id: ChirpsNodeId) -> NodeId {
+        self.node_ids
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&raft_node_id)
+            .copied()
+            .unwrap_or_else(|| encode_canonical_node_id(raft_node_id))
     }
 
     pub(crate) fn set_metrics_collector(&self, collector: Arc<RaftMetricsCollector>) {
@@ -333,7 +397,7 @@ impl ChirpsRaftTransport {
                 message,
             })
             .map_err(|e| TransportError::Send(e.to_string()))?;
-        let target = encode_node_id(target);
+        let target = self.encode_node_id(target);
         let result = self.backend.send(target, frame).await;
         if result.is_ok() {
             self.record_sent(message_type);
@@ -413,7 +477,7 @@ impl ChirpsRaftTransport {
 
         let send_res = self
             .backend
-            .send(encode_node_id(target), frame)
+            .send(self.encode_node_id(target), frame)
             .await
             .map_err(|e| {
                 map_transport_error::<E>(rpc_type, self.node_id, target, option.hard_ttl(), e)
@@ -800,10 +864,24 @@ impl RaftNetwork<ChirpsTypeConfig> for ChirpsRaftNetworkClient {
     }
 }
 
-fn encode_node_id(id: ChirpsNodeId) -> NodeId {
+fn encode_canonical_node_id(id: ChirpsNodeId) -> NodeId {
     let mut buf = [0u8; 16];
     buf[8..].copy_from_slice(&id.to_be_bytes());
     NodeId::from(buf)
+}
+
+#[cfg(test)]
+fn encode_node_id(id: ChirpsNodeId) -> NodeId {
+    encode_canonical_node_id(id)
+}
+
+#[cfg(feature = "multi-raft")]
+fn decode_canonical_node_id(node_id: NodeId) -> Option<ChirpsNodeId> {
+    let bytes = node_id.as_bytes();
+    if bytes[..8] != [0; 8] {
+        return None;
+    }
+    Some(u64::from_be_bytes(bytes[8..].try_into().ok()?))
 }
 
 fn map_transport_error<E>(

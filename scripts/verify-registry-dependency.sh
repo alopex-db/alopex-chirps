@@ -8,7 +8,7 @@ Usage:
     --registry-only [--static-only] [--offline]
 
 Legacy v0.6 evidence mode:
-  verify-registry-dependency.sh --output FILE [--source-commit SHA] [--offline]
+  verify-registry-dependency.sh --output FILE --release-version X.Y.Z [--source-commit SHA] [--offline]
 
 The v0.7 mode rejects path/git/package/alternate-registry substitutions before
 Cargo runs. --static-only validates manifests, the exact publish DAG, the known
@@ -22,34 +22,49 @@ USAGE
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 run_legacy() {
-  local source_commit="" output="" offline=false
+  source_commit=""
+  output=""
+  release_version=""
+  offline=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --output) output="${2:?missing value for --output}"; shift 2 ;;
+      --release-version) release_version="${2:?missing value for --release-version}"; shift 2 ;;
       --source-commit) source_commit="${2:?missing value for --source-commit}"; shift 2 ;;
       --offline) offline=true; shift ;;
       -h|--help) usage; exit 0 ;;
-      *) printf 'unknown legacy argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+      *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
   done
-  [[ -n "$output" ]] || { printf '%s\n' '--output is required' >&2; exit 2; }
+
+  [[ -n "$output" && -n "$release_version" ]] || { printf '%s\n' '--output and --release-version are required' >&2; exit 2; }
   source_commit="${source_commit:-$(git -C "$repo_root" rev-parse HEAD)}"
-  local fixture="$repo_root/scripts/fixtures/alopex-core-registry-check"
-  legacy_scratch="$(mktemp -d "${TMPDIR:-/tmp}/chirps-registry-check-v06.XXXXXXXX")"
-  cleanup_legacy() { rm -rf "$legacy_scratch"; }
-  trap cleanup_legacy EXIT
-  mkdir -p "$legacy_scratch/crates/chirps-raft-storage"
-  cp "$fixture/Cargo.toml" "$fixture/Cargo.lock" "$legacy_scratch/"
-  cp "$repo_root/crates/chirps-raft-storage/Cargo.toml" "$legacy_scratch/crates/chirps-raft-storage/Cargo.toml"
-  cp -R "$repo_root/crates/chirps-raft-storage/src" "$legacy_scratch/crates/chirps-raft-storage/src"
-  local cargo_args=(build --locked --manifest-path "$legacy_scratch/Cargo.toml" -p alopex-chirps-raft-storage)
-  if [[ "$offline" == true ]]; then cargo_args+=(--offline); fi
+  fixture="$repo_root/scripts/fixtures/alopex-core-registry-check"
+  [[ -f "$fixture/Cargo.lock" ]] || {
+    printf 'fixture lock is missing: %s\n' "$fixture/Cargo.lock" >&2
+    exit 1
+  }
+
+  scratch="$(mktemp -d "${TMPDIR:-/tmp}/chirps-registry-check.XXXXXXXX")"
+  cleanup() { rm -rf "$scratch"; }
+  trap cleanup EXIT
+  mkdir -p "$scratch/crates/chirps-raft-storage"
+  cp "$fixture/Cargo.toml" "$fixture/Cargo.lock" "$scratch/"
+  cp "$repo_root/crates/chirps-raft-storage/Cargo.toml" "$scratch/crates/chirps-raft-storage/Cargo.toml"
+  cp -R "$repo_root/crates/chirps-raft-storage/src" "$scratch/crates/chirps-raft-storage/src"
+
+  cargo_args=(build --locked --manifest-path "$scratch/Cargo.toml" -p alopex-chirps-raft-storage)
+  if [[ "$offline" == true ]]; then
+    cargo_args+=(--offline)
+  fi
   cargo "${cargo_args[@]}"
+
   python3 "$repo_root/scripts/release/verify-registry-dependency.py" \
     --root-manifest "$repo_root/crates/chirps-raft-storage/Cargo.toml" \
     --root-lock "$repo_root/Cargo.lock" \
-    --fixture "$legacy_scratch" \
-    --schema "$repo_root/docs/release/evidence/v0.6.0/registry-dependency.schema.json" \
+    --fixture "$scratch" \
+    --schema "$repo_root/docs/release/evidence/v${release_version}/registry-dependency.schema.json" \
+    --release-version "$release_version" \
     --source-commit "$source_commit" \
     --output "$output"
 }

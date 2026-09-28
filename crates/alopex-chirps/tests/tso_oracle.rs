@@ -241,6 +241,8 @@ async fn oracle_rejects_non_dedicated_group() {
         manager.get_group(data_group).unwrap(),
         clock,
         TsoConfig {
+            batch_size: 10_000,
+            prefetch_threshold: 1_000,
             timestamp_ttl: Duration::from_secs(3),
         },
     )

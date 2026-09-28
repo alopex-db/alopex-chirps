@@ -267,6 +267,14 @@ impl ExtendedTransportMetrics {
         );
     }
 
+    /// Records the current aggregate retransmission buffer usage.
+    pub fn update_buffer_bytes(&self, bytes: u64) {
+        self.retransmission_buffer_bytes
+            .store(bytes, Ordering::Relaxed);
+        ensure_metrics_recorder();
+        metrics::gauge!("chirps_quic_buffer_bytes").set(bytes as f64);
+    }
+
     pub fn record_drop(&self) {
         if !self.enabled {
             return;

@@ -136,6 +136,8 @@ impl ReceiveHandler {
         {
             let mut buf = self.retransmit_buffer.write().await;
             buf.process_ack(peer, env.ack_seq);
+            self.metrics
+                .update_buffer_bytes(buf.total_buffered_bytes() as u64);
         }
 
         self.metrics.record_receive(kind, None);

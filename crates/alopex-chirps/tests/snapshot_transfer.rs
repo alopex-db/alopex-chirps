@@ -129,6 +129,7 @@ fn config() -> SnapshotTransferConfig {
         chunk_size: 4,
         max_concurrent_chunks: 2,
         max_retries: 1,
+        transfer_timeout: Duration::from_secs(60),
     }
 }
 
@@ -200,6 +201,23 @@ async fn failed_transfer_never_exposes_partial_snapshot() {
     assert!(!sink.durable.load(Ordering::SeqCst));
     assert!(!sink.visible.load(Ordering::SeqCst));
     assert_eq!(sink.completions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn transfer_timeout_aborts_without_exposing_partial_snapshot() {
+    let sink = HarnessSink::new(None, true);
+    let mut cfg = config();
+    cfg.transfer_timeout = Duration::from_millis(1);
+    let sender = SnapshotSender::new(cfg, Arc::new(ProgressLog::default())).unwrap();
+
+    let error = sender
+        .transfer("timeout", b"abcdefghijkl".to_vec(), sink.clone())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, SnapshotTransferError::Timeout));
+    assert!(!sink.durable.load(Ordering::SeqCst));
+    assert!(!sink.visible.load(Ordering::SeqCst));
 }
 
 #[derive(Clone, Default)]

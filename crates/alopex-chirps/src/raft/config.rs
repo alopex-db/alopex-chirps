@@ -84,6 +84,7 @@ impl RaftConfig {
             chunk_size: self.snapshot_chunk_size,
             max_concurrent_chunks: self.snapshot_max_concurrent_chunks,
             max_retries: self.snapshot_max_retries,
+            transfer_timeout: std::time::Duration::from_secs(60),
         }
     }
 }
