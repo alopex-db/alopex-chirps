@@ -1649,7 +1649,7 @@ impl OracleStore {
         file.sync_all()?;
         fs::rename(&temporary_path, &head_path)?;
         let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
-        File::open(parent)?.sync_all()?;
+        crate::fs::sync_directory(parent)?;
         Ok(())
     }
 }

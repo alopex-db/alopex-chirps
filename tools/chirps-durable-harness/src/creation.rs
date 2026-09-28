@@ -1,5 +1,6 @@
 //! Independent readback and transition oracle for subscription creation state.
 
+use crate::fs::sync_directory;
 use crate::oracle::{CreationState, OracleViolation};
 use alopex_chirps_core::durable::{InitialPosition, ResourceEpoch, ResourceId};
 use serde::Deserialize;
@@ -7,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path};
 
@@ -1052,11 +1053,6 @@ fn write_synced_new(path: &Path, bytes: &[u8]) -> Result<(), CreationCorpusError
     let mut file = OpenOptions::new().create_new(true).write(true).open(path)?;
     file.write_all(bytes)?;
     file.sync_all()?;
-    Ok(())
-}
-
-fn sync_directory(path: &Path) -> Result<(), CreationCorpusError> {
-    File::open(path)?.sync_all()?;
     Ok(())
 }
 

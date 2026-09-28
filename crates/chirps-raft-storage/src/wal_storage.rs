@@ -1327,8 +1327,7 @@ fn durably_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
         file.sync_all()?;
         drop(file);
         std::fs::rename(&temp, path)?;
-        #[cfg(unix)]
-        OpenOptions::new().read(true).open(parent)?.sync_all()?;
+        crate::fs::sync_directory(parent)?;
         Ok(())
     })();
     if result.is_err() {
@@ -1491,6 +1490,21 @@ mod tests {
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
+
+    #[test]
+    fn durable_replacement_reopens_exact_bytes_and_cleans_failed_temporary_file() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("snapshot");
+        durably_replace(&path, b"first snapshot").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"first snapshot");
+        durably_replace(&path, b"replacement").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        let blocked = root.path().join("directory");
+        std::fs::create_dir(&blocked).unwrap();
+        assert!(durably_replace(&blocked, b"cannot replace directory").is_err());
+        assert!(blocked.is_dir());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
+    }
 
     #[derive(Default)]
     struct MockStateMachine;

@@ -1,6 +1,7 @@
 //! Verification-only independent oracle for Chirps Durable fault evidence.
 
 pub mod creation;
+mod fs;
 pub mod oracle;
 pub mod proxy;
 
