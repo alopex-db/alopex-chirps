@@ -69,11 +69,11 @@ def inventory(root: Path) -> dict[str, str]:
     return result
 
 
-def run_bounded(argv: list[str], root: Path, log: Path, timeout: float) -> int:
+def run_bounded(argv: list[str], root: Path, log: Path, timeout: float, env: dict | None = None) -> int:
     """Retain raw output and stop only this invocation's process group on failure."""
     with log.open("xb") as stream:
         process = subprocess.Popen(
-            argv, cwd=root, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True,
+            argv, cwd=root, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True, env=env,
         )
         deadline = time.monotonic() + timeout
         try:
@@ -153,11 +153,36 @@ def load(path: Path) -> dict:
     return value
 
 
+def verify_scenarios(path: Path, lane: str, server: dict) -> None:
+    """Bind raw scenario observations without treating verdict text as a test result."""
+    if path.stat().st_size > MAX_LOG_BYTES:
+        raise ValueError("scenario observations exceed their size budget")
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    if not rows:
+        raise ValueError("scenario observations are empty")
+    verdict_count = 0
+    for row in rows:
+        if not isinstance(row, dict) or row.get("lane") != lane or row.get("artifact_sha256") != server["binary_sha256"]:
+            raise ValueError("scenario observation belongs to another lane or server")
+        if any(not isinstance(row.get(key), str) or not row[key] for key in ("target", "scenario")):
+            raise ValueError("scenario observation has no target or scenario")
+        if row["scenario"] == "capability-bind":
+            continue
+        if row.get("source_commit") != server["source_commit"] or row.get("source_tree") != server["source_tree"]:
+            raise ValueError("scenario observation belongs to another server source")
+        kind = "production" if lane == "production" else "publish-disabled-test"
+        if row.get("artifact_kind") != kind or not isinstance(row.get("verdict"), str) or not row["verdict"]:
+            raise ValueError("scenario observation lacks an artifact kind or verdict")
+        verdict_count += 1
+    if not verdict_count:
+        raise ValueError("scenario observations contain no scenario verdicts")
+
+
 def verify_target(path: Path, lane: str, target: str, source_commit: str, iggy_commit: str) -> dict:
     value = load(path)
     expected_keys = {
         "schema", "lane", "target", "status", "source", "server", "environment",
-        "test_binary_sha256", "corpus", "commands", "exit_codes", "logs", "tests",
+        "test_binary_sha256", "corpus", "commands", "exit_codes", "logs", "tests", "scenarios",
     }
     if set(value) != expected_keys:
         raise ValueError("E2E report fields differ")
@@ -188,6 +213,7 @@ def verify_target(path: Path, lane: str, target: str, source_commit: str, iggy_c
     executable_from_build(logs["build"], target)
     expected = listed_tests(logs["list"].read_text())
     passed_tests(logs["run"].read_text(), expected)
+    verify_scenarios(resolve_reference(path.parent, value["scenarios"]), lane, server)
     if value["tests"] != expected:
         raise ValueError("E2E reported test set differs from raw logs")
     corpus = load(resolve_reference(path.parent, value["corpus"]))
@@ -257,7 +283,7 @@ def collect(root: Path, output: Path, lane: str, target: str, timeout: float) ->
         "schema": SCHEMA, "lane": lane, "target": target, "status": "fail", "source": source,
         "server": server, "environment": reference(directory / "environment.json", directory),
         "corpus": reference(directory / "corpus.json", directory), "test_binary_sha256": "",
-        "commands": command, "exit_codes": {}, "logs": {}, "tests": [],
+        "commands": command, "exit_codes": {}, "logs": {}, "tests": [], "scenarios": None,
     }
     try:
         for stage in ("build", "list", "run"):
@@ -265,7 +291,11 @@ def collect(root: Path, output: Path, lane: str, target: str, timeout: float) ->
             if stage != "build":
                 argv[0] = str(executable)
             log = directory / f"{stage}.log"
-            code = run_bounded(argv, root, log, timeout)
+            env = dict(os.environ)
+            env.pop("CHIRPS_E2E_EVIDENCE", None)
+            if stage == "run":
+                env["CHIRPS_E2E_EVIDENCE"] = str(directory / "scenarios.jsonl")
+            code = run_bounded(argv, root, log, timeout, env=env)
             report["exit_codes"][stage] = code
             report["logs"][stage] = reference(log, directory)
             if code:
@@ -277,6 +307,8 @@ def collect(root: Path, output: Path, lane: str, target: str, timeout: float) ->
                 report["tests"] = listed_tests(log.read_text())
             else:
                 passed_tests(log.read_text(), report["tests"])
+                report["scenarios"] = reference(directory / "scenarios.jsonl", directory)
+                verify_scenarios(directory / "scenarios.jsonl", lane, server)
         if source_identity(root) != source or inventory(corpus_root) != corpus or digest(executable) != report["test_binary_sha256"] or digest(binary) != server["binary_sha256"] or digest(manifest) != server["manifest_sha256"]:
             raise ValueError("source, corpus, or binary identity changed during E2E execution")
         report["status"] = "pass"

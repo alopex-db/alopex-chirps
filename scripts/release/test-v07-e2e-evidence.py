@@ -45,6 +45,7 @@ class EvidenceTests(unittest.TestCase):
         )
         write(directory / "corpus.json", {"synthetic.json": "3" * 64})
         write(directory / "environment.json", {key: "synthetic" for key in ("system", "release", "machine", "node", "rustc", "cargo")})
+        write(directory / "scenarios.jsonl", self.scenario(lane, target))
         report = {
             "schema": e2e.SCHEMA, "lane": lane, "target": target, "status": "pass",
             "source": {"source_commit": self.source, "source_tree": "4" * 40, "lock_sha256": "5" * 64},
@@ -54,10 +55,36 @@ class EvidenceTests(unittest.TestCase):
             "commands": e2e.commands(target), "exit_codes": {stage: 0 for stage in ("build", "list", "run")},
             "logs": {stage: e2e.reference(directory / f"{stage}.log", directory) for stage in ("build", "list", "run")},
             "test_binary_sha256": "9" * 64, "tests": self.test_names,
+            "scenarios": e2e.reference(directory / "scenarios.jsonl", directory),
         }
         path = directory / "report.json"
         write(path, report)
         return path, report
+
+    def scenario(self, lane="fault", target="durable_send"):
+        return {"target": target, "lane": lane, "artifact_sha256": "8" * 64,
+            "artifact_kind": "production" if lane == "production" else "publish-disabled-test",
+            "source_commit": self.iggy, "source_tree": "6" * 40,
+            "scenario": "synthetic-rejection", "verdict": "startup-rejected"}
+
+    def test_scenario_identity_is_checked_even_after_rehash(self):
+        path, report = self.fixture()
+        scenarios = path.parent / "scenarios.jsonl"
+        for field, replacement in (("lane", "production"), ("artifact_sha256", "a" * 64), ("source_commit", "b" * 40), ("source_tree", "c" * 40), ("artifact_kind", "production"), ("verdict", "")):
+            with self.subTest(field=field):
+                row = self.scenario()
+                row[field] = replacement
+                write(scenarios, row)
+                report["scenarios"] = e2e.reference(scenarios, path.parent)
+                write(path, report)
+                with self.assertRaises(ValueError):
+                    self.verify(path)
+        for raw in ("", json.dumps({"target": "durable_send", "scenario": "capability-bind", "lane": "fault", "artifact_sha256": "8" * 64})):
+            scenarios.write_text(raw)
+            report["scenarios"] = e2e.reference(scenarios, path.parent)
+            write(path, report)
+            with self.assertRaises(ValueError):
+                self.verify(path)
 
     def verify(self, path, target="durable_send"):
         return e2e.verify_target(path, "fault", target, self.source, self.iggy)
@@ -188,7 +215,7 @@ class EvidenceTests(unittest.TestCase):
         }
         invoked = []
 
-        def fake_run(argv, root, log, timeout):
+        def fake_run(argv, root, log, timeout, env=None):
             invoked.append(argv)
             if log.name == "build.log":
                 log.write_text(json.dumps({"reason": "compiler-artifact", "target": {"name": "durable_send"}, "profile": {"test": True}, "executable": str(executable)}) + '\n{"reason":"build-finished","success":true}\n')
@@ -196,6 +223,9 @@ class EvidenceTests(unittest.TestCase):
                 log.write_text("integration::accept: test\n")
             else:
                 log.write_text("test integration::accept ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n")
+                row = self.scenario()
+                row["artifact_sha256"] = e2e.digest(server)
+                write(Path(env["CHIRPS_E2E_EVIDENCE"]), row)
             return 0
 
         output = self.root / "output"

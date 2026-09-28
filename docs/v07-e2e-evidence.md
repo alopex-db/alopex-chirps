@@ -14,6 +14,13 @@ Successful test output is captured by libtest so it cannot interleave with
 the result lines; failure output remains in the raw log. This collection mode
 does not use `--nocapture`.
 
+The runner sets `CHIRPS_E2E_EVIDENCE` to a new `scenarios.jsonl` in the output
+directory. These raw scenario and capability observations remain available
+even when libtest captures successful stdout. The verifier binds their lane,
+server artifact and source identities to the report and requires at least one
+scenario verdict. Verdict text describes the scenario outcome; libtest's
+complete test results remain the pass/fail authority.
+
 Each invocation retains build, discovery and execution logs, exit statuses,
 the source commit/tree/lock, server manifest/binary identities, test binary
 hash, corpus file inventory, and observed host/toolchain information. It
