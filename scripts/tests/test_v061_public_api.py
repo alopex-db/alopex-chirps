@@ -1,7 +1,9 @@
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -27,10 +29,11 @@ class PublicApiGateTests(unittest.TestCase):
                 }}})
 
     def test_command_never_infers_major_release_from_version(self):
-        argv = gate.command("checker", Path("/source"), {
-            "package": "alopex-chirps", "flags": ["--only-explicit-features"]
+        argv = gate.command("checker", Path("/source"), Path("/baseline"), {
+            "package": "alopex-chirps", "manifest": "crates/alopex-chirps/Cargo.toml",
+            "flags": ["--only-explicit-features"]
         })
-        self.assertEqual(argv[argv.index("--baseline-rev") + 1], gate.BASELINE)
+        self.assertEqual(argv[argv.index("--baseline-root") + 1], str(Path("/baseline/crates/alopex-chirps/Cargo.toml")))
         self.assertEqual(argv[argv.index("--release-type") + 1], "minor")
         self.assertIn("--only-explicit-features", argv)
 
@@ -76,7 +79,11 @@ class PublicApiGateTests(unittest.TestCase):
                 root.mkdir()
                 (root / "Cargo.lock").write_text("# fixture\n")
                 output = base / "evidence.json"
-                check = {"package": "alopex-chirps-wire", "mode": "all", "flags": ["--all-features"]}
+                check = {"package": "alopex-chirps-wire", "manifest": "crates/chirps-wire/Cargo.toml",
+                         "mode": "all", "flags": ["--all-features"]}
+                archive = io.BytesIO()
+                with tarfile.open(fileobj=archive, mode="w"):
+                    pass
 
                 def identity(_root, *args):
                     return "" if args[0] == "status" else "a" * 40
@@ -86,9 +93,11 @@ class PublicApiGateTests(unittest.TestCase):
                      patch.object(gate, "git", side_effect=identity), \
                      patch.object(gate.sys, "argv", ["gate", "--output", str(output)]), \
                      patch.dict(gate.os.environ, {"SEMVER_CHECKS_BIN": "checker"}), \
-                     patch.object(gate.subprocess, "check_output", side_effect=[gate.TOOL_VERSION, "rustc fixture"]), \
+                     patch.object(gate.subprocess, "check_output", side_effect=[gate.TOOL_VERSION, archive.getvalue(), "rustc fixture"]) as commands, \
                      patch.object(gate.subprocess, "run", return_value=gate.subprocess.CompletedProcess([], exit_code)):
                     self.assertEqual(gate.main(), 1)
+                self.assertIn(["git", "-C", str(root.resolve()), "archive", "--format=tar", gate.BASELINE],
+                              [call.args[0] for call in commands.call_args_list])
                 report = json.loads(output.read_text())
                 self.assertEqual(report["status"], "fail")
                 self.assertEqual(report["checks"][0]["exit_code"], exit_code)

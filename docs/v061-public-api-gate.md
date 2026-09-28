@@ -30,10 +30,15 @@ are included. A feature added since v0.6.1 is compared to the old no-default API
 removed baseline features fail before rustdoc runs. `--only-explicit-features` is
 the tool's no-default option. This avoids the tool's default heuristic that omits
 some features. Each run compares the current manifest to the immutable Git commit;
-it never substitutes the latest registry release or a movable tag.
+it never substitutes the latest registry release or a movable tag. The script
+exports that exact commit with `git archive` into an owned temporary directory,
+then gives the checker each baseline/current crate manifest explicitly. This
+avoids the duplicate `alopex-chirps-raft-storage` manifest in the independent
+registry-consumer fixture; no baseline source is deleted or rewritten.
 
 Evidence records candidate commit, baseline, tool and compiler versions, candidate
-lock hash, complete expected matrix, command/exit status and SHA-256 of each log.
+lock hash, baseline archive hash, complete expected matrix, command/exit status
+and SHA-256 of each log.
 The checkout must be clean and unchanged throughout. Existing output is never
 overwritten. A missing, interrupted or failed check is not passing evidence.
 Builds run sequentially with two Cargo jobs by default; the separate target can be

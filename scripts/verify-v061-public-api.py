@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 import tomllib
 
@@ -76,15 +79,15 @@ def matrix(root: Path) -> list[dict]:
                 flags += ["--baseline-features", feature]
             modes.append((f"feature-{feature}", flags))
         for mode, flags in modes:
-            checks.append({"package": package, "mode": mode, "flags": flags})
+            checks.append({"package": package, "manifest": path, "mode": mode, "flags": flags})
     return checks
 
 
-def command(tool: str, root: Path, check: dict) -> list[str]:
+def command(tool: str, root: Path, baseline: Path, check: dict) -> list[str]:
     # 0.6 -> 0.7 ordinarily permits breaking changes. Force a compatible minor
     # comparison so the version bump cannot turn this release contract into a skip.
-    return [tool, "semver-checks", "--manifest-path", str(root / "Cargo.toml"),
-            "--package", check["package"], "--baseline-rev", BASELINE,
+    return [tool, "semver-checks", "--manifest-path", str(root / check["manifest"]),
+            "--package", check["package"], "--baseline-root", str(baseline / check["manifest"]),
             "--release-type", "minor", "--color", "never", *check["flags"]]
 
 
@@ -116,6 +119,15 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     logs = output.with_suffix(".logs")
     logs.mkdir()
+    # The baseline contains a registry-consumer fixture with a second manifest
+    # named alopex-chirps-raft-storage. The checker's recursive --baseline-rev
+    # lookup is ambiguous. Export the SAME immutable commit once and give it
+    # the exact crate manifest; never delete fixtures or modify API source.
+    archive = subprocess.check_output(["git", "-C", str(root), "archive", "--format=tar", BASELINE])
+    baseline_scratch = tempfile.TemporaryDirectory(prefix="chirps-v061-api-")
+    baseline = Path(baseline_scratch.name)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+        bundle.extractall(baseline, filter="data")
     env = os.environ.copy()
     # Do not let ad hoc cfgs hide public items from the release API comparison.
     for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTDOCFLAGS", "CARGO_ENCODED_RUSTDOCFLAGS"):
@@ -128,13 +140,14 @@ def main() -> int:
         "candidate_commit": git(root, "rev-parse", "HEAD"), "tool": version,
         "rustc": subprocess.check_output(["rustc", "--version", "--verbose"], text=True).strip(),
         "candidate_lock_sha256": hashlib.sha256((root / "Cargo.lock").read_bytes()).hexdigest(),
+        "baseline_archive_sha256": hashlib.sha256(archive).hexdigest(),
         "target_dir": env["CARGO_TARGET_DIR"], "expected_checks": len(checks),
         "status": "running", "checks": [],
     }
     output.write_text(json.dumps(report, indent=2) + "\n")
     for check in checks:
         log = logs / f'{check["package"]}--{check["mode"]}.log'
-        argv = command(tool, root, check)
+        argv = command(tool, root, baseline, check)
         print(f'Checking {check["package"]}: {check["mode"]}', flush=True)
         start = time.monotonic()
         with log.open("w") as stream:
@@ -152,6 +165,7 @@ def main() -> int:
     report["candidate_unchanged"] = unchanged
     output.write_text(json.dumps(report, indent=2) + "\n")
     print(f'Public API gate: {report["status"]}; {output}', flush=True)
+    baseline_scratch.cleanup()
     return 0 if report["status"] == "pass" else 1
 
 
