@@ -253,7 +253,13 @@ fn facade_checkpoint_root(
 ) -> Result<std::path::PathBuf> {
     let facade_root = root.join(name);
     std::fs::create_dir(&facade_root)?;
+    #[cfg(unix)]
     std::os::unix::fs::symlink(
+        directory,
+        subscription_directory(&facade_root, subscription_id),
+    )?;
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(
         directory,
         subscription_directory(&facade_root, subscription_id),
     )?;
