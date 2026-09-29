@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / 'scripts/release/owned-target.sh'
+FAULT = Path(os.environ.get('CHIRPS_TEST_FAULT_SCRIPT', ROOT / 'scripts/build-compatible-iggy-test.sh'))
 CORPUS = Path(os.environ.get('CHIRPS_TEST_CORPUS_SCRIPT', ROOT / 'scripts/generate-v0.7-local-state-corpora.sh'))
 
 
@@ -163,6 +164,98 @@ sys.exit(subprocess.call(args))
         self.assertEqual(self.run_corpus().returncode, 2)
         self.assertTrue(self.target.is_symlink())
         self.assertFalse(self.called.exists())
+
+
+class FaultOwnership(unittest.TestCase):
+    """Run the actual wrapper with temp paths and mocked non-ownership checks."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        scripts = self.root / 'repo/scripts'
+        (scripts / 'release').mkdir(parents=True)
+        shutil.copyfile(HELPER, scripts / 'release/owned-target.sh')
+        self.script = scripts / 'build-compatible-iggy-test.sh'
+        source = FAULT.read_text()
+        source = source.replace('/tmp/chirps-v07-task-5_18-target.XXXXXX', str(self.root / 'target.XXXXXX'))
+        source = source.replace('/tmp/chirps-v07-*-target.*', str(self.root / 'target.*'))
+        self.script.write_text(source)
+        self.source = self.root / 'source'
+        (self.source / '.git').mkdir(parents=True)
+        self.target = self.root / 'target.owned'
+        self.sentinel = self.root / 'unowned/keep'
+        self.sentinel.parent.mkdir()
+        self.sentinel.write_bytes(b'unrelated data')
+        binary = self.root / 'bin'
+        binary.mkdir()
+        spy = binary / 'rtk'
+        spy.write_text("""#!/usr/bin/env python3
+import os, pathlib, shutil, subprocess, sys
+args=sys.argv[1:]
+if args[0]=='proxy': args=args[1:]
+root=pathlib.Path(os.environ['OWNERSHIP_ROOT'])
+case=os.environ['OWNERSHIP_CASE']
+if args[:2]==['rustup','which']:
+    print('/fake/'+args[2]); sys.exit(0)
+if args[:3]==['rustup','show','home']:
+    print(root); sys.exit(0)
+if args[0]=='mktemp':
+    if case=='allocation': sys.exit(73)
+    target=root/'target.owned'; target.mkdir(); print(target); sys.exit(0)
+if 'clean' in args:
+    target=pathlib.Path(args[args.index('--target-dir')+1])
+    assert target==root/'target.owned' and target.is_dir() and not target.is_symlink()
+    (root/'cleaner-called').write_text('called')
+    shutil.rmtree(target); sys.exit(0)
+if args[0]=='git':
+    if 'HEAD^{commit}' in args:
+        print('wrong' if case=='source' else '336d20c53b4bba663c257bdc0271373cfc2f1864')
+    elif 'HEAD^{tree}' in args: print('b2099c2dc404534429e210069990a10496d4fefd')
+    else: assert 'status' in args
+    sys.exit(0)
+if args[0]=='sha256sum':
+    print('9b601087feed75db7cc6e3e5bbe185fbc1cd5ef9ea2d84dbda8b6a9deb40f6c8' if args[1].endswith('Cargo.lock') else 'c73ceece264a4826462f5e22926b8909955e5c98cd391733846540d4ed9e6f21')
+    sys.exit(0)
+if args[0]=='grep': sys.exit(1)
+# Manifest/registry validation is unrelated to target ownership; no Iggy build.
+if 'python3' in args: sys.exit(0)
+if args[0] in ['/fake/rustc', '/fake/cargo']:
+    print('commit-hash: wrong'); sys.exit(0)
+sys.exit(subprocess.call(args))
+""")
+        spy.chmod(0o700)
+        self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                        OWNERSHIP_ROOT=str(self.root), IGGY_SOURCE_DIR=str(self.source))
+        self.env.pop('BASH_ENV', None)
+        self.env.pop('IGGY_CHIRPS_FAILPOINT', None)
+
+    def run_failure(self, case):
+        result = subprocess.run(['bash', str(self.script), '--verify-stages'],
+                                env=dict(self.env, OWNERSHIP_CASE=case), text=True,
+                                capture_output=True, timeout=10)
+        self.assertEqual(self.sentinel.read_bytes(), b'unrelated data')
+        return result
+
+    def test_source_validation_failure_cleans_allocated_target(self):
+        result = self.run_failure('source')
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('source commit mismatch', result.stderr)
+        self.assertFalse(self.target.exists(), 'early source failure leaked owned target')
+        self.assertTrue((self.root / 'cleaner-called').exists())
+
+    def test_toolchain_validation_failure_cleans_allocated_target(self):
+        result = self.run_failure('toolchain')
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('rustc commit mismatch', result.stderr)
+        self.assertFalse(self.target.exists(), 'early toolchain failure leaked owned target')
+        self.assertTrue((self.root / 'cleaner-called').exists())
+
+    def test_allocation_failure_never_invokes_cleaner(self):
+        result = self.run_failure('allocation')
+        self.assertEqual(result.returncode, 73, result.stderr)
+        self.assertFalse(self.target.exists())
+        self.assertFalse((self.root / 'cleaner-called').exists())
+        self.assertNotIn('cleanup', result.stderr)
 
 
 if __name__ == '__main__':

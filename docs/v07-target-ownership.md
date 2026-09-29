@@ -23,3 +23,11 @@ absent cleanup, non-empty leftovers, cleaner failure and dangling symlinks.
 No test runs Cargo or accesses a shared build directory. Shell syntax and
 whitespace checks pass. Rust mutation testing, Kani and Miri do not apply to
 this shell-only change; full server builds are separate verification.
+
+The fault build wrapper registers its cleanup traps before target allocation.
+Source or toolchain validation failures therefore clean the newly allocated
+target, while an allocation failure skips target cleanup entirely. Three
+additional tests run the actual wrapper with temporary paths and mocked
+non-ownership validation commands; unrelated data must survive every case.
+Both source and toolchain failure regressions fail against the previous
+wrapper and pass with this change (15 total tests).

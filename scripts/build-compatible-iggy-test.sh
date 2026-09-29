@@ -49,15 +49,18 @@ require_equal() {
 cleanup() {
     local status="$1" cleanup_failed=0
     trap - EXIT HUP INT TERM
-    if ! chirps_target_clean "${TASK_TARGET}" rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
-        "${CARGO_BIN}" clean --manifest-path "${SOURCE_REPOSITORY}/Cargo.toml" \
-            --target-dir "${TASK_TARGET}" >/dev/null 2>&1; then
-        rtk echo "build-compatible-iggy-test: task target cleanup command failed" >&2
-        cleanup_failed=1
-    fi
-    if [[ -e "${TASK_TARGET}" ]]; then
-        rtk echo "build-compatible-iggy-test: task target cleanup was incomplete" >&2
-        cleanup_failed=1
+    if [[ -n "${TASK_TARGET}" ]]; then
+        if ! chirps_target_clean "${TASK_TARGET}" rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
+            "${CARGO_BIN}" clean --manifest-path "${SOURCE_REPOSITORY}/Cargo.toml" \
+                --target-dir "${TASK_TARGET}" >/dev/null 2>&1; then
+            rtk echo "build-compatible-iggy-test: task target cleanup command failed" >&2
+            cleanup_failed=1
+        fi
+        if [[ -e "${TASK_TARGET}" ]]; then
+            rtk echo "build-compatible-iggy-test: task target cleanup was incomplete" >&2
+            cleanup_failed=1
+        fi
+        TASK_TARGET=""
     fi
     if [[ -n "${STAGING}" ]]; then
         if [[ "${STAGING}" == /tmp/chirps-v07-task-5_18-source.* ]]; then
@@ -464,10 +467,6 @@ install_artifact() {
 
 verify_stages() {
     local actual_digest expected_digest production_digest
-    trap 'status=$?; set +e; cleanup "${status}"; exit $?' EXIT
-    trap 'exit 129' HUP
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
     STAGING="$(rtk mktemp -d /tmp/chirps-v07-task-5_18-source.XXXXXX)"
     rtk mkdir -p "${STAGING}/source"
     rtk proxy git -C "${SOURCE_REPOSITORY}" archive "${EXPECTED_SOURCE_COMMIT}" | rtk proxy tar -x -C "${STAGING}/source"
@@ -505,6 +504,10 @@ case "${1:-}" in
 esac
 
 if [[ "${MODE}" == "--verify-stages" ]]; then
+    trap 'status=$?; set +e; cleanup "${status}"; exit $?' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     TASK_TARGET="$(rtk mktemp -d /tmp/chirps-v07-task-5_18-target.XXXXXX)"
 fi
 
