@@ -1,6 +1,8 @@
 //! Publish-disabled performance evidence tool.
 
 mod evidence;
+mod readback;
+mod verify;
 
 use alopex_chirps::NodeId;
 use alopex_chirps::durable::{
@@ -39,6 +41,7 @@ enum Mode {
     Aa,
     SafetyAblation,
     Paired,
+    Verify,
 }
 
 struct Cli {
@@ -67,6 +70,8 @@ struct PerformancePlan {
 struct AuditProbe {
     program: PathBuf,
     sha256: String,
+    config_path: PathBuf,
+    config_sha256: String,
 }
 
 #[derive(Deserialize)]
@@ -163,14 +168,7 @@ impl DurableCredentialProvider for EnvironmentCredentialProvider {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AuditVector {
-    observed_errors: u64,
-    observed_timeouts: u64,
-    unexpected_duplicates: u64,
-    wrong_identities: u64,
-    wrong_digests: u64,
     peak_rss_bytes: u64,
-    queue_depth_after_drain: u64,
-    lag_after_drain: u64,
     disk_growth_bytes: u64,
     hard_resource_limit_exceeded: bool,
 }
@@ -209,21 +207,31 @@ struct ProbeRequest<'a> {
     safety_control: Option<SafetyControl>,
     completed_operations: u64,
     payload_sha256: &'a str,
+    client_pid: u32,
+    checkpoint_root: &'a str,
 }
 
 enum Adapter {
     Direct {
         client: IggyClient,
         producer: Option<IggyProducer>,
+        audit: readback::Ledger,
     },
     Full {
         handle: Box<DurableHandle>,
+        audit_client: IggyClient,
+        audit: readback::Ledger,
         target: NodeId,
         ordering_key: Vec<u8>,
         boundary: ConfirmationBoundary,
+        active_control: Option<SafetyControl>,
     },
     #[cfg(test)]
     Test { delay: Duration },
+    #[cfg(test)]
+    ControlledTest {
+        reject: Arc<std::sync::atomic::AtomicBool>,
+    },
 }
 
 struct Measurement {
@@ -232,6 +240,7 @@ struct Measurement {
     errors: u64,
     timeouts: u64,
     raw_latency_micros: Vec<u64>,
+    admission_queue: Arc<std::sync::atomic::AtomicU64>,
 }
 
 #[tokio::main]
@@ -245,11 +254,21 @@ async fn main() -> Result<()> {
     })?;
     let candidate: CandidateManifest = serde_json::from_slice(&candidate_bytes)?;
     anyhow::ensure!(candidate.performance.samples > 0, "sample count is zero");
-    validate_plan(&candidate.performance)?;
     let candidate_sha256 = sha256(&candidate_bytes);
+    if matches!(cli.mode, Mode::Verify) {
+        return verify::verify(
+            &cli.output,
+            &candidate_sha256,
+            &candidate.performance.axes,
+            candidate.performance.samples,
+            &candidate.performance.workload,
+        );
+    }
+    validate_plan(&candidate.performance)?;
     fs::create_dir_all(&cli.output)?;
 
     match cli.mode {
+        Mode::Verify => unreachable!("read-only verification returned above"),
         Mode::Aa => run_aa(&cli.output, &candidate_sha256, &candidate.performance).await,
         Mode::SafetyAblation => {
             run_safety(
@@ -425,50 +444,52 @@ async fn collect(
     ));
 
     let observation_id = observation_id(plan, phase, sample, expected_arm, safety_control)?;
-    let begin = run_probe(
-        &plan.probe,
-        &plan.workload.credential_reference,
-        ProbeRequest {
-            schema: "chirps.durable-perf-audit-request/v1",
-            action: ProbeAction::Begin,
-            observation_id: &observation_id,
-            phase,
-            arm: expected_arm,
-            sample_index: sample,
-            safety_control,
-            completed_operations: 0,
-            payload_sha256: &plan.workload.payload_sha256,
-        },
+    let checkpoint_root = path_text(
+        &plan.workload.checkpoint_root.canonicalize()?,
+        "checkpoint root",
     )?;
-
-    let measurement = async {
-        let first_measurement_sequence = run_warmup(
-            &adapter,
-            &payload,
-            &plan.axes,
-            plan.workload.operation_timeout_millis,
-        )
-        .await?;
-        run_measurement(
-            Arc::clone(&adapter),
-            Arc::clone(&payload),
-            &plan.axes,
-            plan.workload.operation_timeout_millis,
-            first_measurement_sequence,
-        )
-        .await
-    }
+    let measurement = measure_with_probe(
+        &adapter,
+        &payload,
+        &plan.axes,
+        plan.workload.operation_timeout_millis,
+        safety_control,
+        || {
+            run_probe(
+                &plan.probe,
+                &plan.workload.credential_reference,
+                ProbeRequest {
+                    schema: "chirps.durable-perf-audit-request/v2",
+                    action: ProbeAction::Begin,
+                    observation_id: &observation_id,
+                    phase,
+                    arm: expected_arm,
+                    sample_index: sample,
+                    safety_control,
+                    completed_operations: 0,
+                    payload_sha256: &plan.workload.payload_sha256,
+                    client_pid: std::process::id(),
+                    checkpoint_root: &checkpoint_root,
+                },
+            )
+        },
+    )
     .await;
-    tokio::time::sleep(Duration::from_millis(plan.axes.drain_millis)).await;
+    let queue = measurement
+        .as_ref()
+        .map(|(_, value)| Arc::clone(&value.admission_queue))
+        .unwrap_or_default();
+    let queue_depth_after_drain =
+        observe_queue_after_drain(&adapter, queue, safety_control, plan.axes.drain_millis).await?;
     let completed_operations = measurement
         .as_ref()
-        .map(|measurement| measurement.completed_operations)
+        .map(|(_, measurement)| measurement.completed_operations)
         .unwrap_or(0);
     let finish = run_probe(
         &plan.probe,
         &plan.workload.credential_reference,
         ProbeRequest {
-            schema: "chirps.durable-perf-audit-request/v1",
+            schema: "chirps.durable-perf-audit-request/v2",
             action: ProbeAction::Finish,
             observation_id: &observation_id,
             phase,
@@ -477,30 +498,28 @@ async fn collect(
             safety_control,
             completed_operations,
             payload_sha256: &plan.workload.payload_sha256,
+            client_pid: std::process::id(),
+            checkpoint_root: &checkpoint_root,
         },
     );
     let mut adapter = Arc::try_unwrap(adapter)
         .map_err(|_| anyhow::anyhow!("scheduled adapter operations remain after join"))?
         .into_inner();
+    let readback = adapter.readback(expected_arm).await;
     let shutdown = adapter
         .shutdown(plan.workload.operation_timeout_millis)
         .await;
 
-    let measurement = measurement?;
+    let (begin, measurement) = measurement?;
     let finish = finish?;
     shutdown?;
+    let readback = readback?;
     let audit = finish
         .metrics
         .context("Finish probe response omitted audit metrics")?;
 
-    let errors = measurement
-        .errors
-        .checked_add(audit.observed_errors)
-        .context("audited error count overflow")?;
-    let timeouts = measurement
-        .timeouts
-        .checked_add(audit.observed_timeouts)
-        .context("audited timeout count overflow")?;
+    let errors = measurement.errors;
+    let timeouts = measurement.timeouts;
     let elapsed_nanos = u64::try_from(measurement.elapsed.as_nanos())?;
     let throughput_per_second =
         measurement.completed_operations as f64 / measurement.elapsed.as_secs_f64();
@@ -512,6 +531,7 @@ async fn collect(
         observation_id,
         arm: expected_arm,
         sample_index: sample,
+        readback: Some(readback.clone()),
         metrics: MetricVector {
             elapsed_nanos,
             completed_operations: measurement.completed_operations,
@@ -519,17 +539,43 @@ async fn collect(
             latency_micros,
             errors,
             timeouts,
-            unexpected_duplicates: audit.unexpected_duplicates,
-            wrong_identities: audit.wrong_identities,
-            wrong_digests: audit.wrong_digests,
+            unexpected_duplicates: readback.metrics.unexpected_duplicates,
+            wrong_identities: readback.metrics.wrong_identities,
+            wrong_digests: readback.metrics.wrong_digests,
             peak_rss_bytes: audit.peak_rss_bytes,
-            queue_depth_after_drain: audit.queue_depth_after_drain,
-            lag_after_drain: audit.lag_after_drain,
+            queue_depth_after_drain,
+            lag_after_drain: readback.metrics.confirmed_messages_not_observed,
             disk_growth_bytes: audit.disk_growth_bytes,
             hard_resource_limit_exceeded: audit.hard_resource_limit_exceeded,
             raw_latency_micros: measurement.raw_latency_micros,
         },
     })
+}
+
+async fn measure_with_probe<T>(
+    adapter: &Arc<Mutex<Adapter>>,
+    payload: &Arc<Vec<u8>>,
+    axes: &ComparableAxes,
+    operation_timeout_millis: u64,
+    safety_control: Option<SafetyControl>,
+    begin: impl FnOnce() -> Result<T>,
+) -> Result<(T, Measurement)> {
+    let first_sequence = run_warmup(adapter, payload, axes, operation_timeout_millis).await?;
+    // Warmup is a clean prerequisite, not a safety-ablation observation. Start
+    // auditing/injection only once its complete arrival window has finished.
+    if let Adapter::Full { active_control, .. } = &mut *adapter.lock().await {
+        *active_control = safety_control;
+    }
+    let observation = begin()?;
+    let measurement = run_measurement(
+        Arc::clone(adapter),
+        Arc::clone(payload),
+        axes,
+        operation_timeout_millis,
+        first_sequence,
+    )
+    .await?;
+    Ok((observation, measurement))
 }
 
 async fn run_warmup(
@@ -595,6 +641,7 @@ async fn run_scheduled_operations(
             let timeout = Duration::from_millis(operation_timeout_millis);
             let mut operations = JoinSet::new();
             let mut outcomes = Vec::with_capacity(operation_count as usize);
+            let admission_queue = Arc::new(std::sync::atomic::AtomicU64::new(0));
             for operation in 0..operation_count {
                 let scheduled =
                     scheduled_at(measurement_start, operation, offered_load_per_second)?;
@@ -613,13 +660,13 @@ async fn run_scheduled_operations(
                 // DurableHandle owns mutable lifecycle state. This mutex is its
                 // public API admission queue; queue wait remains inside latency
                 // and timeout while LocalSet supports its !Send future.
+                let queue = Arc::clone(&admission_queue);
                 operations.spawn_local(async move {
                     let outcome = tokio::time::timeout_at(deadline, async {
-                        adapter
-                            .lock()
-                            .await
-                            .send(payload.as_slice(), sequence)
-                            .await
+                        let pending = AdmissionWait::new(queue);
+                        let mut adapter = adapter.lock().await;
+                        drop(pending);
+                        adapter.send(payload.as_slice(), sequence).await
                     })
                     .await;
                     (operation, outcome, scheduled.elapsed())
@@ -629,6 +676,13 @@ async fn run_scheduled_operations(
             while let Some(outcome) = operations.join_next().await {
                 outcomes.push(outcome.context("measurement operation task failed")?);
             }
+            // Fast operations can finish before the last arrival interval ends.
+            // Retain the declared window in the throughput denominator; slow
+            // completions still extend it and their full latency remains visible.
+            let window_end = measurement_start
+                .checked_add(Duration::from_millis(duration_millis))
+                .context("measurement window overflow")?;
+            tokio::time::sleep_until(window_end).await;
             let elapsed = measurement_start.elapsed();
             outcomes.sort_unstable_by_key(|(operation, _, _)| *operation);
 
@@ -656,41 +710,150 @@ async fn run_scheduled_operations(
                 errors,
                 timeouts,
                 raw_latency_micros,
+                admission_queue,
             })
         })
         .await
 }
 
+struct AdmissionWait(Arc<std::sync::atomic::AtomicU64>);
+impl AdmissionWait {
+    fn new(value: Arc<std::sync::atomic::AtomicU64>) -> Self {
+        value.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(value)
+    }
+}
+impl Drop for AdmissionWait {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+async fn observe_queue_after_drain(
+    adapter: &Arc<Mutex<Adapter>>,
+    queue: Arc<std::sync::atomic::AtomicU64>,
+    control: Option<SafetyControl>,
+    drain_millis: u64,
+) -> Result<u64> {
+    if control == Some(SafetyControl::UndrainedQueue) {
+        // A real additional admission remains blocked on the same public API
+        // mutex until the drain observation, then is cancelled before sending.
+        let held = adapter.lock().await;
+        let pending = AdmissionWait::new(Arc::clone(&queue));
+        let mut admission = Box::pin(adapter.lock());
+        let blocked = std::future::poll_fn(|context| {
+            std::task::Poll::Ready(admission.as_mut().poll(context).is_pending())
+        })
+        .await;
+        anyhow::ensure!(blocked, "queue control did not block a real admission");
+        tokio::time::sleep(Duration::from_millis(drain_millis)).await;
+        let count = queue.load(std::sync::atomic::Ordering::SeqCst);
+        drop(admission);
+        drop(pending);
+        drop(held);
+        Ok(count)
+    } else {
+        tokio::time::sleep(Duration::from_millis(drain_millis)).await;
+        Ok(queue.load(std::sync::atomic::Ordering::SeqCst))
+    }
+}
+
+fn direct_message(payload: &[u8]) -> Result<IggyMessage> {
+    let id = alopex_chirps_core::durable::DurableMessageId::generate()?;
+    let mut message = IggyMessage::from(payload.to_vec());
+    // The SDK default is zero (broker-assigned); pin the actual outbound ID
+    // before admission so readback cannot manufacture its own expected ID.
+    message.header.id = u128::from_be_bytes(*id.as_bytes());
+    Ok(message)
+}
+
+async fn control_failure(control: Option<SafetyControl>) -> Result<()> {
+    anyhow::ensure!(
+        control != Some(SafetyControl::ForbiddenError),
+        "activated forbidden-error control"
+    );
+    if control == Some(SafetyControl::Timeout) {
+        std::future::pending::<()>().await;
+    }
+    Ok(())
+}
+
+fn control_message(
+    control: Option<SafetyControl>,
+    target: NodeId,
+    payload: &[u8],
+) -> Result<(NodeId, Vec<u8>, u64)> {
+    anyhow::ensure!(!payload.is_empty(), "control payload is empty");
+    let mut actual_target = target;
+    let mut actual_payload = payload.to_vec();
+    if control == Some(SafetyControl::WrongIdentity) {
+        let mut bytes = *target.as_bytes();
+        bytes[0] ^= 1;
+        actual_target = NodeId::from(bytes);
+    }
+    if control == Some(SafetyControl::WrongDigest) {
+        actual_payload[0] ^= 1;
+    }
+    let attempts = if control == Some(SafetyControl::UnexpectedDuplicate) {
+        2
+    } else {
+        1
+    };
+    Ok((actual_target, actual_payload, attempts))
+}
+
 impl Adapter {
     async fn send(&mut self, payload: &[u8], sequence: u64) -> Result<()> {
         match self {
-            Self::Direct { producer, .. } => producer
-                .as_ref()
-                .context("Direct producer was already shut down")?
-                .send(vec![IggyMessage::from(payload.to_vec())])
-                .await
-                .context("Direct send failed"),
+            Self::Direct {
+                producer, audit, ..
+            } => {
+                let message = direct_message(payload)?;
+                audit.attempt(sequence, message.header.id.to_be_bytes(), payload)?;
+                producer
+                    .as_ref()
+                    .context("Direct producer was already shut down")?
+                    .send(vec![message])
+                    .await
+                    .context("Direct send failed")?;
+                audit.confirm(sequence)?;
+                Ok(())
+            }
             Self::Full {
                 handle,
                 target,
                 ordering_key,
                 boundary,
+                audit,
+                active_control,
+                ..
             } => {
+                control_failure(*active_control).await?;
                 let mut exact_ordering_key = ordering_key.clone();
                 exact_ordering_key.extend_from_slice(&sequence.to_be_bytes());
-                let prepared = handle.prepare(*target, exact_ordering_key, payload)?;
-                let result = handle.send(&prepared, *boundary).await?;
-                let accepted = matches!(
-                    (*boundary, result.outcome()),
-                    (
-                        ConfirmationBoundary::BrokerAccepted,
-                        DurableSendOutcome::BrokerAccepted
-                    ) | (
-                        ConfirmationBoundary::OsSyncedAccepted,
-                        DurableSendOutcome::OsSyncedAccepted
-                    )
-                );
-                anyhow::ensure!(accepted, "Full send did not reach its declared boundary");
+                let (actual_target, actual_payload, attempts) =
+                    control_message(*active_control, *target, payload)?;
+                for _ in 0..attempts {
+                    let prepared = handle.prepare(
+                        actual_target,
+                        exact_ordering_key.clone(),
+                        &actual_payload,
+                    )?;
+                    audit.attempt(sequence, *prepared.message_id().as_bytes(), payload)?;
+                    let result = handle.send(&prepared, *boundary).await?;
+                    let accepted = matches!(
+                        (*boundary, result.outcome()),
+                        (
+                            ConfirmationBoundary::BrokerAccepted,
+                            DurableSendOutcome::BrokerAccepted
+                        ) | (
+                            ConfirmationBoundary::OsSyncedAccepted,
+                            DurableSendOutcome::OsSyncedAccepted
+                        )
+                    );
+                    anyhow::ensure!(accepted, "Full send did not reach its declared boundary");
+                    audit.confirm(sequence)?;
+                }
                 Ok(())
             }
             #[cfg(test)]
@@ -698,12 +861,57 @@ impl Adapter {
                 tokio::time::sleep(*delay).await;
                 Ok(())
             }
+            #[cfg(test)]
+            Self::ControlledTest { reject } => {
+                anyhow::ensure!(
+                    !reject.load(std::sync::atomic::Ordering::Acquire),
+                    "injected operation error"
+                );
+                Ok(())
+            }
+        }
+    }
+
+    async fn readback(&self, arm: Arm) -> Result<readback::Artifact> {
+        match self {
+            Self::Direct { client, audit, .. } => audit.read(client, arm, false).await,
+            Self::Full {
+                audit_client,
+                audit,
+                active_control,
+                handle,
+                ..
+            } => {
+                let mut artifact = audit
+                    .read(
+                        audit_client,
+                        arm,
+                        *active_control == Some(SafetyControl::UndrainedLag),
+                    )
+                    .await?;
+                let status = handle.local_state_status()?;
+                artifact.backend_queue_after_drain = Some(
+                    status
+                        .capacity()
+                        .iter()
+                        .find(|usage| {
+                            usage.category() == alopex_chirps::durable::DurableStateCategory::Queue
+                        })
+                        .context("Full backend queue observation is missing")?
+                        .count(),
+                );
+                Ok(artifact)
+            }
+            #[cfg(test)]
+            _ => anyhow::bail!("test adapter has no broker readback"),
         }
     }
 
     async fn shutdown(&mut self, timeout_millis: u64) -> Result<()> {
         match self {
-            Self::Direct { client, producer } => {
+            Self::Direct {
+                client, producer, ..
+            } => {
                 if let Some(producer) = producer.take() {
                     producer.shutdown().await;
                 }
@@ -711,13 +919,22 @@ impl Adapter {
                     .await
                     .context("Direct shutdown timed out")??;
             }
-            Self::Full { handle, .. } => {
+            Self::Full {
+                handle,
+                audit_client,
+                ..
+            } => {
+                tokio::time::timeout(
+                    Duration::from_millis(timeout_millis),
+                    audit_client.shutdown(),
+                )
+                .await??;
                 handle
                     .shutdown(Instant::now() + Duration::from_millis(timeout_millis))
                     .await?;
             }
             #[cfg(test)]
-            Self::Test { .. } => {}
+            Self::Test { .. } | Self::ControlledTest { .. } => {}
         }
         Ok(())
     }
@@ -736,7 +953,7 @@ async fn build_adapter(
     }
 }
 
-async fn build_direct(workload: &Workload, credential: SecretCredential) -> Result<Adapter> {
+async fn connect_sdk(workload: &Workload, credential: &SecretCredential) -> Result<IggyClient> {
     let client = IggyClientBuilder::new()
         .with_tcp()
         .with_server_address(workload.endpoint.to_string())
@@ -765,6 +982,13 @@ async fn build_direct(workload: &Workload, credential: SecretCredential) -> Resu
             anyhow::ensure!(matches!(result, Ok(Ok(_))), "Direct authentication failed");
         }
     }
+    Ok(client)
+}
+
+async fn build_direct(workload: &Workload, credential: SecretCredential) -> Result<Adapter> {
+    let client = connect_sdk(workload, &credential).await?;
+    let audit = readback::Ledger::new(workload, &client).await?;
+    let connect_timeout = Duration::from_millis(workload.connect_timeout_millis);
     let stream = workload.stream_id.to_string();
     let topic = workload.topic_id.to_string();
     let producer = client
@@ -781,6 +1005,7 @@ async fn build_direct(workload: &Workload, credential: SecretCredential) -> Resu
     Ok(Adapter::Direct {
         client,
         producer: Some(producer),
+        audit,
     })
 }
 
@@ -858,6 +1083,8 @@ async fn build_full(
         ),
         DurableExtensionConfig::required(workload.max_frame_len),
     );
+    let audit_client = connect_sdk(workload, &credential).await?;
+    let audit = readback::Ledger::new(workload, &audit_client).await?;
     let provider = EnvironmentCredentialProvider {
         reference: workload.credential_reference.clone(),
         credential,
@@ -873,14 +1100,43 @@ async fn build_full(
     .await?;
     Ok(Adapter::Full {
         handle: Box::new(handle),
+        audit_client,
+        audit,
         target: NodeId::from(decode_hex(&workload.target_node_id_hex, "target node ID")?),
         ordering_key: decode_hex_bytes(&workload.ordering_key_hex, "ordering key")?,
         boundary,
+        active_control: None,
     })
 }
 
 fn validate_plan(plan: &PerformancePlan) -> Result<()> {
+    validate_direct_boundary(plan.axes.full_confirmation_profile)?;
     anyhow::ensure!(plan.samples > 0, "sample count is zero");
+    let config: serde_json::Value = serde_json::from_slice(&read_digest_file(
+        &plan.probe.config_path,
+        &plan.probe.config_sha256,
+        "probe config",
+    )?)?;
+    let mut planned = serde_json::to_value(&plan.axes)?;
+    for key in [
+        "host_fingerprint",
+        "server_image_digest",
+        "server_source_digest",
+        "server_config_digest",
+        "payload_digest",
+        "payload_bytes",
+        "partition_set_digest",
+    ] {
+        planned
+            .as_object_mut()
+            .context("axes must be an object")?
+            .remove(key);
+    }
+    anyhow::ensure!(
+        config.get("planned_axes") == Some(&planned),
+        "collector planned axes differ from candidate"
+    );
+
     anyhow::ensure!(
         plan.workload.partition_id == 0,
         "only exact partition 0 is supported"
@@ -922,6 +1178,7 @@ fn validate_plan(plan: &PerformancePlan) -> Result<()> {
         &plan.workload.payload_sha256,
         "payload",
     )?;
+    anyhow::ensure!(!payload.is_empty(), "payload is empty");
     anyhow::ensure!(
         plan.axes.payload_digest == plan.workload.payload_sha256,
         "payload axis digest differs"
@@ -993,6 +1250,16 @@ fn validate_plan(plan: &PerformancePlan) -> Result<()> {
     verify_probe(&plan.probe)
 }
 
+fn validate_direct_boundary(profile: FullConfirmationProfile) -> Result<()> {
+    // Official SDK send confirms ordinary broker acceptance. It does not return
+    // the compatible extension's exact OS-synced receipt used by the Full arm.
+    anyhow::ensure!(
+        profile == FullConfirmationProfile::BrokerAccepted,
+        "Direct SDK control cannot attest OsSyncedAccepted; a matching strong control is required"
+    );
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct ProjectionFingerprint<'a> {
     stream_id: u32,
@@ -1016,7 +1283,12 @@ fn run_probe(
     request: ProbeRequest<'_>,
 ) -> Result<AuditResponse> {
     verify_probe(probe)?;
+    read_digest_file(&probe.config_path, &probe.config_sha256, "probe config")?;
     let output = probe_command(probe, credential_reference)
+        .arg("--config")
+        .arg(&probe.config_path)
+        .arg("--config-sha256")
+        .arg(&probe.config_sha256)
         .arg("--chirps-audit-request-json")
         .arg(serde_json::to_string(&request)?)
         .output()
@@ -1047,7 +1319,7 @@ fn validate_audit_response(
     response: AuditResponse,
 ) -> Result<AuditResponse> {
     anyhow::ensure!(
-        response.schema == "chirps.durable-perf-audit-response/v1",
+        response.schema == "chirps.durable-perf-audit-response/v2",
         "unknown auxiliary audit schema"
     );
     anyhow::ensure!(
@@ -1185,7 +1457,9 @@ fn decode_hex_bytes(value: &str, label: &str) -> Result<Vec<u8>> {
     );
     value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let pair = std::str::from_utf8(pair).expect("hex chunks are UTF-8");
             u8::from_str_radix(pair, 16).with_context(|| format!("{label} is not lowercase hex"))
@@ -1236,11 +1510,11 @@ fn parse_args(args: &[String]) -> Result<Cli> {
         "every option requires one value"
     );
     let mut options = BTreeMap::new();
-    for pair in args.chunks_exact(2) {
+    for pair in args.as_chunks::<2>().0.iter() {
         anyhow::ensure!(
             matches!(
                 pair[0].as_str(),
-                "--mode" | "--candidate-manifest" | "--bounds" | "--output"
+                "--mode" | "--candidate-manifest" | "--bounds" | "--output" | "--evidence-root"
             ),
             "unknown option {}",
             pair[0]
@@ -1255,17 +1529,31 @@ fn parse_args(args: &[String]) -> Result<Cli> {
         "aa" => Mode::Aa,
         "safety-ablation" => Mode::SafetyAblation,
         "paired" => Mode::Paired,
+        "verify" => Mode::Verify,
         value => anyhow::bail!("invalid --mode {value}"),
     };
     let bounds = options.get("--bounds").copied().map(PathBuf::from);
     if matches!(mode, Mode::Aa) {
         anyhow::ensure!(bounds.is_none(), "A/A does not accept external bounds");
     }
+    let output = if matches!(mode, Mode::Verify) {
+        anyhow::ensure!(
+            bounds.is_none() && !options.contains_key("--output"),
+            "verify accepts only --evidence-root"
+        );
+        required(&options, "--evidence-root")?
+    } else {
+        anyhow::ensure!(
+            !options.contains_key("--evidence-root"),
+            "--evidence-root is only valid for verify"
+        );
+        required(&options, "--output")?
+    };
     Ok(Cli {
         mode,
         candidate_manifest: required(&options, "--candidate-manifest")?.into(),
         bounds,
-        output: required(&options, "--output")?.into(),
+        output: output.into(),
     })
 }
 
@@ -1310,8 +1598,18 @@ fn observation_id(
     arm: Arm,
     safety_control: Option<SafetyControl>,
 ) -> Result<String> {
+    observation_id_for_axes(&plan.axes, phase, sample, arm, safety_control)
+}
+
+fn observation_id_for_axes(
+    axes: &ComparableAxes,
+    phase: &str,
+    sample: u64,
+    arm: Arm,
+    safety_control: Option<SafetyControl>,
+) -> Result<String> {
     Ok(sha256(&serde_json::to_vec(&(
-        &plan.axes,
+        axes,
         phase,
         sample,
         arm,
@@ -1365,6 +1663,152 @@ mod tests {
     }
 
     #[test]
+    fn direct_send_ids_are_chosen_before_send_and_preserve_payload() {
+        let first = direct_message(&[1, 2, 3]).unwrap();
+        let second = direct_message(&[1, 2, 3]).unwrap();
+        assert_ne!(first.header.id, 0);
+        assert_ne!(first.header.id, second.header.id);
+        assert_eq!(first.payload.as_ref(), &[1, 2, 3]);
+        assert_eq!(second.payload.as_ref(), &[1, 2, 3]);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn wrong_identity_control_changes_every_possible_target(bytes in proptest::array::uniform16(proptest::prelude::any::<u8>())) {
+            let target = NodeId::from(bytes);
+            let (actual, payload, attempts) = control_message(Some(SafetyControl::WrongIdentity), target, &[1,2,3]).unwrap();
+            proptest::prop_assert_ne!(actual, target);
+            proptest::prop_assert_eq!(&actual.as_bytes()[1..], &bytes[1..]);
+            proptest::prop_assert_eq!(payload, vec![1,2,3]);
+            proptest::prop_assert_eq!(attempts, 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn failure_controls_change_operation_outcomes_before_sending() {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), control_failure(None))
+                .await
+                .unwrap()
+                .is_ok()
+        );
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(50),
+                control_failure(Some(SafetyControl::ForbiddenError))
+            )
+            .await
+            .unwrap()
+            .is_err()
+        );
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(1),
+                control_failure(Some(SafetyControl::Timeout))
+            )
+            .await
+            .is_err()
+        );
+        for control in [
+            SafetyControl::WrongIdentity,
+            SafetyControl::WrongDigest,
+            SafetyControl::UnexpectedDuplicate,
+            SafetyControl::UndrainedQueue,
+            SafetyControl::UndrainedLag,
+            SafetyControl::HardResourceLimit,
+        ] {
+            assert!(
+                tokio::time::timeout(Duration::from_millis(50), control_failure(Some(control)))
+                    .await
+                    .unwrap()
+                    .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn message_controls_preserve_unrelated_content_and_have_finite_attempts() {
+        let target = NodeId::from([2; 16]);
+        let payload = [1, 2, 3];
+        for control in std::iter::once(None).chain(SAFETY_CONTROLS.into_iter().map(Some)) {
+            let (actual_target, actual_payload, attempts) =
+                control_message(control, target, &payload).unwrap();
+            assert_eq!(
+                actual_target != target,
+                control == Some(SafetyControl::WrongIdentity)
+            );
+            assert_eq!(
+                actual_payload != payload,
+                control == Some(SafetyControl::WrongDigest)
+            );
+            assert_eq!(actual_payload.len(), payload.len());
+            assert_eq!(
+                attempts,
+                if control == Some(SafetyControl::UnexpectedDuplicate) {
+                    2
+                } else {
+                    1
+                }
+            );
+        }
+        assert!(control_message(None, target, &[]).is_err());
+    }
+
+    #[tokio::test]
+    async fn admission_control_observes_a_real_waiter_then_cancels_it() {
+        let adapter = Arc::new(Mutex::new(Adapter::Test {
+            delay: Duration::ZERO,
+        }));
+        let queue = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        assert_eq!(
+            observe_queue_after_drain(
+                &adapter,
+                Arc::clone(&queue),
+                Some(SafetyControl::UndrainedQueue),
+                1
+            )
+            .await
+            .unwrap(),
+            1
+        );
+        assert_eq!(queue.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(adapter.try_lock().is_ok());
+        assert_eq!(
+            observe_queue_after_drain(&adapter, queue, None, 1)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn verify_cli_requires_read_only_evidence_root() {
+        let valid: Vec<String> = [
+            "--mode",
+            "verify",
+            "--candidate-manifest",
+            "/candidate.json",
+            "--evidence-root",
+            "/evidence",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let cli = parse_args(&valid).unwrap();
+        assert!(matches!(cli.mode, Mode::Verify));
+        assert_eq!(cli.output, PathBuf::from("/evidence"));
+        for option in ["--output", "--bounds"] {
+            let mut invalid = valid.clone();
+            invalid.extend([option.to_owned(), "/file".to_owned()]);
+            assert!(parse_args(&invalid).is_err());
+        }
+        let mut missing = valid.clone();
+        missing.truncate(4);
+        assert!(parse_args(&missing).is_err());
+        assert!(parse_args(&args(&["--evidence-root", "/evidence"])).is_err());
+    }
+
+    #[test]
     fn v07_task_6_12_exact_rate_and_raw_percentiles_are_owned_by_the_tool() {
         assert_eq!(exact_operation_count(100, 1_000, "test").unwrap(), 100);
         assert!(exact_operation_count(3, 500, "test").is_err());
@@ -1381,7 +1825,7 @@ mod tests {
     #[test]
     fn v07_task_6_12_auxiliary_probe_cannot_replace_or_relabel_the_workload() {
         let request = ProbeRequest {
-            schema: "chirps.durable-perf-audit-request/v1",
+            schema: "chirps.durable-perf-audit-request/v2",
             action: ProbeAction::Finish,
             observation_id: "observation",
             phase: "paired_full",
@@ -1390,6 +1834,8 @@ mod tests {
             safety_control: None,
             completed_operations: 11,
             payload_sha256: "payload",
+            client_pid: std::process::id(),
+            checkpoint_root: "/synthetic-checkpoint-root",
         };
         let encoded = serde_json::to_string(&request).unwrap();
         assert!(!encoded.contains("credential"));
@@ -1421,6 +1867,8 @@ mod tests {
         let probe = AuditProbe {
             program: "/probe".into(),
             sha256: "digest".into(),
+            config_path: "/config".into(),
+            config_sha256: "digest".into(),
         };
         let command = probe_command(&probe, "CHIRPS_PERF_CREDENTIAL");
         assert!(command.get_envs().any(|(name, value)| {
@@ -1448,7 +1896,7 @@ mod tests {
     #[test]
     fn v07_task_6_12_probe_begin_must_activate_the_requested_control() {
         let request = ProbeRequest {
-            schema: "chirps.durable-perf-audit-request/v1",
+            schema: "chirps.durable-perf-audit-request/v2",
             action: ProbeAction::Begin,
             observation_id: "observation",
             phase: "safety_timeout",
@@ -1457,6 +1905,8 @@ mod tests {
             safety_control: Some(SafetyControl::Timeout),
             completed_operations: 0,
             payload_sha256: "payload",
+            client_pid: std::process::id(),
+            checkpoint_root: "/synthetic-checkpoint-root",
         };
         let mut response = audit_response();
         response.action = ProbeAction::Begin;
@@ -1474,6 +1924,71 @@ mod tests {
         response.safety_control = request.safety_control;
         response.metrics = None;
         assert!(validate_audit_response(&request, response).is_err());
+    }
+
+    #[tokio::test]
+    async fn fast_workload_still_measures_the_declared_arrival_window() {
+        let mut axes = audit_response().observed_axes;
+        axes.offered_load_per_second = 100;
+        axes.measure_millis = 20;
+        let adapter = Arc::new(Mutex::new(Adapter::Test {
+            delay: Duration::ZERO,
+        }));
+        let measurement = run_measurement(adapter, Arc::new(vec![1]), &axes, 1_000, 0)
+            .await
+            .unwrap();
+        assert_eq!(measurement.completed_operations, 2);
+        assert!(measurement.elapsed >= Duration::from_millis(20));
+        assert!(
+            measurement.completed_operations as f64 / measurement.elapsed.as_secs_f64() <= 100.0
+        );
+    }
+
+    #[test]
+    fn ordinary_sdk_control_cannot_be_compared_to_os_synced_full_sends() {
+        assert!(validate_direct_boundary(FullConfirmationProfile::BrokerAccepted).is_ok());
+        assert!(validate_direct_boundary(FullConfirmationProfile::OsSyncedAccepted).is_err());
+    }
+
+    #[tokio::test]
+    async fn safety_control_errors_are_measured_after_clean_warmup() {
+        let mut axes = audit_response().observed_axes;
+        axes.offered_load_per_second = 100;
+        axes.warmup_millis = 10;
+        axes.measure_millis = 10;
+        let reject = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let adapter = Arc::new(Mutex::new(Adapter::ControlledTest {
+            reject: Arc::clone(&reject),
+        }));
+        let (_, measurement) =
+            measure_with_probe(&adapter, &Arc::new(vec![1]), &axes, 1_000, None, || {
+                reject.store(true, std::sync::atomic::Ordering::Release);
+                Ok(())
+            })
+            .await
+            .expect("a safety control must produce an observed failure, not abort warmup");
+        assert_eq!(measurement.completed_operations, 0);
+        assert_eq!(measurement.errors, 1);
+        assert_eq!(measurement.timeouts, 0);
+        assert_eq!(measurement.raw_latency_micros.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_warmup_never_activates_a_safety_control() {
+        let mut axes = audit_response().observed_axes;
+        axes.offered_load_per_second = 100;
+        axes.warmup_millis = 10;
+        let adapter = Arc::new(Mutex::new(Adapter::ControlledTest {
+            reject: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        }));
+        let mut activated = false;
+        let result = measure_with_probe(&adapter, &Arc::new(vec![1]), &axes, 1_000, None, || {
+            activated = true;
+            Ok(())
+        })
+        .await;
+        assert!(result.is_err());
+        assert!(!activated);
     }
 
     #[tokio::test]
@@ -1509,7 +2024,7 @@ mod tests {
 
     fn audit_response() -> AuditResponse {
         AuditResponse {
-            schema: "chirps.durable-perf-audit-response/v1".into(),
+            schema: "chirps.durable-perf-audit-response/v2".into(),
             action: ProbeAction::Finish,
             observation_id: "observation".into(),
             phase: "paired_full".into(),
@@ -1537,14 +2052,7 @@ mod tests {
             },
             safety_control_active: false,
             metrics: Some(AuditVector {
-                observed_errors: 0,
-                observed_timeouts: 0,
-                unexpected_duplicates: 0,
-                wrong_identities: 0,
-                wrong_digests: 0,
                 peak_rss_bytes: 1,
-                queue_depth_after_drain: 0,
-                lag_after_drain: 0,
                 disk_growth_bytes: 1,
                 hard_resource_limit_exceeded: false,
             }),

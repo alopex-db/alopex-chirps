@@ -30,7 +30,7 @@ tracing.workspace = true
 [dev-dependencies]
 tempfile = "3.8"
 rcgen = "0.12"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
 serde_json = "1"
 alopex-chirps-mock.workspace = true

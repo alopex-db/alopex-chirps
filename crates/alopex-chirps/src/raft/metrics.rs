@@ -160,6 +160,24 @@ pub struct HlcMetricsUpdate {
     pub physical_advances: u64,
 }
 
+/// Counter deltas and the current active-connection gauge from QUIC transport.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TransportMetricsUpdate {
+    pub messages_sent: u64,
+    pub messages_received: u64,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub active_connections: u64,
+}
+
+/// One SWIM membership state observation and its corresponding event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwimMetricsUpdate {
+    pub node_id: u64,
+    pub state: &'static str,
+    pub event: &'static str,
+}
+
 #[derive(Debug, Error)]
 pub enum MetricsError {
     #[error("メトリクスエンコードに失敗しました: {0}")]
@@ -221,7 +239,11 @@ pub struct RaftMetricsCollector {
     raft_term: GaugeVec,
     raft_commit_index: GaugeVec,
     raft_applied_index: GaugeVec,
+    raft_last_log_index: GaugeVec,
+    raft_leader_id: GaugeVec,
+    raft_votes_granted: GaugeVec,
     raft_proposals_total: CounterVec,
+    raft_proposals_failed_total: CounterVec,
     raft_proposals_latency_seconds: HistogramVec,
     raft_messages_sent_total: CounterVec,
     raft_messages_received_total: CounterVec,
@@ -240,6 +262,16 @@ pub struct RaftMetricsCollector {
     hlc_clock_skew_seconds: Histogram,
     hlc_logical_advances_total: Counter,
     hlc_physical_advances_total: Counter,
+    transport_messages_sent_total: Counter,
+    transport_messages_received_total: Counter,
+    transport_bytes_sent_total: Counter,
+    transport_bytes_received_total: Counter,
+    transport_connections_active: Gauge,
+    transport_active_connections: Gauge,
+    swim_node_state: GaugeVec,
+    swim_events_total: CounterVec,
+    membership_node_state: GaugeVec,
+    membership_events_total: CounterVec,
     coherence: Mutex<()>,
     group_states: Mutex<HashMap<GroupId, &'static str>>,
     last_successful_output: Mutex<String>,
@@ -290,10 +322,30 @@ impl RaftMetricsCollector {
             "Applied log index",
             &["group_id"],
         );
+        let raft_last_log_index = gauge_vec(
+            "chirps_raft_last_log_index",
+            "Last Raft log index",
+            &["group_id"],
+        );
+        let raft_leader_id = gauge_vec(
+            "chirps_raft_leader_id",
+            "Current Raft leader ID, or zero when unknown",
+            &["group_id"],
+        );
+        let raft_votes_granted = gauge_vec(
+            "chirps_raft_votes_granted",
+            "Committed Raft vote count",
+            &["group_id"],
+        );
         let raft_proposals_total = counter_vec(
             "chirps_raft_proposals_total",
             "Raft proposals grouped by result",
             &["group_id", "result"],
+        );
+        let raft_proposals_failed_total = counter_vec(
+            "chirps_raft_proposals_failed_total",
+            "Failed Raft proposals",
+            &["group_id"],
         );
         let raft_proposals_latency_seconds = HistogramVec::new(
             HistogramOpts::new(
@@ -383,6 +435,56 @@ impl RaftMetricsCollector {
             "HLC physical time advances",
         )
         .expect("hlc physical counter");
+        let transport_messages_sent_total = Counter::new(
+            "chirps_transport_messages_sent_total",
+            "Total messages sent by the transport",
+        )
+        .expect("transport sent counter");
+        let transport_messages_received_total = Counter::new(
+            "chirps_transport_messages_received_total",
+            "Total messages received by the transport",
+        )
+        .expect("transport received counter");
+        let transport_bytes_sent_total = Counter::new(
+            "chirps_transport_bytes_sent_total",
+            "Total bytes sent by the transport",
+        )
+        .expect("transport sent bytes counter");
+        let transport_bytes_received_total = Counter::new(
+            "chirps_transport_bytes_received_total",
+            "Total bytes received by the transport",
+        )
+        .expect("transport received bytes counter");
+        let transport_connections_active = Gauge::new(
+            "chirps_transport_connections_active",
+            "Number of active transport connections",
+        )
+        .expect("transport active connections gauge");
+        let transport_active_connections = Gauge::new(
+            "chirps_transport_active_connections",
+            "Backward-compatible active transport connection gauge",
+        )
+        .expect("transport active connections alias gauge");
+        let swim_node_state = gauge_vec(
+            "chirps_swim_node_state",
+            "One-hot SWIM state for each node",
+            &["node_id", "state"],
+        );
+        let swim_events_total = counter_vec(
+            "chirps_swim_events_total",
+            "SWIM membership events",
+            &["event"],
+        );
+        let membership_node_state = gauge_vec(
+            "chirps_membership_node_state",
+            "One-hot membership state for each node",
+            &["node_id", "state"],
+        );
+        let membership_events_total = counter_vec(
+            "chirps_membership_events_total",
+            "Membership state events",
+            &["event"],
+        );
 
         let register = |collector| {
             registry
@@ -395,7 +497,11 @@ impl RaftMetricsCollector {
         register(Box::new(raft_term.clone()));
         register(Box::new(raft_commit_index.clone()));
         register(Box::new(raft_applied_index.clone()));
+        register(Box::new(raft_last_log_index.clone()));
+        register(Box::new(raft_leader_id.clone()));
+        register(Box::new(raft_votes_granted.clone()));
         register(Box::new(raft_proposals_total.clone()));
+        register(Box::new(raft_proposals_failed_total.clone()));
         register(Box::new(raft_proposals_latency_seconds.clone()));
         register(Box::new(raft_messages_sent_total.clone()));
         register(Box::new(raft_messages_received_total.clone()));
@@ -414,6 +520,16 @@ impl RaftMetricsCollector {
         register(Box::new(hlc_clock_skew_seconds.clone()));
         register(Box::new(hlc_logical_advances_total.clone()));
         register(Box::new(hlc_physical_advances_total.clone()));
+        register(Box::new(transport_messages_sent_total.clone()));
+        register(Box::new(transport_messages_received_total.clone()));
+        register(Box::new(transport_bytes_sent_total.clone()));
+        register(Box::new(transport_bytes_received_total.clone()));
+        register(Box::new(transport_connections_active.clone()));
+        register(Box::new(transport_active_connections.clone()));
+        register(Box::new(swim_node_state.clone()));
+        register(Box::new(swim_events_total.clone()));
+        register(Box::new(membership_node_state.clone()));
+        register(Box::new(membership_events_total.clone()));
 
         Self {
             registry,
@@ -423,7 +539,11 @@ impl RaftMetricsCollector {
             raft_term,
             raft_commit_index,
             raft_applied_index,
+            raft_last_log_index,
+            raft_leader_id,
+            raft_votes_granted,
             raft_proposals_total,
+            raft_proposals_failed_total,
             raft_proposals_latency_seconds,
             raft_messages_sent_total,
             raft_messages_received_total,
@@ -442,6 +562,16 @@ impl RaftMetricsCollector {
             hlc_clock_skew_seconds,
             hlc_logical_advances_total,
             hlc_physical_advances_total,
+            transport_messages_sent_total,
+            transport_messages_received_total,
+            transport_bytes_sent_total,
+            transport_bytes_received_total,
+            transport_connections_active,
+            transport_active_connections,
+            swim_node_state,
+            swim_events_total,
+            membership_node_state,
+            membership_events_total,
             coherence: Mutex::new(()),
             group_states: Mutex::new(HashMap::new()),
             last_successful_output: Mutex::new(String::new()),
@@ -472,6 +602,13 @@ impl RaftMetricsCollector {
             .raft_applied_index
             .remove_label_values(&[&group_id_label]);
         let _ = self
+            .raft_last_log_index
+            .remove_label_values(&[&group_id_label]);
+        let _ = self.raft_leader_id.remove_label_values(&[&group_id_label]);
+        let _ = self
+            .raft_votes_granted
+            .remove_label_values(&[&group_id_label]);
+        let _ = self
             .raft_log_entries
             .remove_label_values(&[&group_id_label]);
         let _ = self
@@ -488,6 +625,9 @@ impl RaftMetricsCollector {
                 .raft_proposals_total
                 .remove_label_values(&[&group_id_label, result]);
         }
+        let _ = self
+            .raft_proposals_failed_total
+            .remove_label_values(&[&group_id_label]);
         for message_type in RAFT_MESSAGE_TYPES {
             let _ = self
                 .raft_messages_sent_total
@@ -601,6 +741,15 @@ impl RaftMetricsCollector {
         self.raft_applied_index
             .with_label_values(&[&group_id])
             .set(metrics.applied_index.unwrap_or(0) as f64);
+        self.raft_last_log_index
+            .with_label_values(&[&group_id])
+            .set(metrics.last_log_index.unwrap_or(0) as f64);
+        self.raft_leader_id
+            .with_label_values(&[&group_id])
+            .set(metrics.leader_id.unwrap_or(0) as f64);
+        self.raft_votes_granted
+            .with_label_values(&[&group_id])
+            .set(metrics.votes_granted.unwrap_or(0) as f64);
         self.raft_log_entries
             .with_label_values(&[&group_id])
             .set(metrics.log_entries_count.unwrap_or(0) as f64);
@@ -613,6 +762,9 @@ impl RaftMetricsCollector {
         if metrics.proposals_failed_total > 0 {
             self.raft_proposals_total
                 .with_label_values(&[&group_id, "failed"])
+                .inc_by(metrics.proposals_failed_total as f64);
+            self.raft_proposals_failed_total
+                .with_label_values(&[&group_id])
                 .inc_by(metrics.proposals_failed_total as f64);
             let reason = bounded_proposal_reason(metrics.proposals_failed_reason.as_deref());
             self.raft_proposals_failed_by_reason_total
@@ -693,6 +845,43 @@ impl RaftMetricsCollector {
         }
     }
 
+    /// Publishes transport counter deltas and the current connection gauge.
+    pub fn update_transport(&self, metrics: &TransportMetricsUpdate) {
+        let _coherence = self.coherence_guard();
+        self.transport_messages_sent_total
+            .inc_by(metrics.messages_sent as f64);
+        self.transport_messages_received_total
+            .inc_by(metrics.messages_received as f64);
+        self.transport_bytes_sent_total
+            .inc_by(metrics.bytes_sent as f64);
+        self.transport_bytes_received_total
+            .inc_by(metrics.bytes_received as f64);
+        self.transport_connections_active
+            .set(metrics.active_connections as f64);
+        self.transport_active_connections
+            .set(metrics.active_connections as f64);
+    }
+
+    /// Publishes a one-hot node state and increments the bounded event series.
+    pub fn update_swim(&self, metrics: &SwimMetricsUpdate) {
+        let _coherence = self.coherence_guard();
+        let node_id = metrics.node_id.to_string();
+        let state = bounded_swim_state(metrics.state);
+        for candidate in SWIM_STATES {
+            self.swim_node_state
+                .with_label_values(&[&node_id, candidate])
+                .set(f64::from(candidate == state));
+            self.membership_node_state
+                .with_label_values(&[&node_id, candidate])
+                .set(f64::from(candidate == state));
+        }
+        let event = bounded_swim_event(metrics.event);
+        self.swim_events_total.with_label_values(&[event]).inc();
+        self.membership_events_total
+            .with_label_values(&[event])
+            .inc();
+    }
+
     fn update_group_state_summary(&self, group_id: GroupId, role: &'static str) {
         let previous = self
             .group_states
@@ -730,6 +919,7 @@ impl RaftMetricsCollector {
             .map_err(|error| MetricsError::Encoding(error.to_string()))?;
         let encoded =
             String::from_utf8(buffer).map_err(|error| MetricsError::Encoding(error.to_string()))?;
+        let encoded = append_v05_raft_aliases(&encoded);
         *self
             .last_successful_output
             .lock()
@@ -769,6 +959,52 @@ impl RaftMetricsCollector {
     pub fn inject_encode_error(&self) {
         self.fail_next_encode.store(true, Ordering::SeqCst);
     }
+}
+
+fn append_v05_raft_aliases(encoded: &str) -> String {
+    let aliases = [
+        ("chirps_raft_state", "raft_state"),
+        ("chirps_raft_term", "raft_term"),
+        ("chirps_raft_commit_index", "raft_commit_index"),
+        ("chirps_raft_applied_index", "raft_applied_index"),
+        ("chirps_raft_last_log_index", "raft_last_log_index"),
+        ("chirps_raft_leader_id", "raft_leader_id"),
+        ("chirps_raft_votes_granted", "raft_votes_granted"),
+        ("chirps_raft_log_entries", "raft_log_entries_count"),
+        ("chirps_raft_snapshot_total", "raft_snapshot_total"),
+        ("chirps_raft_proposals_total", "raft_proposals_total"),
+        (
+            "chirps_raft_proposals_failed_total",
+            "raft_proposals_failed_total",
+        ),
+    ];
+    let mut result = encoded.to_owned();
+    for (canonical, alias) in aliases {
+        for line in encoded.lines().filter(|line| {
+            line.starts_with(&format!("# HELP {canonical}"))
+                || line.starts_with(&format!("# TYPE {canonical}"))
+                || line.starts_with(canonical)
+        }) {
+            result.push_str(&line.replace(canonical, alias));
+            result.push('\n');
+        }
+    }
+    result
+}
+
+const SWIM_STATES: [&str; 4] = ["alive", "suspect", "dead", "other"];
+
+fn bounded_swim_state(value: &str) -> &'static str {
+    match value {
+        "alive" => "alive",
+        "suspect" => "suspect",
+        "dead" => "dead",
+        _ => "other",
+    }
+}
+
+fn bounded_swim_event(value: &str) -> &'static str {
+    bounded_swim_state(value)
 }
 
 #[cfg(feature = "hlc")]

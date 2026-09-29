@@ -25,14 +25,21 @@ use tokio::time::{sleep, timeout};
 const TEST_READINESS_TIMEOUT: Duration = Duration::from_secs(10);
 const TEST_PROPOSAL_TIMEOUT: Duration = Duration::from_secs(30);
 
+type AppliedCommands = Vec<(LogId<u64>, Vec<u8>)>;
+
 #[derive(Clone, Default)]
 struct EchoStateMachine {
-    applied: Arc<Mutex<Vec<Vec<u8>>>>,
+    applied: Arc<Mutex<AppliedCommands>>,
 }
 
 impl EchoStateMachine {
     async fn values(&self) -> Vec<Vec<u8>> {
-        self.applied.lock().await.clone()
+        self.applied
+            .lock()
+            .await
+            .iter()
+            .map(|(_, value)| value.clone())
+            .collect()
     }
 }
 
@@ -43,10 +50,10 @@ impl StateMachine for EchoStateMachine {
 
     async fn apply(
         &mut self,
-        _log_id: LogId<u64>,
+        log_id: LogId<u64>,
         command: Self::Command,
     ) -> StateMachineResult<Self::Response> {
-        self.applied.lock().await.push(command.clone());
+        self.applied.lock().await.push((log_id, command.clone()));
         Ok(command)
     }
 
@@ -329,9 +336,30 @@ impl TestCluster {
         timeout(TEST_READINESS_TIMEOUT, async {
             loop {
                 let mut complete = true;
-                for state in self.states.values() {
-                    complete &= state.values().await.len() == expected;
+                let observations = self
+                    .managers
+                    .iter()
+                    .map(|(node_id, manager)| {
+                        (
+                            *node_id,
+                            manager.get_group(self.group_id).unwrap().metrics(),
+                        )
+                    })
+                    .collect::<BTreeMap<_, _>>();
+                for (node_id, state) in &self.states {
+                    let applied = state.applied.lock().await;
+                    complete &= applied.len() == expected;
+                    // apply() writes the state before OpenRaft publishes its
+                    // metrics. Wait for that publication as well as the data,
+                    // using the actual applied log ID rather than a sleep.
+                    complete &= applied.last().is_some_and(|(log_id, _)| {
+                        observations[node_id].last_applied >= Some(*log_id)
+                    });
                 }
+                let first = observations.values().next().unwrap();
+                complete &= observations.values().all(|metrics| {
+                    metrics.current_leader.is_some() && metrics.last_applied == first.last_applied
+                });
                 if complete {
                     break;
                 }

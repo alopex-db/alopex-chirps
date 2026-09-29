@@ -5,14 +5,14 @@ kind = "publish-disabled-test"
 publishable = false
 filename = "iggy-server"
 output_path = "/home/roomtv/works/alopex-db/release-artifacts/chirps-v0.7.0/server/test/iggy-server"
-output_sha256 = "2daa29a71b9d7ba4555ad84f2273c0f269744efe6091dd0dc8aa2fa647fb31b4"
+output_sha256 = "b2a4b7bbe7423269aaf972a5824936c12da5805696af590de720931d0ccb79b5"
 
 [source]
 repository = "https://github.com/apache/iggy.git"
 baseline_commit = "f5350d999d883fd3ca9dd33b3dc2754ddb0df049"
-commit = "76dcccf24b27c61a9434a79b3f81f065c4d3a832"
-tree = "c63cdecf5edb11650e7db85db3f7ad168a2103f7"
-cargo_lock_sha256 = "0e4ac6717cfb6ba04894f734b8f56afc56e265925fdd805242b6e39d4d676b41"
+commit = "336d20c53b4bba663c257bdc0271373cfc2f1864"
+tree = "b2099c2dc404534429e210069990a10496d4fefd"
+cargo_lock_sha256 = "9b601087feed75db7cc6e3e5bbe185fbc1cd5ef9ea2d84dbda8b6a9deb40f6c8"
 clean_required = true
 
 [toolchain]
@@ -28,11 +28,11 @@ profile = "release"
 default_features = false
 features = ["mimalloc", "chirps-test-failpoints"]
 source_date_epoch = 1790115008
-runtime_build_sha = "76dcccf24b27c61a9434a79b3f81f065c4d3a832"
+runtime_build_sha = "336d20c53b4bba663c257bdc0271373cfc2f1864"
 
 [container]
 dockerfile = "server/iggy-compatible/Dockerfile.test"
-dockerfile_sha256 = "cc37f30000a94ab30022058cea9c99bc7a66c004d28b8f3c9a755446c17ed3bf"
+dockerfile_sha256 = "73db335563519f1eb79dc7e2101804e21215615612a07e06cc4df71f200f884e"
 platform = "linux/amd64"
 runtime_image = "docker.io/library/debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16"
 runtime_snapshot = "20260810T000000Z"

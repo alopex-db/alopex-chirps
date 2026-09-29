@@ -1,12 +1,14 @@
 //! Alopex Chirps のメッシュAPI。QUICトランスポートとSWIMゴシップをまとめて起動し、送信・ブロードキャスト・イベント購読を提供する。
 
 pub mod backend;
+pub mod buffer;
 pub mod config;
 #[cfg(feature = "durable-iggy")]
 pub mod durable;
 pub mod error;
 #[cfg(feature = "hlc")]
 pub mod hlc;
+pub mod memory;
 pub mod mesh;
 #[cfg(feature = "multi-raft")]
 pub mod multi_raft;
@@ -18,6 +20,9 @@ pub mod snapshot;
 #[cfg(feature = "tso")]
 pub mod tso;
 
+pub use crate::buffer::{
+    BackpressureController, BackpressureLevel, BufferError, MessageBuffer, PriorityQueue,
+};
 pub use crate::config::NodeConfig;
 #[cfg(feature = "durable-verification")]
 pub use crate::durable::{AppendVerificationError, AppendVerificationObserver};
@@ -27,17 +32,22 @@ pub use crate::durable::{
     DurableCapacityConfig, DurableCapacityLimit, DurableCapacityUsage, DurableCheckpointConfig,
     DurableClockReading, DurableClockSource, DurableClockTrust, DurableCompactionOutcome,
     DurableConfig, DurableCredential, DurableCredentialProvider, DurableCredentialProviderError,
-    DurableDeliveryClock, DurableExtensionConfig, DurableHandle, DurableLeaseConfig,
-    DurableLocalStateError, DurableLocalStateStatus, DurableObservabilityReport,
-    DurablePartitionProjection, DurablePoll, DurablePrepareError, DurableProfile,
-    DurableResourceConfig, DurableRoutingConfig, DurableSendError, DurableShutdownError,
-    DurableShutdownTrigger, DurableStateCategory, DurableSubscriptionError, DurableTlsConfig,
+    DurableDeliveryClock, DurableDevelopmentResourceConfig, DurableExtensionConfig, DurableHandle,
+    DurableLeaseConfig, DurableLocalStateError, DurableLocalStateStatus,
+    DurableObservabilityReport, DurablePartitionProjection, DurablePoll, DurablePrepareError,
+    DurableProfile, DurableResourceConfig, DurableRoutingConfig, DurableSendError,
+    DurableShutdownError, DurableShutdownTrigger, DurableStateCategory, DurableSubscriptionError,
+    DurableTlsConfig,
 };
 use crate::error::MeshError;
 #[cfg(feature = "hlc")]
 pub use crate::hlc::{
     Clock, HlcAdvance, HlcError, HlcMetricsSink, HlcReceiveResult, HybridTimestamp, LocalHlc,
     SystemClock,
+};
+pub use crate::memory::{
+    AllocationRatio, BlockCacheHandle, IntegratedCacheManager, MemoryComponent, MemoryConfig,
+    MemoryError, MemoryManager, MemoryStats, RaftLogCache, UnifiedMemoryMetrics, WorkloadProfile,
 };
 use crate::mesh::Mesh;
 pub use crate::mesh::MeshHandle;
@@ -49,8 +59,8 @@ pub use crate::profile::{
 pub use crate::raft::{
     ChirpsMetricsCollector, ChirpsRaftTransport, HlcMetricsUpdate, MetricsAuthError,
     MetricsEndpointAuth, MetricsError, RaftConfig, RaftError, RaftMessage, RaftMessageMetric,
-    RaftMetricsCollector, RaftMetricsUpdate, RaftNode, TsoMetricsUpdate, serve_metrics,
-    serve_metrics_authorized,
+    RaftMetricsCollector, RaftMetricsUpdate, RaftNode, SwimMetricsUpdate, TransportMetricsUpdate,
+    TsoMetricsUpdate, serve_metrics, serve_metrics_authorized,
 };
 pub use alopex_chirps_core::connectivity::{
     EndpointCandidate, EndpointResolver, EndpointSource, PeerEndpoints, StaticEndpointResolver,

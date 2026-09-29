@@ -468,16 +468,27 @@ where
                 }
             }
             for item in batch {
-                depth
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                        Some(value.saturating_sub(1))
-                    })
-                    .ok();
+                decrement_queue_depth(&depth);
                 handler(item).await;
             }
         }
     });
     sender
+}
+
+fn decrement_queue_depth(depth: &AtomicU64) {
+    let mut current = depth.load(Ordering::Relaxed);
+    while current != 0 {
+        match depth.compare_exchange_weak(
+            current,
+            current - 1,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return,
+            Err(actual) => current = actual,
+        }
+    }
 }
 
 fn frame_group_id(frame: &Frame) -> Option<u64> {
@@ -1228,6 +1239,26 @@ mod tests {
     fn bounded_group_queue_has_a_finite_payload_budget() {
         const PAYLOAD_BYTES: usize = 1024;
         assert_eq!(GROUP_QUEUE_CAPACITY * PAYLOAD_BYTES, 32 * 1024);
+    }
+
+    #[test]
+    fn queue_depth_decrement_is_saturating_and_atomic() {
+        let depth = AtomicU64::new(1_000);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let depth = &depth;
+                scope.spawn(move || {
+                    for _ in 0..200 {
+                        decrement_queue_depth(depth);
+                    }
+                });
+            }
+        });
+        assert_eq!(depth.load(Ordering::Relaxed), 200);
+        for _ in 0..201 {
+            decrement_queue_depth(&depth);
+        }
+        assert_eq!(depth.load(Ordering::Relaxed), 0);
     }
 
     #[test]

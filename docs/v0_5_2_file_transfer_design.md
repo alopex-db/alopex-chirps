@@ -53,6 +53,24 @@ not success.
    their predecessors arrive. Resume or incomplete incremental state falls
    back to hashing the completed temporary file before atomic placement.
 
+## Metrics histogram contract
+
+The File Transfer metrics contract is implemented in
+`crates/chirps-file-transfer/src/metrics.rs`. The following histograms are
+registered by `PrometheusMetrics::register` (alongside the counter and gauge
+families); they are not pending additions:
+
+- `chirps_ft_chunk_concurrency` (`chunk_concurrency`)
+- `chirps_ft_transfer_duration_seconds` (`transfer_duration`)
+- `chirps_ft_chunk_latency_seconds` (`chunk_latency`)
+- `chirps_ft_throughput_bytes_per_sec` (`throughput`)
+- `chirps_ft_phase_duration_seconds` (`phase_duration`)
+
+Any future metric change must preserve the service-owned registry boundary and
+must update the registration and exposition tests together. Registering these
+histograms a second time would return Prometheus `AlreadyReg` and can make
+service construction fail.
+
 ## Verification
 
 The integration suite covers final placement before return, stream-error and

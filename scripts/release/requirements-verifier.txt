@@ -1,0 +1,2 @@
+# Safe YAML parsing for immutable formal catalogs and refinements.
+PyYAML==6.0.2

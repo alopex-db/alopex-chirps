@@ -6,12 +6,24 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
+import os
+import subprocess
 import re
 import sys
 import tempfile
 from pathlib import Path
 from typing import Callable
+
+sys.dont_write_bytecode = True
+from v07_e2e_evidence import verify_lane
+from v07_consumer_evidence import verify_report as verify_consumer_report
+from v07_compatibility_matrix import verify as verify_compatibility
+from v07_perf_verifier import verify as verify_performance
+from v07_formal_release import verify_release_models
+from v07_environment_evidence import verify_environment
+from v07_security_evidence import verify as verify_security
 
 VERSION = "0.7.0"
 SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
@@ -388,6 +400,80 @@ def verify(evidence_path: Path, schema_path: Path) -> None:
         }
         if evidence_digests != {candidate[candidate_field]}:
             fail(f"candidate.{candidate_field} differs from {kind} evidence")
+    verify_e2e_categories(root, entries, candidate)
+    verify_model_category(root, entries, candidate)
+    verify_release_categories(root, entries, candidate, candidate_path)
+
+
+def verify_model_category(root: Path, entries: list[dict], candidate: dict) -> None:
+    """Require full160, catalog11 and both immutable refinement source trees."""
+    reports = [entry for entry in entries if entry["kind"] == "model"]
+    if len(reports) != 1 or reports[0]["id"] != "formal-models":
+        fail("model requires exactly one formal-models composite report")
+    iggy_root = os.environ.get("CHIRPS_IGGY_SOURCE_ROOT")
+    if not iggy_root:
+        fail("model requires trusted CHIRPS_IGGY_SOURCE_ROOT Git objects")
+    source_root = Path(os.environ.get("CHIRPS_SOURCE_ROOT", Path(__file__).resolve().parents[2]))
+    try:
+        verify_release_models(source_root, Path(iggy_root),
+                              safe_file(root, reports[0]["path"], "model composite"),
+                              candidate["source_commit"], candidate["iggy_commit"])
+    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        fail(f"model evidence rejected: {error}")
+
+
+def verify_release_categories(root: Path, entries: list[dict], candidate: dict, candidate_path: Path) -> None:
+    """Replay package, complete compatibility, and PERF evidence from raw results."""
+    def one(kind, identifier=None):
+        found = [entry for entry in entries if entry["kind"] == kind and (identifier is None or entry["id"] == identifier)]
+        if len(found) != 1:
+            fail(f"{kind} requires exactly one {identifier or 'complete'} semantic report")
+        return safe_file(root, found[0]["path"], kind)
+    try:
+        package = one("package")
+        report = verify_consumer_report(package.parent / "package-set.json", package, "stored-archives")
+        if report["source_commit"] != candidate["source_commit"]:
+            fail("consumer evidence source differs from candidate")
+        compatibility = one("compatibility", "compatibility-matrix")
+        source_root = Path(os.environ.get("CHIRPS_SOURCE_ROOT", Path(__file__).resolve().parents[2]))
+        verify_compatibility(source_root, compatibility, candidate["source_commit"], candidate["iggy_commit"])
+        performance = one("performance")
+        if performance.name != "paired.json" or performance.parent.name != "paired":
+            fail("performance entry must identify the replayed paired/paired.json")
+        verify_performance(candidate_path, performance.parent.parent)
+        production = [entry for entry in entries
+                      if entry["kind"] == "process" and entry["id"] != "release-bundle"]
+        if len(production) != 1:
+            fail("environment binding requires exactly one production lane")
+        production_path = safe_file(root, production[0]["path"], "environment production lane")
+        fault_path = one("fault")
+        verify_environment(candidate_path, one("environment"), production_path, fault_path, performance)
+        security = verify_security(source_root, one("security"), candidate["source_commit"], candidate["iggy_commit"])
+        for lane, path in (("production", production_path), ("fault", fault_path)):
+            expected = load_object(path)["targets"]["durable_diagnostics"]["sha256"]
+            if security[lane]["sha256"] != expected:
+                fail("security diagnostics differ from the complete E2E lane")
+    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        fail(f"semantic release evidence rejected: {error}")
+
+
+def verify_e2e_categories(root: Path, entries: list[dict], candidate: dict) -> None:
+    """Re-evaluate complete process/fault results, not only their pass labels."""
+    identities = []
+    for kind, lane in (("process", "production"), ("fault", "fault")):
+        # The stored release-bundle inventory is an additional process artifact;
+        # publication validates its content. It cannot stand in for E2E evidence.
+        reports = [entry for entry in entries if entry["kind"] == kind and entry["id"] != "release-bundle"]
+        if len(reports) != 1:
+            fail(f"{kind} requires exactly one complete {lane} E2E lane report")
+        path = safe_file(root, reports[0]["path"], f"{kind} lane")
+        try:
+            identities.append(verify_lane(path, lane, candidate["source_commit"], candidate["iggy_commit"]))
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            fail(f"{kind} E2E evidence rejected: {error}")
+    production, fault = identities
+    if production["source"] != fault["source"] or production["corpus"]["sha256"] != fault["corpus"]["sha256"] or production["environment"]["sha256"] != fault["environment"]["sha256"]:
+        fail("production and fault E2E lanes mix source, corpus, or environment identities")
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -399,17 +485,72 @@ def self_test(schema_path: Path) -> None:
     schema_path = schema_path.resolve()
     schema = load_object(schema_path)
     validate_schema_contract(schema)
-    with tempfile.TemporaryDirectory(prefix="chirps-v07-evidence-self-test.") as directory:
+    from unittest.mock import patch
+    # This schema/wiring self-test explicitly mocks model and security execution.
+    # Their strict modules have separate raw-protocol tests; synthetic artifacts
+    # produced here are never model or security release evidence.
+    with tempfile.TemporaryDirectory(prefix="chirps-v07-evidence-self-test.") as directory, patch.dict(os.environ), patch.dict(globals(), {"verify_release_models": lambda *args: {"synthetic_unit_mock": True}, "verify_security": lambda root, path, *args: load_object(path)}):
         root = Path(directory)
+        source_root = Path(__file__).resolve().parents[2]
+        source_commit = subprocess.check_output(["git", "-C", str(source_root), "rev-parse", "HEAD"], text=True).strip()
+        os.environ["CHIRPS_SOURCE_ROOT"] = str(source_root)
+        os.environ["CHIRPS_IGGY_SOURCE_ROOT"] = str(root / "synthetic-foreign-source")
         artifact_digests: dict[str, str] = {}
         for kind in sorted(REQUIRED_KINDS):
             path = root / "artifacts" / f"{kind}.json"
             write_json(path, {"schema": f"chirps.self-test.{kind}/v1"})
             artifact_digests[kind] = sha256_file(path)
+        fixture_spec = importlib.util.spec_from_file_location(
+            "e2e_fixtures", Path(__file__).with_name("test-v07-e2e-evidence.py")
+        )
+        fixture_module = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(fixture_module)
+        runtime_paths = {}
+        for kind, lane in (("process", "production"), ("fault", "fault")):
+            path = fixture_module.write_lane_fixture(root / "runtime" / lane, lane, source_commit, "2" * 40)
+            runtime_paths[kind] = path.relative_to(root).as_posix()
+            artifact_digests[kind] = sha256_file(path)
+        def fixture_module(name):
+            spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(f"test-v07-{name}.py"))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+        package = fixture_module("consumer-evidence").write_consumer_fixture(root / "consumer", source_commit)
+        api = fixture_module("api-evidence").write_api_fixture(root / "api", source_root, source_commit)
+        compatibility = fixture_module("compatibility-matrix").write_matrix_fixture(
+            root, source_root, source_commit, "2" * 40, api,
+            root / runtime_paths["process"], root / runtime_paths["fault"],
+        )
+        for kind in ("process", "fault"):
+            artifact_digests[kind] = sha256_file(root / runtime_paths[kind])
+        security = {"synthetic_unit_mock": True}
+        for kind, lane in (("process", "production"), ("fault", "fault")):
+            security[lane] = load_object(root / runtime_paths[kind])["targets"]["durable_diagnostics"]
+        write_json(root / "artifacts/security.json", security)
+        artifact_digests["security"] = sha256_file(root / "artifacts/security.json")
+        tool = fixture_module("perf-verifier").write_tool_fixture(root / "trusted-tool", source_commit)
+        os.environ["CHIRPS_PERF_VERIFIER"] = str(tool)
+        os.environ["CHIRPS_RELEASE_TOOLS_COMMIT"] = source_commit
+        environment_fixture = fixture_module("environment-evidence")
+        axes = environment_fixture.axes_fixture()
+        # Preserve exact raw bytes from the existing synthetic E2E collector.
+        first_lane = root / runtime_paths["process"]
+        from v07_e2e_evidence import resolve_reference, TARGETS
+        first_target = resolve_reference(first_lane.parent, load_object(first_lane)["targets"][TARGETS["production"][0]])
+        observed_environment = resolve_reference(first_target.parent, load_object(first_target)["environment"])
+        environment = environment_fixture.write_environment_fixture(
+            root / "environment", source_commit, "2" * 40, axes, observed_environment)
+        runtime_paths["environment"] = environment.relative_to(root).as_posix()
+        artifact_digests["environment"] = sha256_file(environment)
+        performance = root / "performance/paired/paired.json"
+        write_json(performance, {"synthetic_fixture": True})
+        for kind, path in (("package", package), ("compatibility", compatibility), ("performance", performance)):
+            runtime_paths[kind] = path.relative_to(root).as_posix()
+            artifact_digests[kind] = sha256_file(path)
         candidate = {
             "schema": CANDIDATE_SCHEMA,
             "release_version": VERSION,
-            "source_commit": "1" * 40,
+            "source_commit": source_commit,
             "iggy_commit": "2" * 40,
             "source_sha256": artifact_digests["source"],
             "specification_sha256": artifact_digests["specification"],
@@ -420,6 +561,7 @@ def self_test(schema_path: Path) -> None:
             "server_sha256": artifact_digests["server"],
             "package_graph_sha256": artifact_digests["package"],
             "performance": {
+                "axes": axes,
                 "self_test": True,
                 "secret_scan_sha256": "6" * 64,
                 "resource_identity": "synthetic-self-test",
@@ -428,18 +570,21 @@ def self_test(schema_path: Path) -> None:
         candidate_path = root / "candidate.json"
         write_json(candidate_path, candidate)
         candidate_sha256 = sha256_file(candidate_path)
+        environment_fixture.write_perf_identity_fixture(root / "performance", candidate_path)
+        artifact_digests["performance"] = sha256_file(performance)
         entries = [
             {
-                "id": f"self-test-{kind}",
+                "id": "formal-models" if kind == "model" else "compatibility-matrix" if kind == "compatibility" else f"self-test-{kind}",
                 "kind": kind,
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,
                 "environment_sha256": candidate["environment_sha256"],
-                "path": f"artifacts/{kind}.json",
+                "path": runtime_paths.get(kind, f"artifacts/{kind}.json"),
                 "sha256": artifact_digests[kind],
             }
             for kind in sorted(REQUIRED_KINDS)
         ]
+        entries.sort(key=lambda entry: entry["id"])
         bundle = {
             "schema": BUNDLE_SCHEMA,
             "release_version": VERSION,
@@ -631,7 +776,26 @@ def self_test(schema_path: Path) -> None:
         expect_rejected("tampered-bundle", lambda: verify(index_path, schema_path))
         bundle_path.write_bytes(original_bundle)
 
+        # Rebind all outer hashes after replacing a runtime report. This must
+        # fail on execution semantics, not on the already-tested byte binding.
+        changed_entries = copy.deepcopy(entries)
+        runtime_entry = next(entry for entry in changed_entries if entry["kind"] == "fault")
+        fake_path = root / "forged-pass.json"
+        write_json(fake_path, {"schema": "chirps.v0.7.e2e-lane/v1", "lane": "fault", "targets": {}})
+        runtime_entry.update(path=fake_path.name, sha256=sha256_file(fake_path))
+        fake_bundle = copy.deepcopy(bundle)
+        fake_bundle["artifacts"] = changed_entries
+        fake_bundle_path = root / "forged-pass-bundle.json"
+        write_json(fake_bundle_path, fake_bundle)
+        fake_index = copy.deepcopy(index)
+        fake_index["evidence"] = changed_entries
+        fake_index["bundle"] = {"path": fake_bundle_path.name, "sha256": sha256_file(fake_bundle_path)}
+        fake_index_path = root / "forged-pass-index.json"
+        write_json(fake_index_path, fake_index)
+        expect_rejected("forged-runtime-pass", lambda: verify(fake_index_path, schema_path))
+
         expected = {
+            "forged-runtime-pass",
             "canonical-path-alias",
             "missing-field",
             "missing-bundle",

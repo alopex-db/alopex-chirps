@@ -313,15 +313,27 @@ pub(crate) fn durably_install(
 }
 
 pub(crate) fn sync_directory(path: &Path) -> io::Result<()> {
-    OpenOptions::new().read(true).open(path)?.sync_all()
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        // CreateFile requires BACKUP_SEMANTICS to open a directory, and
+        // FlushFileBuffers (File::sync_all) requires GENERIC_WRITE access.
+        // Keep both open and flush errors observable by the install protocol.
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        options.write(true).custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    }
+    options.open(path)?.sync_all()
 }
 
-fn set_owner_only_permissions(file: &File) -> io::Result<()> {
+fn set_owner_only_permissions(_file: &File) -> io::Result<()> {
     #[cfg(unix)]
     {
-        let mut permissions = file.metadata()?.permissions();
+        let mut permissions = _file.metadata()?.permissions();
         permissions.set_mode(0o600);
-        file.set_permissions(permissions)?;
+        _file.set_permissions(permissions)?;
     }
     Ok(())
 }
@@ -352,9 +364,31 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::{
         InstallError, InstallFault, InstallStage, StateRecordKind, decode_state_frame,
-        durably_install, encode_state_frame,
+        durably_install, encode_state_frame, sync_directory,
     };
     use tempfile::tempdir;
+
+    #[test]
+    fn directory_sync_accepts_existing_directory_and_propagates_open_failure() {
+        let directory = tempdir().unwrap();
+        sync_directory(directory.path()).unwrap();
+        assert_eq!(
+            sync_directory(&directory.path().join("missing"))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn durable_install_replaces_existing_state_and_syncs_parent() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("state.unit");
+        durably_install(&path, b"old", InstallFault::None).unwrap();
+        durably_install(&path, b"replacement", InstallFault::None).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn v07_task_4_1_state_frame_rejects_all_truncation_corruption_and_trailing_bytes() {

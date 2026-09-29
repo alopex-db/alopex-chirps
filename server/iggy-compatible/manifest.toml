@@ -5,20 +5,20 @@ kind = "production"
 publishable = true
 filename = "iggy-server"
 output_path = "/home/roomtv/works/alopex-db/release-artifacts/chirps-v0.7.0/server/production/iggy-server"
-output_sha256 = "254865eb345fd2c095513e95c449d183bef9801f472f6dd50310a2d2421e297c"
+output_sha256 = "3840ead85e35a20c0c86b519c15b87edf2fe08a9dc866b4746915ed8cb312f88"
 
 [source]
 repository = "https://github.com/apache/iggy.git"
 baseline_commit = "f5350d999d883fd3ca9dd33b3dc2754ddb0df049"
-commit = "76dcccf24b27c61a9434a79b3f81f065c4d3a832"
-tree = "c63cdecf5edb11650e7db85db3f7ad168a2103f7"
-cargo_lock_sha256 = "0e4ac6717cfb6ba04894f734b8f56afc56e265925fdd805242b6e39d4d676b41"
+commit = "336d20c53b4bba663c257bdc0271373cfc2f1864"
+tree = "b2099c2dc404534429e210069990a10496d4fefd"
+cargo_lock_sha256 = "9b601087feed75db7cc6e3e5bbe185fbc1cd5ef9ea2d84dbda8b6a9deb40f6c8"
 clean_required = true
 
 [patch_series]
 path = "server/iggy-compatible/patches/series.toml"
-bundle_sha256 = "ef3a0137841b12032b081c47c80a5cfa2b168d8605082132e4c3b1cf7e42d6c0"
-complete_diff_sha256 = "f7379205b55e77f2bb0738745537057c3a4d02cda0c816bc9a0f54cca498467d"
+bundle_sha256 = "ad80f78ed10d0f80ebb9d4ab5f24bf0a5f16ebd953a0236e136833bb25abed17"
+complete_diff_sha256 = "26061da7e28f6e367133b6ea0ee4e942eb4a087a20c4335298c4e03570678c3c"
 
 [toolchain]
 channel = "1.94.0"
@@ -34,11 +34,11 @@ default_features = false
 features = ["mimalloc"]
 forbidden_features = ["chirps-test-failpoints"]
 source_date_epoch = 1790115008
-runtime_build_sha = "76dcccf24b27c61a9434a79b3f81f065c4d3a832"
+runtime_build_sha = "336d20c53b4bba663c257bdc0271373cfc2f1864"
 
 [container]
 dockerfile = "server/iggy-compatible/Dockerfile"
-dockerfile_sha256 = "d7af12e2b6909836975a0aea197dbf6682bcb57dcb81cbeea09367e9fcf4638d"
+dockerfile_sha256 = "04adcdf8441d27d97ec0074cb78ad424d0253ab48d80ac7fc76b311345bdad71"
 platform = "linux/amd64"
 runtime_image = "docker.io/library/debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16"
 runtime_snapshot = "20260810T000000Z"

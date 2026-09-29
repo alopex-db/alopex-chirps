@@ -10,12 +10,12 @@ use alopex_chirps_backend_iggy::producer::{
     DevelopmentBrokerConfigReadback, DevelopmentConnectError,
 };
 use alopex_chirps_backend_iggy::runtime::{
-    CHECKPOINT_JOURNAL_LIMIT_BYTES, DurableRuntime, RuntimeBuildError, RuntimeCapacityConfig,
-    RuntimeCapacityLimit, RuntimeClockReading, RuntimeClockSource, RuntimeClockTrust,
-    RuntimeCompactionResult, RuntimeLocalStateError, RuntimeLocalStateStatus, RuntimePrepareError,
-    RuntimeSendError, RuntimeShutdownError, RuntimeShutdownTrigger, RuntimeStateCategory,
-    RuntimeSubscriptionError, SessionConnectConfig, SessionConnectionInput, SessionCredentialInput,
-    SessionProfileInput, SessionProjectionInput,
+    CHECKPOINT_JOURNAL_LIMIT_BYTES, DevelopmentSessionConnectionInput, DurableRuntime,
+    RuntimeBuildError, RuntimeCapacityConfig, RuntimeCapacityLimit, RuntimeClockReading,
+    RuntimeClockSource, RuntimeClockTrust, RuntimeCompactionResult, RuntimeLocalStateError,
+    RuntimeLocalStateStatus, RuntimePrepareError, RuntimeSendError, RuntimeShutdownError,
+    RuntimeShutdownTrigger, RuntimeStateCategory, RuntimeSubscriptionError, SessionConnectConfig,
+    SessionConnectionInput, SessionCredentialInput, SessionProfileInput, SessionProjectionInput,
 };
 use alopex_chirps_backend_iggy::session::SessionError;
 use alopex_chirps_backend_iggy::subscriber::{DeliveryClock, NextDelivery};
@@ -223,9 +223,9 @@ pub struct DurableConfig {
     credential_reference: String,
     profile: DurableProfile,
     routing: DurableRoutingConfig,
-    resource: DurableResourceConfig,
+    resource: DurableResourceBinding,
     checkpoint: DurableCheckpointConfig,
-    lease: DurableLeaseConfig,
+    lease: Option<DurableLeaseConfig>,
     extension: DurableExtensionConfig,
 }
 
@@ -250,10 +250,39 @@ impl DurableConfig {
             credential_reference,
             profile,
             routing,
-            resource,
+            resource: DurableResourceBinding::Compatible(resource),
             checkpoint,
-            lease,
+            lease: Some(lease),
             extension,
+        }
+    }
+    /// Configures official broker acceptance from actual startup bytes and
+    /// numeric resource coordinates. No compatible capability or lease is claimed.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn broker_accepted(
+        endpoint: SocketAddr,
+        tls: DurableTlsConfig,
+        credential_reference: String,
+        broker_startup_config: Vec<u8>,
+        routing: DurableRoutingConfig,
+        resource: DurableDevelopmentResourceConfig,
+        checkpoint: DurableCheckpointConfig,
+        max_frame_len: usize,
+    ) -> Self {
+        Self {
+            endpoint,
+            tls,
+            credential_reference,
+            profile: DurableProfile::broker_accepted(broker_startup_config),
+            routing,
+            resource: DurableResourceBinding::Development(resource),
+            checkpoint,
+            lease: None,
+            extension: DurableExtensionConfig {
+                required: false,
+                max_frame_len,
+            },
         }
     }
 }
@@ -339,6 +368,45 @@ impl DurableResourceConfig {
             stream_id,
             topic_id,
             partitions,
+        }
+    }
+}
+
+/// Official development resource coordinates, verified through standard
+/// authenticated topic readback. These are not a strong capability projection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DurableDevelopmentResourceConfig {
+    stream_id: u32,
+    topic_id: u32,
+    partitions: Vec<u32>,
+}
+
+impl DurableDevelopmentResourceConfig {
+    #[must_use]
+    pub fn new(stream_id: u32, topic_id: u32, partitions: Vec<u32>) -> Self {
+        Self {
+            stream_id,
+            topic_id,
+            partitions,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum DurableResourceBinding {
+    Compatible(DurableResourceConfig),
+    Development(DurableDevelopmentResourceConfig),
+}
+
+impl DurableResourceBinding {
+    fn partition_ids(&self) -> Vec<u32> {
+        match self {
+            Self::Compatible(resource) => resource
+                .partitions
+                .iter()
+                .map(|partition| partition.partition_id)
+                .collect(),
+            Self::Development(resource) => resource.partitions.clone(),
         }
     }
 }
@@ -565,8 +633,8 @@ impl DurableBuilder {
         })
     }
 
-    /// Connects, authenticates, capability-binds, and starts lease renewal for
-    /// one configured connection per explicit partition.
+    /// Connects and authenticates one session per explicit partition. Strong
+    /// profiles additionally bind capabilities and start lease renewal.
     pub async fn connect<P>(
         self,
         config: DurableConfig,
@@ -585,19 +653,27 @@ impl DurableBuilder {
             DevelopmentBrokerConfigReadback::verify_actual_startup_config(broker_startup_config)
                 .map_err(|_| DurableBuildError::BackendConfiguration)?;
         }
+        let partition_ids = config.resource.partition_ids();
+        if matches!(config.profile, DurableProfile::OsSyncedAccepted) {
+            let lease = config
+                .lease
+                .ok_or(DurableBuildError::BackendConfiguration)?;
+            if !config.extension.required
+                || lease.lease_millis == 0
+                || lease.renew_interval.is_zero()
+                || lease.renew_interval >= Duration::from_millis(u64::from(lease.lease_millis))
+            {
+                return Err(DurableBuildError::BackendConfiguration);
+            }
+        }
         if partitions == 0
-            || !config.extension.required
-            || config.resource.partitions.len() != partitions as usize
+            || partition_ids.len() != partitions as usize
             || config.checkpoint.lifecycle_generation == 0
             || config.checkpoint.max_journal_bytes != CHECKPOINT_JOURNAL_LIMIT_BYTES
             || config.checkpoint.root.as_os_str().is_empty()
             || config.credential_reference.is_empty()
             || config.tls.server_name.is_empty()
             || config.tls.trusted_roots_der.is_empty()
-            || config.lease.lease_millis == 0
-            || config.lease.renew_interval.is_zero()
-            || config.lease.renew_interval
-                >= Duration::from_millis(u64::from(config.lease.lease_millis))
             || config.extension.max_frame_len < 8
         {
             return Err(DurableBuildError::BackendConfiguration);
@@ -608,8 +684,8 @@ impl DurableBuilder {
             return Err(DurableBuildError::BackendConfiguration);
         }
         let mut seen = vec![false; partitions as usize];
-        for projection in &config.resource.partitions {
-            let Some(slot) = seen.get_mut(projection.partition_id as usize) else {
+        for &partition in &partition_ids {
+            let Some(slot) = seen.get_mut(partition as usize) else {
                 return Err(DurableBuildError::BackendConfiguration);
             };
             if *slot {
@@ -621,42 +697,75 @@ impl DurableBuilder {
         capacity
             .validate()
             .map_err(DurableBuildError::from_runtime)?;
-        let mut connections = Vec::with_capacity(config.resource.partitions.len());
-        for projection in &config.resource.partitions {
-            connections.push(
-                SessionConnectConfig::from_neutral(SessionConnectionInput {
-                    address: config.endpoint,
-                    tls_server_name: config.tls.server_name.clone(),
-                    trusted_roots_der: config.tls.trusted_roots_der.clone(),
-                    max_frame_len: config.extension.max_frame_len,
-                    credential: None,
-                    profile: match &config.profile {
-                        DurableProfile::OsSyncedAccepted => SessionProfileInput::OsSyncedAccepted,
-                        DurableProfile::BrokerAccepted {
-                            broker_startup_config,
-                        } => SessionProfileInput::BrokerAccepted {
+        let mut connections = Vec::with_capacity(partition_ids.len());
+        match &config.resource {
+            DurableResourceBinding::Compatible(resource) => {
+                let lease = config
+                    .lease
+                    .ok_or(DurableBuildError::BackendConfiguration)?;
+                for projection in &resource.partitions {
+                    connections.push(
+                        SessionConnectConfig::from_neutral(SessionConnectionInput {
+                            address: config.endpoint,
+                            tls_server_name: config.tls.server_name.clone(),
+                            trusted_roots_der: config.tls.trusted_roots_der.clone(),
+                            max_frame_len: config.extension.max_frame_len,
+                            credential: None,
+                            profile: match &config.profile {
+                                DurableProfile::OsSyncedAccepted => {
+                                    SessionProfileInput::OsSyncedAccepted
+                                }
+                                DurableProfile::BrokerAccepted {
+                                    broker_startup_config,
+                                } => SessionProfileInput::BrokerAccepted {
+                                    broker_startup_config: broker_startup_config.clone(),
+                                },
+                            },
+                            projection: SessionProjectionInput {
+                                build_sha: projection.build_sha,
+                                resource_id: projection.resource_id,
+                                resource_epoch: projection.resource_epoch,
+                                stream_id: resource.stream_id,
+                                topic_id: resource.topic_id,
+                                partition_id: projection.partition_id,
+                                retention_bytes: projection.retention_bytes,
+                                retention_messages: projection.retention_messages,
+                                checksum_enabled: projection.checksum_enabled,
+                                configuration_digest: projection.configuration_digest,
+                                security_digest: projection.security_digest,
+                                capability_digest: projection.capability_digest,
+                                lease_millis: lease.lease_millis,
+                            },
+                            renew_interval: lease.renew_interval,
+                        })
+                        .map_err(DurableBuildError::from_runtime)?,
+                    );
+                }
+            }
+            DurableResourceBinding::Development(resource) => {
+                let DurableProfile::BrokerAccepted {
+                    broker_startup_config,
+                } = &config.profile
+                else {
+                    return Err(DurableBuildError::BackendConfiguration);
+                };
+                for &partition_id in &resource.partitions {
+                    connections.push(
+                        SessionConnectConfig::from_development(DevelopmentSessionConnectionInput {
+                            address: config.endpoint,
+                            tls_server_name: config.tls.server_name.clone(),
+                            trusted_roots_der: config.tls.trusted_roots_der.clone(),
+                            max_frame_len: config.extension.max_frame_len,
+                            credential: None,
                             broker_startup_config: broker_startup_config.clone(),
-                        },
-                    },
-                    projection: SessionProjectionInput {
-                        build_sha: projection.build_sha,
-                        resource_id: projection.resource_id,
-                        resource_epoch: projection.resource_epoch,
-                        stream_id: config.resource.stream_id,
-                        topic_id: config.resource.topic_id,
-                        partition_id: projection.partition_id,
-                        retention_bytes: projection.retention_bytes,
-                        retention_messages: projection.retention_messages,
-                        checksum_enabled: projection.checksum_enabled,
-                        configuration_digest: projection.configuration_digest,
-                        security_digest: projection.security_digest,
-                        capability_digest: projection.capability_digest,
-                        lease_millis: config.lease.lease_millis,
-                    },
-                    renew_interval: config.lease.renew_interval,
-                })
-                .map_err(DurableBuildError::from_runtime)?,
-            );
+                            stream_id: resource.stream_id,
+                            topic_id: resource.topic_id,
+                            partition_id,
+                        })
+                        .map_err(DurableBuildError::from_runtime)?,
+                    );
+                }
+            }
         }
         let credential = credentials
             .resolve(&config.credential_reference)

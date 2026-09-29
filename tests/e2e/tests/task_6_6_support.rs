@@ -101,6 +101,8 @@ pub fn subscription_directory(root: &Path, subscription_id: SubscriptionId) -> P
     root.join(hex(subscription_id.as_bytes()))
 }
 
+// Keep every independently bound corpus/creation axis explicit in this test fixture.
+#[allow(clippy::too_many_arguments)]
 pub fn materialization<'a>(
     requirements: &'a Path,
     design: &'a Path,

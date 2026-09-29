@@ -10,11 +10,14 @@ use futures::{StreamExt, TryStreamExt, stream};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::time::timeout;
 
 pub const DEFAULT_CHUNK_THRESHOLD: usize = 10 * 1024 * 1024;
 pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024;
 pub const DEFAULT_MAX_CONCURRENT_CHUNKS: usize = 4;
 pub const DEFAULT_MAX_RETRIES: usize = 3;
+pub const DEFAULT_TRANSFER_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotTransferConfig {
@@ -51,6 +54,32 @@ impl SnapshotTransferConfig {
         if self.max_concurrent_chunks == 0 {
             return Err(SnapshotTransferError::InvalidConfig(
                 "max_concurrent_chunks must be greater than zero".into(),
+            ));
+        }
+        Ok(self)
+    }
+}
+
+/// Additive transfer deadline controls; legacy configuration literals stay valid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotTransferOptions {
+    /// Maximum wall-clock time for the complete transfer, including retries.
+    pub transfer_timeout: Duration,
+}
+
+impl Default for SnapshotTransferOptions {
+    fn default() -> Self {
+        Self {
+            transfer_timeout: DEFAULT_TRANSFER_TIMEOUT,
+        }
+    }
+}
+
+impl SnapshotTransferOptions {
+    pub fn validate(self) -> Result<Self, SnapshotTransferError> {
+        if self.transfer_timeout.is_zero() {
+            return Err(SnapshotTransferError::InvalidConfig(
+                "transfer_timeout must be greater than zero".into(),
             ));
         }
         Ok(self)
@@ -200,6 +229,15 @@ pub enum SnapshotTransferError {
     Terminal(String),
 }
 
+/// Detailed result for callers opting into explicit transfer deadline reporting.
+#[derive(Debug, thiserror::Error)]
+pub enum SnapshotTransferFailure {
+    #[error(transparent)]
+    Transfer(#[from] SnapshotTransferError),
+    #[error("snapshot transfer timed out")]
+    Timeout,
+}
+
 impl SnapshotTransferError {
     pub fn retryable(message: impl Into<String>) -> Self {
         Self::Retryable(message.into())
@@ -227,6 +265,7 @@ pub trait SnapshotChunkSink: Send + Sync + 'static {
 
 pub struct SnapshotSender {
     config: SnapshotTransferConfig,
+    options: SnapshotTransferOptions,
     observer: Arc<dyn SnapshotProgressObserver>,
 }
 
@@ -244,8 +283,18 @@ impl SnapshotSender {
         config: SnapshotTransferConfig,
         observer: Arc<dyn SnapshotProgressObserver>,
     ) -> Result<Self, SnapshotTransferError> {
+        Self::with_options(config, observer, SnapshotTransferOptions::default())
+    }
+
+    /// Creates a sender with an explicit, non-zero total transfer deadline.
+    pub fn with_options(
+        config: SnapshotTransferConfig,
+        observer: Arc<dyn SnapshotProgressObserver>,
+        options: SnapshotTransferOptions,
+    ) -> Result<Self, SnapshotTransferError> {
         Ok(Self {
             config: config.validate()?,
+            options: options.validate()?,
             observer,
         })
     }
@@ -256,7 +305,42 @@ impl SnapshotSender {
         bytes: Vec<u8>,
         sink: Arc<S>,
     ) -> Result<SnapshotTransferReceipt, SnapshotTransferError> {
+        self.transfer_detailed(snapshot_id, bytes, sink).await.map_err(|error| match error {
+            SnapshotTransferFailure::Transfer(error) => error,
+            SnapshotTransferFailure::Timeout => SnapshotTransferError::Terminal(
+                "snapshot transfer timed out; retry the complete transfer with a suitable deadline".into()
+            ),
+        })
+    }
+
+    /// Transfers with a distinct timeout result without extending the legacy error enum.
+    pub async fn transfer_detailed<S: SnapshotChunkSink>(
+        &self,
+        snapshot_id: impl Into<String>,
+        bytes: Vec<u8>,
+        sink: Arc<S>,
+    ) -> Result<SnapshotTransferReceipt, SnapshotTransferFailure> {
         let snapshot_id = snapshot_id.into();
+        match timeout(
+            self.options.transfer_timeout,
+            self.transfer_inner(snapshot_id.clone(), bytes, Arc::clone(&sink)),
+        )
+        .await
+        {
+            Ok(result) => result.map_err(SnapshotTransferFailure::Transfer),
+            Err(_) => {
+                sink.abort(&snapshot_id).await;
+                Err(SnapshotTransferFailure::Timeout)
+            }
+        }
+    }
+
+    async fn transfer_inner<S: SnapshotChunkSink>(
+        &self,
+        snapshot_id: String,
+        bytes: Vec<u8>,
+        sink: Arc<S>,
+    ) -> Result<SnapshotTransferReceipt, SnapshotTransferError> {
         let chunk_size = if bytes.len() > self.config.chunk_threshold {
             self.config.chunk_size
         } else {

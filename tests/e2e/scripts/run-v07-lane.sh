@@ -8,26 +8,47 @@ if ! command -v rtk >/dev/null 2>&1; then
     }
 fi
 
-readonly EXPECTED_SOURCE_COMMIT="76dcccf24b27c61a9434a79b3f81f065c4d3a832"
-readonly EXPECTED_SOURCE_TREE="c63cdecf5edb11650e7db85db3f7ad168a2103f7"
-readonly EXPECTED_PRODUCTION_MANIFEST_SHA256="a18d6fb6bf0a0d3662176dcd0fde91f0e49989c53bc6cffffd21d60a19958ca0"
-readonly EXPECTED_FAULT_MANIFEST_SHA256="1efa54339d9a07372419bc908885a1872456941d589ccecccda4baa65e87c7e1"
+readonly EXPECTED_SOURCE_COMMIT="336d20c53b4bba663c257bdc0271373cfc2f1864"
+readonly EXPECTED_SOURCE_TREE="b2099c2dc404534429e210069990a10496d4fefd"
+readonly EXPECTED_PRODUCTION_MANIFEST_SHA256="e53254d6c055e12105103796b08aefe8c5e261cc495ce04f2e597ee4942b9f27"
+readonly EXPECTED_FAULT_MANIFEST_SHA256="5a6930ec029c9d99b8568a6e4c7588cba26c99a3ea093ed088191567712c4634"
 readonly EXPECTED_PRODUCTION_OUTPUT="/home/roomtv/works/alopex-db/release-artifacts/chirps-v0.7.0/server/production/iggy-server"
-readonly EXPECTED_PRODUCTION_SHA256="254865eb345fd2c095513e95c449d183bef9801f472f6dd50310a2d2421e297c"
+readonly EXPECTED_PRODUCTION_SHA256="3840ead85e35a20c0c86b519c15b87edf2fe08a9dc866b4746915ed8cb312f88"
 readonly EXPECTED_FAULT_OUTPUT="/home/roomtv/works/alopex-db/release-artifacts/chirps-v0.7.0/server/test/iggy-server"
-readonly EXPECTED_FAULT_SHA256="2daa29a71b9d7ba4555ad84f2273c0f269744efe6091dd0dc8aa2fa647fb31b4"
+readonly EXPECTED_FAULT_SHA256="b2a4b7bbe7423269aaf972a5824936c12da5805696af590de720931d0ccb79b5"
 readonly e2e_run_token="chirps-v07-e2e-${BASHPID}-${RANDOM}"
 
 usage() {
-    rtk echo "usage: $0 --lane production|fault (--target NAME|--materialized-all|--strict-all)" >&2
+    rtk echo "usage: $0 --lane production|fault (--target NAME|--materialized-all|--strict-all|--perf-fixture-dir DIR) [--evidence-dir DIR] [--fixture-lifetime-seconds N]" >&2
     exit 64
 }
 
 lane=""
 mode=""
 selected_target=""
+evidence_dir=""
+fixture_dir=""
+fixture_lifetime="7200"
 while (($#)); do
     case "$1" in
+        --perf-fixture-dir)
+            (($# >= 2)) || usage
+            [[ -z "$mode" ]] || usage
+            mode="perf-fixture"
+            fixture_dir="$2"
+            shift 2
+            ;;
+        --fixture-lifetime-seconds)
+            (($# >= 2)) || usage
+            fixture_lifetime="$2"
+            shift 2
+            ;;
+        --evidence-dir)
+            (($# >= 2)) || usage
+            [[ -z "$evidence_dir" ]] || usage
+            evidence_dir="$2"
+            shift 2
+            ;;
         --lane)
             (($# >= 2)) || usage
             lane="$2"
@@ -55,6 +76,13 @@ while (($#)); do
 done
 [[ "$lane" == "production" || "$lane" == "fault" ]] || usage
 [[ -n "$mode" ]] || usage
+if [[ "$mode" == "perf-fixture" ]]; then
+    [[ "$lane" == "production" && -z "$evidence_dir" ]] || usage
+    [[ "$fixture_lifetime" =~ ^[1-9][0-9]{0,3}$ ]] || usage
+    ((fixture_lifetime <= 7200)) || usage
+elif [[ "$fixture_lifetime" != "7200" ]]; then
+    usage
+fi
 
 readonly script_dir="$(cd "$(rtk dirname "${BASH_SOURCE[0]}")" && rtk pwd)"
 readonly repository_root="$(cd "${script_dir}/../../.." && rtk pwd)"
@@ -62,6 +90,10 @@ readonly e2e_root="${repository_root}/tests/e2e"
 readonly production_manifest="${repository_root}/server/iggy-compatible/manifest.toml"
 readonly fault_manifest="${repository_root}/server/iggy-compatible/test-manifest.toml"
 cd "${repository_root}"
+# Validate source reachability before requesting artifact/corpus inputs.
+selection="$(rtk python3 "${repository_root}/scripts/release/v07_public_structure.py" \
+    --source-root "$repository_root" --lane "$lane" --mode "$mode" --target "$selected_target")"
+mapfile -t targets <<< "$selection"
 : "${CHIRPS_SERVER_MANIFEST:?CHIRPS_SERVER_MANIFEST is required}"
 : "${CHIRPS_ARTIFACT_KIND:?CHIRPS_ARTIFACT_KIND is required}"
 : "${CHIRPS_REQUIRE_OUTPUT_DIGEST:?CHIRPS_REQUIRE_OUTPUT_DIGEST is required}"
@@ -214,88 +246,6 @@ export CHIRPS_SERVER_SOURCE_COMMIT="${verified[2]}"
 export CHIRPS_SERVER_SOURCE_TREE="${verified[3]}"
 export CHIRPS_E2E_LANE="${lane}"
 
-readonly -a production_targets=(
-    durable_session durable_send durable_shutdown durable_creation durable_checkpoint
-    durable_poll durable_delivery durable_compaction durable_diagnostics durable_observability
-)
-readonly -a fault_targets=(
-    durable_session durable_send durable_diagnostics durable_metadata_recovery
-)
-readonly -a production_companions=(
-    durable_server_faults durable_retention_window durable_owner durable_checkpoint_recovery
-    durable_retention durable_redelivery durable_capacity durable_bootstrap_security
-)
-readonly -a fault_companions=(durable_server_faults)
-
-if [[ "$lane" == "production" ]]; then
-    targets=("${production_targets[@]}")
-    companions=("${production_companions[@]}")
-else
-    targets=("${fault_targets[@]}")
-    companions=("${fault_companions[@]}")
-fi
-
-contains() {
-    local needle="$1"
-    shift
-    local value
-    for value in "$@"; do
-        [[ "$value" == "$needle" ]] && return 0
-    done
-    return 1
-}
-
-declared_test() {
-    rtk python3 - "${e2e_root}/Cargo.toml" "$1" <<'PY'
-import pathlib
-import sys
-import tomllib
-with open(sys.argv[1], "rb") as handle:
-    manifest = tomllib.load(handle)
-name = sys.argv[2]
-expected = f"tests/{name}.rs"
-raise SystemExit(0 if any(item.get("name") == name and item.get("path") == expected for item in manifest.get("test", [])) else 1)
-PY
-}
-
-validate_source_reachability() {
-    local source stem owner
-    shopt -s nullglob
-    for source in "${e2e_root}"/tests/durable_*.rs; do
-        stem="$(rtk basename "${source}" .rs)"
-        if ! contains "$stem" "${production_targets[@]}" "${production_companions[@]}" "${fault_targets[@]}" "${fault_companions[@]}"; then
-            rtk echo "unreachable v0.7 E2E source: ${source}" >&2
-            return 1
-        fi
-        if contains "$stem" "${production_companions[@]}" "${fault_companions[@]}"; then
-            case "$stem" in
-                durable_server_faults) owner="durable_send" ;;
-                durable_retention_window) owner="durable_shutdown" ;;
-                durable_owner) owner="durable_creation" ;;
-                durable_checkpoint_recovery) owner="durable_checkpoint" ;;
-                durable_retention) owner="durable_poll" ;;
-                durable_poll_concurrency) owner="durable_poll" ;;
-                durable_replay) owner="durable_delivery" ;;
-                durable_redelivery) owner="durable_delivery" ;;
-                durable_recreation) owner="durable_compaction" ;;
-                durable_capacity) owner="durable_compaction" ;;
-                durable_bootstrap_security) owner="durable_diagnostics" ;;
-                durable_diagnostic_faults) owner="durable_diagnostics" ;;
-                durable_metadata_corruption) owner="durable_metadata_recovery" ;;
-                *) return 1 ;;
-            esac
-            [[ -f "${e2e_root}/tests/${owner}.rs" ]] || {
-                rtk echo "companion ${stem} has no materialized primary ${owner}" >&2
-                return 1
-            }
-            rtk grep -Eq "^[[:space:]]*(pub[[:space:]]+)?mod[[:space:]]+${stem}[[:space:]]*;[[:space:]]*$" "${e2e_root}/tests/${owner}.rs" || {
-                rtk echo "companion ${stem} is not imported by ${owner}" >&2
-                return 1
-            }
-        fi
-    done
-}
-
 owned_server_pids() {
     local environment pid
     shopt -s nullglob
@@ -331,24 +281,22 @@ trap cleanup_owned_servers EXIT
 
 run_target() {
     local target="$1"
-    contains "$target" "${targets[@]}" || {
-        rtk echo "target ${target} is unknown or belongs to the other lane" >&2
-        return 1
-    }
-    [[ -f "${e2e_root}/tests/${target}.rs" ]] || {
-        rtk echo "target source is not materialized: ${target}" >&2
-        return 1
-    }
-    declared_test "$target" || {
-        rtk echo "target is not explicitly declared in Cargo.toml: ${target}" >&2
-        return 1
-    }
-    CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk cargo test --locked --manifest-path "${repository_root}/Cargo.toml" \
-        -p chirps-e2e --test "$target" -- --ignored --nocapture --test-threads=1
+    if [[ -n "$evidence_dir" ]]; then
+        CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk proxy python3 \
+            "${repository_root}/scripts/release/v07_e2e_evidence.py" \
+            --repo-root "$repository_root" --output "$evidence_dir" --lane "$lane" --target "$target"
+    else
+        CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk cargo test --locked --manifest-path "${repository_root}/Cargo.toml" \
+            -p chirps-e2e --test "$target" -- --ignored --nocapture --test-threads=1
+    fi
 }
 
-validate_source_reachability
 case "$mode" in
+    perf-fixture)
+        CHIRPS_E2E_RUN_TOKEN="${e2e_run_token}" rtk cargo run --locked \
+            --manifest-path "${repository_root}/Cargo.toml" -p chirps-e2e \
+            --example durable_perf_fixture -- "$fixture_dir" "$fixture_lifetime"
+        ;;
     target)
         run_target "$selected_target"
         ;;
@@ -366,23 +314,11 @@ case "$mode" in
         ;;
     strict)
         for target in "${targets[@]}"; do
-            [[ -f "${e2e_root}/tests/${target}.rs" ]] || {
-                rtk echo "strict lane is missing primary target: ${target}" >&2
-                exit 1
-            }
-            declared_test "$target" || {
-                rtk echo "strict lane has an undeclared primary target: ${target}" >&2
-                exit 1
-            }
-        done
-        for companion in "${companions[@]}"; do
-            [[ -f "${e2e_root}/tests/${companion}.rs" ]] || {
-                rtk echo "strict lane is missing companion source: ${companion}" >&2
-                exit 1
-            }
-        done
-        for target in "${targets[@]}"; do
             run_target "$target"
         done
+        if [[ -n "$evidence_dir" ]]; then
+            rtk proxy python3 "${repository_root}/scripts/release/v07_e2e_evidence.py" \
+                --repo-root "$repository_root" --output "$evidence_dir" --lane "$lane" --seal-lane
+        fi
         ;;
 esac

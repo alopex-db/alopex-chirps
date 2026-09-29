@@ -29,6 +29,62 @@ fn vote_payload(group_id: GroupId, correlation_id: u64) -> RaftFramePayload {
     }
 }
 
+#[tokio::test]
+async fn multi_node_raft_frame_is_routed_without_manual_node_registration() {
+    let root = tempfile::tempdir().unwrap();
+    let network = MockNetwork::new();
+    let local_wire_id = wire_node_id(1);
+    let peer_wire_id = NodeId::new();
+    let backend = network
+        .add_node(local_wire_id, MockBackend::ephemeral_addr())
+        .await;
+    let peer_backend = network
+        .add_node(peer_wire_id, MockBackend::ephemeral_addr())
+        .await;
+    let mut local_rx = backend.subscribe().await.unwrap();
+    let mut peer_rx = peer_backend.subscribe().await.unwrap();
+    let backend: Arc<dyn MessageBackend> = Arc::new(backend);
+    let transport = Arc::new(ChirpsRaftTransport::new(backend, GroupId(41), 1));
+    let factory = Arc::new(WalRaftStorageFactory::new(
+        WalStorageConfig {
+            wal_dir: root.path().join("wal"),
+            snapshot_dir: root.path().join("snapshot"),
+            ..WalStorageConfig::default()
+        },
+        1,
+    ));
+    let manager = MultiRaftManager::new(transport, factory, RaftConfig::default());
+    manager
+        .create_group(GroupId(41), BTreeSet::from([1]), EchoStateMachine)
+        .await
+        .unwrap();
+
+    let frame = ChirpsRaftTransport::encode_group_frame(vote_payload(GroupId(41), 7)).unwrap();
+    peer_backend.send(local_wire_id, frame).await.unwrap();
+    let (source, received_frame) =
+        tokio::time::timeout(std::time::Duration::from_secs(1), local_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+    let response = manager
+        .dispatch_frame(source, local_wire_id, received_frame)
+        .await
+        .expect("peer Raft frame must be routed to the local group")
+        .expect("vote request must produce a response");
+    assert_eq!(response.destination, 2);
+    manager
+        .send_routed_response(response)
+        .await
+        .expect("response must use the learned peer NodeId route");
+    let (_, response_frame) =
+        tokio::time::timeout(std::time::Duration::from_secs(1), peer_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(ChirpsRaftTransport::decode_frame(response_frame).is_some());
+    manager.shutdown_all().await.unwrap();
+}
+
 #[derive(Default)]
 struct EchoStateMachine;
 

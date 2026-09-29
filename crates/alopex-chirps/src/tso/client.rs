@@ -1,7 +1,16 @@
 use super::{HybridTimestamp, TimestampRange, TsoError, TsoRequest};
+use crate::mesh::MeshHandle;
+use alopex_chirps_wire::frame::{Frame, UserMessage};
+use alopex_chirps_wire::node_id::NodeId;
 use async_trait::async_trait;
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{
+    Arc, Mutex, RwLock,
+    atomic::{AtomicU64, Ordering},
+};
 use std::time::Duration;
+use tokio::sync::oneshot;
+use tokio::time;
 
 #[async_trait]
 pub trait TsoTransport: Send + Sync + 'static {
@@ -12,6 +21,223 @@ pub trait TsoTransport: Send + Sync + 'static {
     ) -> Result<TimestampRange, TsoError>;
 
     async fn discover_leader(&self) -> Result<u64, TsoError>;
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) enum TsoFrame {
+    Request {
+        correlation_id: u64,
+        request: TsoRequest,
+    },
+    DiscoverLeader {
+        correlation_id: u64,
+        requester: u64,
+        credential: Vec<u8>,
+    },
+    TimestampResponse {
+        correlation_id: u64,
+        response: Result<TimestampRange, TsoError>,
+    },
+    LeaderResponse {
+        correlation_id: u64,
+        response: Result<u64, TsoError>,
+    },
+}
+
+struct PendingResponse(oneshot::Sender<Result<TsoFrame, TsoError>>);
+
+/// Production TSO client transport backed by the QUIC/Frame mesh.
+pub struct ChirpsTsoTransport {
+    mesh: MeshHandle,
+    requester: u64,
+    credential: Vec<u8>,
+    next_correlation: AtomicU64,
+    pending: Arc<Mutex<std::collections::HashMap<u64, PendingResponse>>>,
+    peers: RwLock<std::collections::HashMap<u64, NodeId>>,
+    discovery_target: Mutex<Option<u64>>,
+}
+
+impl ChirpsTsoTransport {
+    pub async fn new(
+        mesh: MeshHandle,
+        requester: u64,
+        credential: Vec<u8>,
+    ) -> Result<Arc<Self>, TsoError> {
+        let mut receiver = mesh
+            .subscribe()
+            .await
+            .map_err(|error| TsoError::Transport(error.to_string()))?;
+        let pending = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let transport = Arc::new(Self {
+            mesh,
+            requester,
+            credential,
+            next_correlation: AtomicU64::new(1),
+            pending: Arc::clone(&pending),
+            peers: RwLock::new(std::collections::HashMap::new()),
+            discovery_target: Mutex::new(None),
+        });
+        tokio::spawn(async move {
+            while let Some((_from, Frame::User(UserMessage { payload }))) = receiver.recv().await {
+                let Ok(message) = bincode::deserialize::<TsoFrame>(&payload) else {
+                    continue;
+                };
+                let correlation_id = match &message {
+                    TsoFrame::TimestampResponse { correlation_id, .. }
+                    | TsoFrame::LeaderResponse { correlation_id, .. } => *correlation_id,
+                    _ => continue,
+                };
+                let pending = pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&correlation_id);
+                match (pending, message) {
+                    (
+                        Some(PendingResponse(sender)),
+                        response @ TsoFrame::TimestampResponse { .. },
+                    )
+                    | (Some(PendingResponse(sender)), response @ TsoFrame::LeaderResponse { .. }) =>
+                    {
+                        let _ = sender.send(Ok(response));
+                    }
+                    _ => {}
+                }
+            }
+        });
+        Ok(transport)
+    }
+
+    pub fn register_node_id(&self, tso_node_id: u64, wire_node_id: NodeId) {
+        self.peers
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(tso_node_id, wire_node_id);
+    }
+
+    pub fn set_discovery_target(&self, tso_node_id: u64) {
+        *self
+            .discovery_target
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(tso_node_id);
+    }
+
+    async fn request(&self, target: u64, message: TsoFrame) -> Result<TsoFrame, TsoError> {
+        let correlation_id = match &message {
+            TsoFrame::Request { correlation_id, .. }
+            | TsoFrame::DiscoverLeader { correlation_id, .. } => *correlation_id,
+            _ => return Err(TsoError::Codec("invalid outbound TSO frame".into())),
+        };
+        let (pending, response) = match message {
+            TsoFrame::Request { .. } => {
+                let (sender, receiver) = oneshot::channel();
+                (PendingResponse(sender), receiver)
+            }
+            TsoFrame::DiscoverLeader { .. } => {
+                let (sender, receiver) = oneshot::channel();
+                (PendingResponse(sender), receiver)
+            }
+            _ => unreachable!(),
+        };
+        self.pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(correlation_id, pending);
+        let payload =
+            bincode::serialize(&message).map_err(|error| TsoError::Codec(error.to_string()))?;
+        let wire_target = self
+            .peers
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&target)
+            .copied()
+            .unwrap_or_else(|| canonical_node_id(target));
+        if let Err(error) = self
+            .mesh
+            .send_to(wire_target, Frame::User(UserMessage { payload }))
+            .await
+        {
+            self.pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&correlation_id);
+            return Err(TsoError::Transport(error.to_string()));
+        }
+        match time::timeout(Duration::from_secs(10), response).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) => Err(TsoError::Transport("TSO response channel closed".into())),
+            Err(_) => {
+                self.pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&correlation_id);
+                Err(TsoError::Transport("TSO request timed out".into()))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl TsoTransport for ChirpsTsoTransport {
+    async fn get_timestamps(
+        &self,
+        target: u64,
+        request: TsoRequest,
+    ) -> Result<TimestampRange, TsoError> {
+        let correlation_id = self.next_correlation.fetch_add(1, Ordering::Relaxed);
+        let response = self
+            .request(
+                target,
+                TsoFrame::Request {
+                    correlation_id,
+                    request,
+                },
+            )
+            .await?;
+        match response {
+            TsoFrame::TimestampResponse { response, .. } => response,
+            _ => Err(TsoError::Codec("unexpected TSO timestamp response".into())),
+        }
+    }
+
+    async fn discover_leader(&self) -> Result<u64, TsoError> {
+        let correlation_id = self.next_correlation.fetch_add(1, Ordering::Relaxed);
+        let target = self
+            .discovery_target
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .or_else(|| {
+                self.peers
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .keys()
+                    .next()
+                    .copied()
+            })
+            .ok_or_else(|| TsoError::Transport("no TSO discovery target configured".into()))?;
+        let response = self
+            .request(
+                target,
+                TsoFrame::DiscoverLeader {
+                    correlation_id,
+                    requester: self.requester,
+                    credential: self.credential.clone(),
+                },
+            )
+            .await?;
+        match response {
+            TsoFrame::LeaderResponse { response, .. } => response,
+            TsoFrame::TimestampResponse { .. } => {
+                Err(TsoError::Codec("unexpected TSO leader response".into()))
+            }
+            _ => Err(TsoError::Codec("unexpected TSO leader response".into())),
+        }
+    }
+}
+
+fn canonical_node_id(id: u64) -> NodeId {
+    let mut bytes = [0; 16];
+    bytes[8..].copy_from_slice(&id.to_be_bytes());
+    NodeId::from(bytes)
 }
 
 #[async_trait]
@@ -48,6 +274,20 @@ impl Default for TsoClientConfig {
     }
 }
 
+/// Additive client cache controls, preserving the legacy configuration shape.
+#[derive(Clone, Copy, Debug)]
+pub struct TsoClientOptions {
+    pub prefetch_threshold: u32,
+}
+
+impl Default for TsoClientOptions {
+    fn default() -> Self {
+        Self {
+            prefetch_threshold: 1_000,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct CachedRange {
     range: TimestampRange,
@@ -73,7 +313,8 @@ pub struct TsoClient {
     credential: Vec<u8>,
     leader: Option<u64>,
     config: TsoClientConfig,
-    cache: Option<CachedRange>,
+    options: TsoClientOptions,
+    cache: VecDeque<CachedRange>,
     last_returned: Option<HybridTimestamp>,
 }
 
@@ -95,6 +336,26 @@ impl TsoClient {
         )
     }
 
+    /// Creates a client with explicit cache prefetch controls.
+    pub fn with_options(
+        transport: Arc<dyn TsoTransport>,
+        requester: u64,
+        credential: Vec<u8>,
+        leader: Option<u64>,
+        config: TsoClientConfig,
+        options: TsoClientOptions,
+    ) -> Result<Self, TsoError> {
+        Self::with_sleeper_and_options(
+            transport,
+            Arc::new(TokioBackoffSleeper),
+            requester,
+            credential,
+            leader,
+            config,
+            options,
+        )
+    }
+
     pub fn with_sleeper(
         transport: Arc<dyn TsoTransport>,
         sleeper: Arc<dyn BackoffSleeper>,
@@ -102,6 +363,27 @@ impl TsoClient {
         credential: Vec<u8>,
         leader: Option<u64>,
         config: TsoClientConfig,
+    ) -> Result<Self, TsoError> {
+        Self::with_sleeper_and_options(
+            transport,
+            sleeper,
+            requester,
+            credential,
+            leader,
+            config,
+            TsoClientOptions::default(),
+        )
+    }
+
+    /// Creates a client with explicit backoff and cache prefetch controls.
+    pub fn with_sleeper_and_options(
+        transport: Arc<dyn TsoTransport>,
+        sleeper: Arc<dyn BackoffSleeper>,
+        requester: u64,
+        credential: Vec<u8>,
+        leader: Option<u64>,
+        config: TsoClientConfig,
+        options: TsoClientOptions,
     ) -> Result<Self, TsoError> {
         if config.batch_size == 0 {
             return Err(TsoError::InvalidConfig(
@@ -120,7 +402,8 @@ impl TsoClient {
             credential,
             leader,
             config,
-            cache: None,
+            options,
+            cache: VecDeque::new(),
             last_returned: None,
         })
     }
@@ -145,6 +428,11 @@ impl TsoClient {
         }
         let mut values = Vec::with_capacity(count as usize);
         while values.len() < count as usize {
+            if self.cache_remaining() > 0
+                && self.cache_remaining() <= u64::from(self.options.prefetch_threshold)
+            {
+                self.refill(self.config.batch_size).await?;
+            }
             if let Some(value) = self.pop_cache()? {
                 values.push(value);
                 continue;
@@ -156,22 +444,28 @@ impl TsoClient {
     }
 
     fn pop_cache(&mut self) -> Result<Option<HybridTimestamp>, TsoError> {
-        let Some(cache) = self.cache.as_mut() else {
+        while self.cache.front().is_some_and(|cache| cache.exhausted()) {
+            self.cache.pop_front();
+        }
+        let Some(cache) = self.cache.front_mut() else {
             return Ok(None);
         };
         let Some(value) = cache.pop() else {
-            self.cache = None;
             return Ok(None);
         };
         if self.last_returned.is_some_and(|last| value <= last) {
-            self.cache = None;
+            self.cache.clear();
             return Err(TsoError::NonMonotonicResponse);
         }
         self.last_returned = Some(value);
-        if cache.exhausted() {
-            self.cache = None;
-        }
         Ok(Some(value))
+    }
+
+    fn cache_remaining(&self) -> u64 {
+        self.cache
+            .iter()
+            .map(|range| u64::from(range.range.count.saturating_sub(range.next_offset)))
+            .sum()
     }
 
     async fn refill(&mut self, count: u32) -> Result<(), TsoError> {
@@ -205,7 +499,7 @@ impl TsoClient {
                             "server returned a non-contiguous or wrong-sized range".into(),
                         ));
                     }
-                    self.cache = Some(CachedRange {
+                    self.cache.push_back(CachedRange {
                         range,
                         next_offset: 0,
                     });

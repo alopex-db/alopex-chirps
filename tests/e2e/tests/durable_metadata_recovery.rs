@@ -605,7 +605,7 @@ fn recover_resource(directory: &Path) -> Result<RecoveryTruth> {
     let digests = snapshot.map_or_else(BTreeMap::new, |value| value.digests);
     let wal = read_regular_bounded(wals.get(&generation).context("selected WAL missing")?)?;
     ensure!(wal.len() % WAL_FRAME_SIZE == 0, "truncated WAL");
-    for bytes in wal.chunks_exact(WAL_FRAME_SIZE) {
+    for bytes in wal.as_chunks::<WAL_FRAME_SIZE>().0 {
         let frame = decode_frame(bytes)?;
         ensure!(
             frame.generation == generation,

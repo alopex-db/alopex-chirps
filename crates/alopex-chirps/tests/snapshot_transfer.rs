@@ -4,7 +4,8 @@ use alopex_chirps::snapshot::{
     DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_THRESHOLD, DEFAULT_MAX_CONCURRENT_CHUNKS,
     DEFAULT_MAX_RETRIES, SnapshotChunk, SnapshotChunkSink, SnapshotManifest, SnapshotProgress,
     SnapshotProgressObserver, SnapshotReceiver, SnapshotSender, SnapshotTransferConfig,
-    SnapshotTransferError, SnapshotTransferReceipt,
+    SnapshotTransferError, SnapshotTransferFailure, SnapshotTransferOptions,
+    SnapshotTransferReceipt,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -47,6 +48,7 @@ struct HarnessSink {
     visible: AtomicBool,
     progress: Arc<ProgressLog>,
     completions: AtomicUsize,
+    aborts: AtomicUsize,
 }
 
 impl HarnessSink {
@@ -62,6 +64,7 @@ impl HarnessSink {
             visible: AtomicBool::new(false),
             progress: Arc::new(ProgressLog::default()),
             completions: AtomicUsize::new(0),
+            aborts: AtomicUsize::new(0),
         })
     }
 
@@ -119,6 +122,7 @@ impl SnapshotChunkSink for HarnessSink {
     }
 
     async fn abort(&self, _snapshot_id: &str) {
+        self.aborts.fetch_add(1, Ordering::SeqCst);
         *self.receiver.lock().await = None;
     }
 }
@@ -200,6 +204,72 @@ async fn failed_transfer_never_exposes_partial_snapshot() {
     assert!(!sink.durable.load(Ordering::SeqCst));
     assert!(!sink.visible.load(Ordering::SeqCst));
     assert_eq!(sink.completions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn transfer_timeout_aborts_without_exposing_partial_snapshot() {
+    let sink = HarnessSink::new(None, true);
+    let sender = SnapshotSender::with_options(
+        config(),
+        Arc::new(ProgressLog::default()),
+        SnapshotTransferOptions {
+            transfer_timeout: Duration::from_millis(1),
+        },
+    )
+    .unwrap();
+
+    let error = sender
+        .transfer_detailed("timeout", b"abcdefghijkl".to_vec(), sink.clone())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, SnapshotTransferFailure::Timeout));
+    assert!(!sink.durable.load(Ordering::SeqCst));
+    assert!(!sink.visible.load(Ordering::SeqCst));
+    assert_eq!(sink.aborts.load(Ordering::SeqCst), 1);
+    assert!(sink.receiver.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn legacy_timeout_is_terminal_and_abort_remains_effective() {
+    let sink = HarnessSink::new(None, true);
+    let sender = SnapshotSender::with_options(
+        config(),
+        Arc::new(ProgressLog::default()),
+        SnapshotTransferOptions {
+            transfer_timeout: Duration::from_millis(1),
+        },
+    )
+    .unwrap();
+    let error = sender
+        .transfer("legacy-timeout", b"abcdefghijkl".to_vec(), sink.clone())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, SnapshotTransferError::Terminal(message) if message.contains("timed out"))
+    );
+    assert!(!sink.durable.load(Ordering::SeqCst));
+    assert!(!sink.visible.load(Ordering::SeqCst));
+    assert_eq!(sink.aborts.load(Ordering::SeqCst), 1);
+    assert!(sink.receiver.lock().await.is_none());
+}
+
+#[test]
+fn snapshot_options_reject_zero_deadline_and_preserve_default() {
+    assert_eq!(
+        SnapshotTransferOptions::default().transfer_timeout,
+        Duration::from_secs(60)
+    );
+    assert!(matches!(
+        SnapshotSender::with_options(
+            config(),
+            Arc::new(ProgressLog::default()),
+            SnapshotTransferOptions {
+                transfer_timeout: Duration::ZERO
+            }
+        ),
+        Err(SnapshotTransferError::InvalidConfig(_))
+    ));
 }
 
 #[derive(Clone, Default)]
@@ -407,4 +477,81 @@ async fn raft_transport_and_wal_storage_install_verified_snapshot() {
 
     receiver_loop.abort();
     sender_loop.abort();
+}
+
+#[tokio::test]
+async fn raft_snapshot_options_survive_fork_and_enforce_the_transfer_deadline() {
+    use alopex_chirps::multi_raft::GroupId;
+    use alopex_chirps::raft::ChirpsRaftTransport;
+    use alopex_chirps_mock::{MockBackend, MockNetwork};
+    use alopex_chirps_raft_storage::types::{
+        BasicNode, Snapshot, SnapshotMeta, StoredMembership, Vote,
+    };
+    use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
+
+    let network = MockNetwork::new();
+    let backend = network
+        .add_node(wire_node_id(1), MockBackend::ephemeral_addr())
+        .await;
+    let _unresponsive = network
+        .add_node(wire_node_id(2), MockBackend::ephemeral_addr())
+        .await;
+    let transport = ChirpsRaftTransport::new(Arc::new(backend), GroupId(1), 1);
+    assert_eq!(
+        transport.snapshot_transfer_options(),
+        SnapshotTransferOptions::default()
+    );
+    let options = SnapshotTransferOptions {
+        transfer_timeout: Duration::from_nanos(1),
+    };
+    transport
+        .configure_snapshot_transfer_with_options(config(), options)
+        .unwrap();
+    assert!(
+        transport
+            .configure_snapshot_transfer_with_options(
+                config(),
+                SnapshotTransferOptions {
+                    transfer_timeout: Duration::ZERO
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(transport.snapshot_transfer_options(), options);
+    let fork = Arc::new(transport.fork_for_group(GroupId(2)));
+    assert_eq!(fork.snapshot_transfer_options(), options);
+    let mut factory = ChirpsRaftTransport::factory(fork);
+    let mut client = factory
+        .new_client(
+            2,
+            &BasicNode {
+                addr: "mock://node-2".into(),
+            },
+        )
+        .await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        client.full_snapshot(
+            Vote::new_committed(1, 1),
+            Snapshot {
+                meta: SnapshotMeta {
+                    last_log_id: None,
+                    last_membership: StoredMembership::default(),
+                    snapshot_id: "deadline-through-transport".into(),
+                },
+                snapshot: Box::new(Cursor::new(b"abcdefghijkl".to_vec())),
+            },
+            futures::future::pending(),
+            RPCOption::new(Duration::from_millis(20)),
+        ),
+    )
+    .await
+    .expect("deadline path must complete including best-effort abort");
+    let error = result.unwrap_err().to_string();
+    assert!(error.contains("snapshot transfer timed out"), "{error}");
+    transport.configure_snapshot_transfer(config()).unwrap();
+    assert_eq!(
+        transport.snapshot_transfer_options(),
+        SnapshotTransferOptions::default()
+    );
 }

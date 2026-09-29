@@ -48,6 +48,7 @@ if [[ -L "$output" || ( -e "$output" && ! -d "$output" ) ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/scripts/release/owned-target.sh"
 repo_parent="$(dirname "$repo_root")"
 requirements="$repo_root/../../.spec-workflow/specs/chirps-v0-7-durable-backend/requirements.md"
 design="$repo_root/../../.spec-workflow/specs/chirps-v0-7-durable-backend/design.md"
@@ -56,11 +57,12 @@ staging=""
 repeat_staging=""
 published_output=0
 cleaned=0
+target_owned=0
 
 cleanup() {
     local status=$?
-    if [[ $cleaned -eq 0 && -d "$TARGET_DIR" && ! -L "$TARGET_DIR" ]]; then
-        (cd "$repo_root" && rtk cargo clean --target-dir "$TARGET_DIR") || status=1
+    if [[ $cleaned -eq 0 && $target_owned -eq 1 ]]; then
+        (cd "$repo_root" && chirps_target_clean "$TARGET_DIR" rtk cargo clean --target-dir "$TARGET_DIR") || status=1
     fi
     if [[ -d "$shadow" && ! -L "$shadow" ]]; then
         rtk rm -rf -- "$shadow" || status=1
@@ -80,10 +82,8 @@ cleanup() {
 trap cleanup EXIT
 
 rtk bash "$BUDGET_GATE" --check
-if [[ -e "$TARGET_DIR" ]]; then
-    echo "corpus: task target already exists: $TARGET_DIR" >&2
-    exit 2
-fi
+chirps_target_claim "$TARGET_DIR" || exit 2
+target_owned=1
 rtk rsync -a \
     --exclude '/.git/' \
     --exclude '/target/' \
@@ -536,7 +536,7 @@ else
     rtk sync -f "$(dirname "$output")"
 fi
 
-rtk cargo clean --target-dir "$TARGET_DIR"
+chirps_target_clean "$TARGET_DIR" rtk cargo clean --target-dir "$TARGET_DIR"
 cleaned=1
 rtk rm -rf -- "$shadow"
 shadow=""

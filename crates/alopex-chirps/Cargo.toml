@@ -43,6 +43,7 @@ subtle = "2.6"
 futures = "0.3"
 
 [dev-dependencies]
+proptest = "1"
 alopex-chirps-mock.workspace = true
 tempfile = "3"
 rcgen = "0.12"
@@ -54,6 +55,8 @@ rand = "0.8"
 [[bench]]
 name = "raft_bench"
 harness = false
+# This benchmark implements OpenRaft's storage-v2 traits directly.
+required-features = ["multi-raft"]
 
 [[bench]]
 name = "hlc_bench"

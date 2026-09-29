@@ -186,7 +186,7 @@ fn v061_wire_fixtures() -> Vec<(&'static str, String)> {
             message,
         })
     };
-    let mut frames = vec![
+    let frames = vec![
         (
             "ping",
             Frame::Ping {
@@ -421,29 +421,33 @@ fn v061_wire_fixtures() -> Vec<(&'static str, String)> {
     ];
 
     #[cfg(feature = "hlc")]
-    frames.push((
-        "hlc-gossip",
-        Frame::HlcGossip(HlcGossipMessage {
-            event_id: HlcEventId {
-                source: node,
-                sequence: 17,
-            },
-            timestamp: HybridTimestamp::new(18, 19),
-            updates: vec![StampedMembershipUpdate {
+    let frames = {
+        let mut frames = frames;
+        frames.push((
+            "hlc-gossip",
+            Frame::HlcGossip(HlcGossipMessage {
                 event_id: HlcEventId {
-                    source: peer,
-                    sequence: 20,
+                    source: node,
+                    sequence: 17,
                 },
-                timestamp: HybridTimestamp::new(21, 22),
-                update: MembershipUpdate {
-                    node_id: peer,
-                    incarnation: 23,
-                    addr: "127.0.0.1:9043".parse().unwrap(),
-                    status: MemberStatus::Alive,
-                },
-            }],
-        }),
-    ));
+                timestamp: HybridTimestamp::new(18, 19),
+                updates: vec![StampedMembershipUpdate {
+                    event_id: HlcEventId {
+                        source: peer,
+                        sequence: 20,
+                    },
+                    timestamp: HybridTimestamp::new(21, 22),
+                    update: MembershipUpdate {
+                        node_id: peer,
+                        incarnation: 23,
+                        addr: "127.0.0.1:9043".parse().unwrap(),
+                        status: MemberStatus::Alive,
+                    },
+                }],
+            }),
+        ));
+        frames
+    };
 
     let mut fixtures = frames
         .into_iter()

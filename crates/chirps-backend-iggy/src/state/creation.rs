@@ -302,18 +302,23 @@ impl CreationUnit {
 #[derive(Debug)]
 pub(crate) struct ActiveSubscription {
     directory: PathBuf,
-    lock: File,
+    _lock: OwnedDirectoryLock,
     creation: CreationUnit,
     owner: OwnerRecord,
     binding: SubscriptionBinding,
 }
 
 impl ActiveSubscription {
-    fn new(directory: PathBuf, lock: File, creation: CreationUnit, owner: OwnerRecord) -> Self {
+    fn new(
+        directory: PathBuf,
+        lock: OwnedDirectoryLock,
+        creation: CreationUnit,
+        owner: OwnerRecord,
+    ) -> Self {
         let binding = creation.binding(owner.owner_epoch());
         Self {
             directory,
-            lock,
+            _lock: lock,
             creation,
             owner,
             binding,
@@ -337,9 +342,14 @@ impl ActiveSubscription {
     }
 }
 
-impl Drop for ActiveSubscription {
+/// Release on every operation exit, even when another descriptor temporarily
+/// shares the open file description (for example during a concurrent spawn).
+#[derive(Debug)]
+struct OwnedDirectoryLock(File);
+
+impl Drop for OwnedDirectoryLock {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.lock);
+        let _ = FileExt::unlock(&self.0);
     }
 }
 
@@ -508,7 +518,7 @@ impl CreationStore {
 
 fn install_owner(
     directory: &Path,
-    lock: File,
+    lock: OwnedDirectoryLock,
     creation: CreationUnit,
     fault: InstallFault,
 ) -> Result<CreationStoreResult, CreationStoreError> {
@@ -555,13 +565,13 @@ fn map_read_error(error: StateReadError) -> CreationStoreError {
 }
 
 enum DirectoryLock {
-    Held(File),
+    Held(OwnedDirectoryLock),
     Unavailable,
 }
 
 fn acquire_operation_lock(
     directory: &Path,
-) -> Result<Result<File, CreationFailureKind>, CreationStoreError> {
+) -> Result<Result<OwnedDirectoryLock, CreationFailureKind>, CreationStoreError> {
     match acquire_directory_lock(directory) {
         Ok(DirectoryLock::Held(lock)) => Ok(Ok(lock)),
         Ok(DirectoryLock::Unavailable) => Ok(Err(CreationFailureKind::OwnerLockUnavailable)),
@@ -579,11 +589,25 @@ fn acquire_directory_lock(directory: &Path) -> Result<DirectoryLock, CreationSto
         .write(true)
         .open(directory.join(LOCK_FILE))
         .map_err(|error| CreationStoreError::Io(error.kind()))?;
-    match FileExt::try_lock_exclusive(&lock) {
-        Ok(()) => Ok(DirectoryLock::Held(lock)),
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(DirectoryLock::Unavailable),
+    let result = FileExt::try_lock_exclusive(&lock);
+    complete_directory_lock(lock, result)
+}
+
+fn complete_directory_lock(
+    lock: File,
+    result: io::Result<()>,
+) -> Result<DirectoryLock, CreationStoreError> {
+    match result {
+        Ok(()) => Ok(DirectoryLock::Held(OwnedDirectoryLock(lock))),
+        Err(error) if is_lock_contention(&error) => Ok(DirectoryLock::Unavailable),
         Err(error) => Err(CreationStoreError::Io(error.kind())),
     }
+}
+
+// fs2 reports EWOULDBLOCK on Unix but ERROR_LOCK_VIOLATION on Windows.
+// ErrorKind does not preserve that distinction consistently across platforms.
+fn is_lock_contention(error: &io::Error) -> bool {
+    error.raw_os_error() == fs2::lock_contended_error().raw_os_error()
 }
 
 fn prepare_directory(directory: &Path) -> Result<(), CreationStoreError> {
@@ -1095,7 +1119,8 @@ mod tests {
     use super::{
         CORPUS_CASES, CREATION_FILE, CorpusInputs, CreationNamespace, CreationRequest,
         CreationStore, CreationStoreError, CreationStoreResult, OWNER_FILE,
-        generate_creation_corpus, snapshot_files, verify_creation_corpus,
+        complete_directory_lock, generate_creation_corpus, is_lock_contention, snapshot_files,
+        verify_creation_corpus,
     };
     use crate::state::InstallFault;
     use alopex_chirps_core::durable::{
@@ -1103,11 +1128,11 @@ mod tests {
         ResourceEpoch, ResourceId, SubscriptionCreationOutcome, SubscriptionId,
     };
     use alopex_chirps_wire::node_id::NodeId;
-    use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::process::Command;
     use std::thread;
     use std::time::{Duration, Instant};
+    use std::{fs, io};
     use tempfile::tempdir;
 
     const CHILD_PATH_ENV: &str = "CHIRPS_TASK_4_1_CHILD_PATH";
@@ -1141,7 +1166,7 @@ mod tests {
 
     fn created(result: CreationStoreResult) -> super::ActiveSubscription {
         let CreationStoreResult::Created(active) = result else {
-            panic!("expected active creation")
+            panic!("expected active creation, got {result:?}")
         };
         *active
     }
@@ -1422,6 +1447,54 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn failed_owner_install_releases_lock_with_a_duplicated_descriptor() {
+        // A concurrent process spawn can temporarily inherit the open file
+        // description before CLOEXEC closes its descriptor. Closing our File
+        // alone must not keep an unsuccessful operation's flock alive.
+        for fault in [
+            InstallFault::AfterWrite,
+            InstallFault::AfterFileSync,
+            InstallFault::AfterRename,
+            InstallFault::AfterDirectorySync,
+        ] {
+            let root = tempdir().unwrap();
+            let directory = root.path().join("duplicated-lock");
+            drop(created(
+                CreationStore
+                    .create(
+                        &directory,
+                        CreationRequest::new(namespace(), InitialPosition::EarliestRetained),
+                        &observation(4, 10),
+                    )
+                    .unwrap(),
+            ));
+            let lock = super::acquire_operation_lock(&directory).unwrap().unwrap();
+            let inherited = lock.0.try_clone().unwrap();
+            assert!(matches!(
+                CreationStore
+                    .open(&directory, namespace(), resource_epoch())
+                    .unwrap(),
+                CreationStoreResult::NotCommitted(CreationFailureKind::OwnerLockUnavailable)
+            ));
+            let creation = super::load_creation(&directory).unwrap();
+            let failed = super::install_owner(&directory, lock, creation, fault).unwrap();
+            assert!(matches!(
+                failed,
+                CreationStoreResult::NotCommitted(_) | CreationStoreResult::Unknown(_)
+            ));
+            let reopened = CreationStore
+                .open(&directory, namespace(), resource_epoch())
+                .unwrap();
+            assert!(
+                matches!(reopened, CreationStoreResult::Created(_)),
+                "{reopened:?}"
+            );
+            drop(inherited);
+        }
+    }
+
     #[test]
     fn v07_task_4_1_owner_record_from_another_creation_cannot_fork_the_chain() {
         let root = tempdir().unwrap();
@@ -1452,6 +1525,48 @@ mod tests {
             CreationStore.open(&first_directory, namespace(), resource_epoch()),
             Err(CreationStoreError::Owner(_))
         ));
+    }
+
+    #[test]
+    fn owner_lock_preserves_non_contention_failure_categories() {
+        assert!(matches!(
+            complete_directory_lock(tempfile::tempfile().unwrap(), Ok(())),
+            Ok(super::DirectoryLock::Held(_))
+        ));
+        assert!(matches!(
+            complete_directory_lock(
+                tempfile::tempfile().unwrap(),
+                Err(fs2::lock_contended_error())
+            ),
+            Ok(super::DirectoryLock::Unavailable)
+        ));
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::NotFound,
+            io::ErrorKind::Interrupted,
+        ] {
+            assert!(matches!(
+                complete_directory_lock(tempfile::tempfile().unwrap(), Err(io::Error::from(kind))),
+                Err(CreationStoreError::Io(observed)) if observed == kind
+            ));
+        }
+    }
+
+    #[test]
+    fn owner_lock_contention_is_distinct_from_other_storage_errors() {
+        assert!(is_lock_contention(&fs2::lock_contended_error()));
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::NotFound,
+            io::ErrorKind::Interrupted,
+            io::ErrorKind::WouldBlock,
+        ] {
+            // An ErrorKind alone is not proof that the OS refused this lock.
+            assert!(!is_lock_contention(&io::Error::from(kind)));
+        }
+        for code in [0, 2, 5, 13] {
+            assert!(!is_lock_contention(&io::Error::from_raw_os_error(code)));
+        }
     }
 
     #[test]
@@ -1529,14 +1644,10 @@ mod tests {
                 )
                 .unwrap(),
         );
-        let requirements = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../.spec-workflow/specs/chirps-v0-7-durable-backend/requirements.md"
-        ));
-        let design = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../.spec-workflow/specs/chirps-v0-7-durable-backend/design.md"
-        ));
+        // Generator unit inputs are deliberately synthetic. Release evidence
+        // continues to require the authenticated original specification bytes.
+        let requirements: &[u8] = b"Synthetic unit-test requirements; not release evidence.\n";
+        let design: &[u8] = b"Synthetic unit-test design; not release evidence.\n";
         let sources: &[(&str, &[u8])] = &[
             ("lib.rs", include_bytes!("../lib.rs")),
             ("state/creation.rs", include_bytes!("creation.rs")),
@@ -1548,8 +1659,7 @@ mod tests {
             design,
             sources,
         };
-        let target = PathBuf::from(std::env::var("CARGO_TARGET_DIR").unwrap());
-        let output = target.join("task-4_1-provisional-corpus");
+        let output = root.path().join("unit-creation-corpus");
         generate_creation_corpus(&output, active.creation(), &inputs).unwrap();
         verify_creation_corpus(&output, active.creation(), &inputs).unwrap();
         let first = snapshot_files(&output).unwrap();
@@ -1565,13 +1675,27 @@ mod tests {
         assert_eq!(CORPUS_CASES.len(), 7);
         let manifest = fs::read_to_string(output.join("manifest.json")).unwrap();
         assert!(
-            manifest.contains("6fc671aed8f10a7c664ad27d2d6342a57f228375f944942f877b4f2be166aec6")
+            manifest.contains("85c0d95e5e7ca2f85a4092b51ac17c0bdfabef272fc181e66e6a4e5bc8d6e524")
         );
         assert!(
-            manifest.contains("797fe316e18c7145fb3aa1243afc1279df5942d57219ede034c85caf89be7e71")
+            manifest.contains("4da71815b5658adacaa3e6ed607c7d22dd32cd1781494d3361bb55fd9e9016f4")
         );
         assert!(manifest.contains("\"producer_task\": \"4.1\""));
         assert!(manifest.contains("unknown-old"));
         assert!(manifest.contains("unknown-new"));
+        for (requirements, design) in [
+            (b"changed unit requirements".as_slice(), design),
+            (requirements, b"changed unit design".as_slice()),
+        ] {
+            let altered = CorpusInputs {
+                requirements,
+                design,
+                sources,
+            };
+            assert_eq!(
+                verify_creation_corpus(&output, active.creation(), &altered).unwrap_err(),
+                CreationStoreError::CorruptState
+            );
+        }
     }
 }

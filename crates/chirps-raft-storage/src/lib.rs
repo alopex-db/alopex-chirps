@@ -1,3 +1,4 @@
+mod fs;
 pub mod snapshot;
 pub mod traits;
 pub mod types;

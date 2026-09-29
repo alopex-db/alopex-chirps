@@ -703,6 +703,7 @@ pub mod v07 {
         address: SocketAddr,
         certificate_der: Vec<u8>,
         certificate_path: PathBuf,
+        configuration_path: PathBuf,
         private_key_path: PathBuf,
         stderr_path: PathBuf,
         binary: PathBuf,
@@ -717,6 +718,11 @@ pub mod v07 {
             let certificate_path = root.path().join("server-cert.pem");
             let private_key_path = root.path().join("server-key.pem");
             let stderr_path = root.path().join("server.stderr");
+            let configuration_path = root.path().join("server-config.toml");
+            fs::write(
+                &configuration_path,
+                b"[system.message_deduplication]\nenabled = false\n",
+            )?;
             fs::write(&certificate_path, certificate.serialize_pem()?)?;
             fs::write(&private_key_path, certificate.serialize_private_key_pem())?;
             let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -727,6 +733,7 @@ pub mod v07 {
                 address,
                 certificate_der,
                 certificate_path,
+                configuration_path,
                 private_key_path,
                 stderr_path,
                 binary,
@@ -747,6 +754,19 @@ pub mod v07 {
         #[must_use]
         pub fn certificate_path(&self) -> &Path {
             &self.certificate_path
+        }
+
+        /// Exact file passed to the compatible server as its startup configuration.
+        #[must_use]
+        pub fn configuration_path(&self) -> &Path {
+            &self.configuration_path
+        }
+
+        /// Returns the owned child ID only while that child is still running.
+        pub fn running_process_id(&mut self) -> Result<u32> {
+            let child = self.child.as_mut().context("server is not running")?;
+            ensure!(child.try_wait()?.is_none(), "server process exited");
+            Ok(child.id())
         }
 
         #[must_use]
@@ -849,6 +869,7 @@ pub mod v07 {
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::from(stderr))
+                .env("IGGY_CONFIG_PATH", &self.configuration_path)
                 .env("IGGY_SYSTEM_PATH", self.state_path())
                 .env("IGGY_TCP_ENABLED", "true")
                 .env("IGGY_TCP_ADDRESS", self.address.to_string())
@@ -1434,6 +1455,44 @@ pub mod v07 {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn fixture_reports_only_its_live_owned_child() -> Result<()> {
+            if env::var_os("CHIRPS_FIXTURE_CHILD_WAIT").is_some() {
+                std::thread::sleep(Duration::from_secs(2));
+                return Ok(());
+            }
+            let executable = env::current_exe()?;
+            let mut server = ServerProcess::new(executable.clone())?;
+            ensure!(
+                server.running_process_id().is_err(),
+                "unstarted fixture has a PID"
+            );
+            ensure!(
+                server.configuration_path().is_file(),
+                "startup file is absent"
+            );
+            let child = Command::new(executable)
+                .args([
+                    "--exact",
+                    "v07::tests::fixture_reports_only_its_live_owned_child",
+                ])
+                .env("CHIRPS_FIXTURE_CHILD_WAIT", "1")
+                .stdout(Stdio::null())
+                .spawn()?;
+            let expected = child.id();
+            server.child = Some(child);
+            ensure!(
+                server.running_process_id()? == expected,
+                "fixture returned another PID"
+            );
+            server.child.as_mut().expect("child assigned").wait()?;
+            ensure!(
+                server.running_process_id().is_err(),
+                "exited child remains measurable"
+            );
+            Ok(())
+        }
 
         #[test]
         fn initial_wal_parsers_authenticate_the_single_fixture_state() -> Result<()> {

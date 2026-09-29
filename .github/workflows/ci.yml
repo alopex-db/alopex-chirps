@@ -77,6 +77,65 @@ jobs:
           cargo tree -p alopex-chirps ${{ matrix.args }} -e features -i openraft \
             | grep -F 'openraft feature "storage-v2"'
 
+  public-api:
+    name: v0.6.1 Public API (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            sha256: 52a65dc88dc53fa8b57d6087954eb52cda149ca03bcfca78ce3fdecd23f893c4
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            sha256: f99f928d67501c29e8410026f27a54cf799fb13611c3b4a6a58f2772cf7e3799
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            sha256: 82df31e99ea91f73c2906b50ba6c09e82556a5fb1cc936021929d5f0dd948548
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.0
+      - name: Install digest-verified cargo-semver-checks 0.50.0
+        shell: bash
+        env:
+          SEMVER_TARGET: ${{ matrix.target }}
+          SEMVER_SHA256: ${{ matrix.sha256 }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, pathlib, tarfile, urllib.request
+          directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'api-tools'
+          directory.mkdir()
+          archive = directory / 'tool.tar.gz'
+          url = ('https://github.com/obi1kenobi/cargo-semver-checks/releases/download/'
+                 'v0.50.0/cargo-semver-checks-' + os.environ['SEMVER_TARGET'] + '.tar.gz')
+          urllib.request.urlretrieve(url, archive)
+          if hashlib.sha256(archive.read_bytes()).hexdigest() != os.environ['SEMVER_SHA256']:
+              raise SystemExit('cargo-semver-checks archive digest mismatch')
+          with tarfile.open(archive) as bundle:
+              bundle.extractall(directory, filter='data')
+          with open(os.environ['GITHUB_PATH'], 'a') as path:
+              path.write(str(directory) + '\n')
+          PY
+      - name: Verify API gate controls
+        run: python3 -B -m unittest discover -s scripts/tests -p test_v061_public_api.py
+      - name: Compare all eight existing public crate APIs
+        env:
+          CARGO_BUILD_JOBS: 2
+          CARGO_TARGET_DIR: ${{ runner.temp }}/api-target
+        run: python3 scripts/verify-v061-public-api.py --output "${{ runner.temp }}/api-evidence/public-api.json"
+      - name: Retain complete compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v061-public-api-${{ matrix.os }}
+          path: ${{ runner.temp }}/api-evidence/
+          if-no-files-found: error
+
   test:
     name: Test Suite (${{ matrix.os }}, ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
@@ -100,6 +159,9 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Retain dependency builds while platform-specific test failures are repaired.
+          cache-on-failure: true
 
       - name: Run tests
         run: cargo test --all-features --workspace -- --test-threads=1
@@ -163,7 +225,7 @@ jobs:
 
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, feature-matrix, test, coverage, security-audit, workflow-lint]
+    needs: [fmt, clippy, feature-matrix, public-api, test, coverage, security-audit, workflow-lint]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -172,6 +234,7 @@ jobs:
           if [[ "${{ needs.fmt.result }}" != "success" ]] || \
              [[ "${{ needs.clippy.result }}" != "success" ]] || \
              [[ "${{ needs.feature-matrix.result }}" != "success" ]] || \
+             [[ "${{ needs.public-api.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
              [[ "${{ needs.coverage.result }}" != "success" ]] || \
              [[ "${{ needs.security-audit.result }}" != "success" ]] || \

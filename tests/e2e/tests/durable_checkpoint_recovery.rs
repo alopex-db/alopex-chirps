@@ -625,15 +625,15 @@ async fn frame_stage_corpus_reconciles_exact_old_new_and_unknown_truth() -> Resu
                 );
             }
         }
-        if let Some(truth) = before {
-            if truth.state != JournalState::Header {
-                ensure!(
-                    truth.message_id == Some(live.message_id)
-                        && truth.envelope_digest == Some(live.envelope_digest),
-                    "{} materialized the wrong durable identity",
-                    case.name
-                );
-            }
+        if let Some(truth) = before
+            && truth.state != JournalState::Header
+        {
+            ensure!(
+                truth.message_id == Some(live.message_id)
+                    && truth.envelope_digest == Some(live.envelope_digest),
+                "{} materialized the wrong durable identity",
+                case.name
+            );
         }
         evidence.record(
             &format!("{}-{}-{}", case.name, case.stage, case.oracle),
@@ -1243,10 +1243,10 @@ fn directory_entries(path: &Path) -> Result<BTreeSet<String>> {
     fs::read_dir(path)?
         .map(|entry| {
             let entry = entry?;
-            Ok(entry
+            entry
                 .file_name()
                 .into_string()
-                .map_err(|_| anyhow!("non-UTF-8 corpus entry"))?)
+                .map_err(|_| anyhow!("non-UTF-8 corpus entry"))
         })
         .collect()
 }
@@ -1258,6 +1258,7 @@ fn read_regular_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>> {
         "unsafe or oversized corpus file"
     );
     let file = File::open(path)?;
+    #[cfg(unix)]
     let opened = file.metadata()?;
     #[cfg(unix)]
     ensure!(

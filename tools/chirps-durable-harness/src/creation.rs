@@ -1,5 +1,6 @@
 //! Independent readback and transition oracle for subscription creation state.
 
+use crate::fs::sync_directory;
 use crate::oracle::{CreationState, OracleViolation};
 use alopex_chirps_core::durable::{InitialPosition, ResourceEpoch, ResourceId};
 use serde::Deserialize;
@@ -7,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path};
 
@@ -1039,7 +1040,7 @@ fn parse_digest(value: &str) -> Result<[u8; 32], CreationCorpusError> {
         return Err(CreationCorpusError::InvalidManifest("SHA-256"));
     }
     let mut digest = [0_u8; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let text = std::str::from_utf8(pair)
             .map_err(|_| CreationCorpusError::InvalidManifest("SHA-256"))?;
         digest[index] = u8::from_str_radix(text, 16)
@@ -1052,11 +1053,6 @@ fn write_synced_new(path: &Path, bytes: &[u8]) -> Result<(), CreationCorpusError
     let mut file = OpenOptions::new().create_new(true).write(true).open(path)?;
     file.write_all(bytes)?;
     file.sync_all()?;
-    Ok(())
-}
-
-fn sync_directory(path: &Path) -> Result<(), CreationCorpusError> {
-    File::open(path)?.sync_all()?;
     Ok(())
 }
 

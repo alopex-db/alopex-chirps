@@ -6,14 +6,14 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage: verify-release-contract.sh --version X.Y.Z [--require-ready]
-       [--manifest FILE] [--source-commit SHA]
+       [--manifest FILE] [--source-commit SHA] [--repo-root DIR]
        [--structure-only] [--candidate FILE --evidence FILE --bundle FILE]
        [--schema FILE]
        verify-release-contract.sh --publication-workflow
 
 Checks docs/release/vX.Y.Z.md for traceability, exclusions, and approval
 sections. --require-ready additionally rejects a non-READY release status and
-unproven/TODO markers. v0.6.0 additionally requires a version-bound evidence
+unproven/TODO markers. Versions with a required-evidence catalog require a version-bound evidence
 manifest, target-version gate, exact required evidence set, and artifact SHA-256
 verification before --require-ready can succeed.
 
@@ -25,7 +25,8 @@ protected-environment exact-byte publication dataflow without publishing.
 USAGE
 }
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$tool_root"
 version=""
 require_ready=false
 manifest=""
@@ -48,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --bundle) bundle="${2:?missing value for --bundle}"; shift 2 ;;
     --schema) schema="${2:?missing value for --schema}"; shift 2 ;;
     --publication-workflow) publication_workflow=true; shift ;;
+    --repo-root) repo_root="${2:?missing value for --repo-root}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -289,15 +291,30 @@ if publication_env.get("CHIRPS_RELEASE_ENVIRONMENT_APPROVAL") != "release:${{ in
     fail("publication approval is not bound to the explicit commit input")
 
 publication_steps = steps(publication, "publish-v07-bundle")
-checkout = one_step_with_use(publication_steps, "actions/checkout@v4", "publish-v07-bundle")
+if not any('echo "CHIRPS_POSTPUBLISH_EVIDENCE_DIR=${RUNNER_TEMP}/chirps-v07-registry-consumer" >> "$GITHUB_ENV"' in item.get("run", "") for item in publication_steps):
+    fail("post-upload consumer evidence must be retained outside publisher scratch")
+consumer_upload = [item for item in publication_steps if item.get("uses") == "actions/upload-artifact@v4" and item.get("with", {}).get("name") == "chirps-v07-registry-consumer-${{ github.run_id }}"]
+if len(consumer_upload) != 1 or consumer_upload[0].get("if") != "always()" or consumer_upload[0].get("with", {}).get("path") != "${{ runner.temp }}/chirps-v07-registry-consumer":
+    fail("post-upload consumer raw evidence must be preserved even on failure")
+publication_checkouts = [item for item in publication_steps if item.get("uses") == "actions/checkout@v4"]
+if len(publication_checkouts) != 2:
+    fail("publication must isolate candidate source and trusted release tools")
+checkout = next((item for item in publication_checkouts if not item.get("with", {}).get("path")), None)
+trusted_checkout = next((item for item in publication_checkouts if item.get("with", {}).get("path") == "release-tools"), None)
+if checkout is None or trusted_checkout is None or trusted_checkout.get("with", {}).get("ref") != "${{ github.sha }}":
+    fail("publication tooling must use exact workflow source")
 checkout_with = mapping(checkout.get("with"), "publish-v07-bundle checkout.with")
 if checkout_with.get("ref") != "${{ inputs.commit }}":
     fail("publish-v07-bundle checkout does not use the explicit commit input")
-download = one_step_with_use(
-    publication_steps,
-    "actions/download-artifact@v4",
-    "publish-v07-bundle",
-)
+downloads = [item for item in publication_steps if item.get("uses") == "actions/download-artifact@v4"]
+if len(downloads) != 2:
+    fail("publication must download frozen bytes and the same-run trusted verifier")
+download = next((item for item in downloads if item.get("with", {}).get("name") == "${{ inputs.v07_artifact_name }}"), None)
+if download is None:
+    fail("publication has no frozen bundle download")
+tool_download = next(item for item in downloads if item is not download)
+if tool_download.get("with") != {"name": "chirps-v07-perf-verifier-${{ github.run_id }}", "path": "${{ runner.temp }}/chirps-perf-verifier"}:
+    fail("trusted PERF tool must come from this run, never the candidate artifact run")
 download_with = mapping(download.get("with"), "publish-v07-bundle download.with")
 expected_download = {
     "name": "${{ inputs.v07_artifact_name }}",
@@ -312,13 +329,13 @@ publication_commands = run_commands(publication_steps, "publish-v07-bundle")
 publisher_calls = [
     argv
     for argv in publication_commands
-    if argv and argv[0] == "scripts/release/publish-v0.7-bundle.sh"
+    if argv and argv[0] == "$GITHUB_WORKSPACE/release-tools/scripts/release/publish-v0.7-bundle.sh"
 ]
 if len(publisher_calls) != 1:
     fail("publish-v07-bundle must invoke the exact-byte publisher once")
 publisher_call = publisher_calls[0]
 expected_publisher_call = [
-    "scripts/release/publish-v0.7-bundle.sh",
+    "$GITHUB_WORKSPACE/release-tools/scripts/release/publish-v0.7-bundle.sh",
     "--bundle",
     "${root}/release-bundle.json",
     "--candidate",
@@ -350,13 +367,54 @@ if mapping(publish_tag_checkout.get("with"), "publish-tag checkout.with").get("r
 
 ci_gate = mapping(jobs["ci-gate"], "ci-gate")
 ci_steps = steps(ci_gate, "ci-gate")
-ci_checkout = one_step_with_use(ci_steps, "actions/checkout@v4", "ci-gate")
+ci_checkouts = [item for item in ci_steps if item.get("uses") == "actions/checkout@v4"]
+if len(ci_checkouts) != 2:
+    fail("ci-gate must contain separate source and release-tools checkouts")
+checkout_by_path = {
+    mapping(item.get("with"), "ci-gate checkout.with").get("path"): item
+    for item in ci_checkouts
+}
+if set(checkout_by_path) != {"source", "release-tools"}:
+    fail("ci-gate checkout paths must isolate source and release-tools")
+ci_checkout = checkout_by_path["source"]
 if mapping(ci_checkout.get("with"), "ci-gate checkout.with").get("ref") != "${{ inputs.commit }}":
     fail("ci-gate checkout does not use the explicit commit input")
+if mapping(checkout_by_path["release-tools"].get("with"), "release-tools checkout.with").get("ref") != "${{ github.sha }}":
+    fail("release-tools checkout does not use the workflow revision")
+ci_defaults = mapping(ci_gate.get("defaults"), "ci-gate.defaults")
+if mapping(ci_defaults.get("run"), "ci-gate.defaults.run").get("working-directory") != "source":
+    fail("ci-gate commands must run in the candidate source checkout")
 ci_download = one_step_with_use(ci_steps, "actions/download-artifact@v4", "ci-gate")
 if mapping(ci_download.get("with"), "ci-gate download.with") != expected_download:
     fail("ci-gate and publication job do not consume the same stored artifact")
 ci_commands = run_commands(ci_steps, "ci-gate")
+for job_name, job in (("ci-gate", ci_gate), ("publish-v07-bundle", publication)):
+    environment = mapping(job.get("env"), f"{job_name}.env")
+    if environment.get("CHIRPS_RELEASE_TOOLS_COMMIT") != "${{ github.sha }}" or not any('echo "CHIRPS_PERF_VERIFIER=${RUNNER_TEMP}/chirps-perf-verifier/chirps-durable-perf" >> "$GITHUB_ENV"' in item.get("run", "") for item in steps(job, job_name)):
+        fail("trusted PERF verifier path/source binding drifted")
+expected_foreign_source = ["python3", "-B", "$GITHUB_WORKSPACE/release-tools/scripts/release/prepare-v07-iggy-source.py", "--source-root", "$CHIRPS_SOURCE_ROOT", "--source-commit", "$RELEASE_COMMIT", "--iggy-commit", "$iggy_commit", "--output", "${RUNNER_TEMP}/chirps-v07-iggy-source.git"]
+expected_dependencies = ["python3", "-m", "pip", "install", "--disable-pip-version-check", "-r", "$GITHUB_WORKSPACE/release-tools/scripts/release/requirements-verifier.txt"]
+for job_name, job in (("ci-gate", ci_gate), ("publish-v07-bundle", publication)):
+    job_steps = steps(job, job_name)
+    prepare = [i for i, item in enumerate(job_steps) if expected_foreign_source in command_argv(item.get("run", ""), job_name)]
+    install = [i for i, item in enumerate(job_steps) if expected_dependencies in command_argv(item.get("run", ""), job_name)]
+    setup = [i for i, item in enumerate(job_steps) if item.get("uses") == "actions/setup-python@v5" and item.get("with", {}).get("python-version") == "3.11"]
+    downloads = [i for i, item in enumerate(job_steps) if item.get("uses") == "actions/download-artifact@v4" and item.get("with", {}).get("name") == "${{ inputs.v07_artifact_name }}"]
+    verifications = [i for i, item in enumerate(job_steps) if "--evidence" in item.get("run", "")]
+    if len(prepare) != 1 or len(install) != 1 or len(setup) != 1 or len(downloads) != 1 or not verifications:
+        fail("formal verification source/runtime preparation is incomplete")
+    if not (setup[0] < install[0] < prepare[0] and downloads[0] < prepare[0] < min(verifications)):
+        fail("formal source preparation must follow frozen download and precede evidence replay")
+    if 'echo "CHIRPS_IGGY_SOURCE_ROOT=${RUNNER_TEMP}/chirps-v07-iggy-source.git" >> "$GITHUB_ENV"' not in job_steps[prepare[0]].get("run", ""):
+        fail("formal source root is not exported from the trusted preparation step")
+expected_tool_build = ["python3", "$GITHUB_WORKSPACE/release-tools/scripts/release/v07_perf_verifier.py", "build", "--source-root", "$GITHUB_WORKSPACE/release-tools", "--source-commit", "${{ github.sha }}", "--output", "${RUNNER_TEMP}/chirps-perf-verifier"]
+if expected_tool_build not in ci_commands:
+    fail("CI must build the read-only verifier from exact workflow source")
+tool_uploads = [item for item in ci_steps if item.get("uses") == "actions/upload-artifact@v4" and item.get("with", {}).get("name") == "chirps-v07-perf-verifier-${{ github.run_id }}"]
+if len(tool_uploads) != 1 or tool_uploads[0].get("with") != {"name": "chirps-v07-perf-verifier-${{ github.run_id }}", "path": "${{ runner.temp }}/chirps-perf-verifier", "if-no-files-found": "error"}:
+    fail("CI must preserve the exact same-run verifier artifact")
+if "sparse-checkout" in checkout_by_path["release-tools"].get("with", {}):
+    fail("trusted verifier needs the complete source tree")
 required_ci_calls = {
     ("scripts/run-v0.7-release-gate.sh", "--structure-only"),
     ("scripts/release/test-publish-v0.7-bundle.sh",),
@@ -423,7 +481,7 @@ if [[ "$version" == "0.7.0" ]]; then
     printf 'missing v0.7 evidence schema: %s\n' "$schema" >&2
     exit 1
   }
-  evidence_verifier="$repo_root/scripts/release/verify-v0.7-evidence.py"
+  evidence_verifier="$tool_root/scripts/release/verify-v0.7-evidence.py"
   [[ -f "$evidence_verifier" && -x "$evidence_verifier" ]] || {
     printf 'missing executable v0.7 evidence verifier: %s\n' "$evidence_verifier" >&2
     exit 1
@@ -547,16 +605,21 @@ if [[ "$require_ready" == true ]]; then
   }
 fi
 
+requirements="$repo_root/docs/release/evidence/v${version}/required-evidence.json"
 if [[ -n "$manifest" ]]; then
+  [[ -f "$requirements" ]] || {
+    printf 'manifest supplied but release evidence catalog is missing: %s\n' "$requirements" >&2
+    exit 1
+  }
   source_commit="${source_commit:-$(git -C "$repo_root" rev-parse HEAD)}"
-  python3 "$repo_root/scripts/release/verify-evidence-manifest.py" \
+  python3 "$tool_root/scripts/release/verify-evidence-manifest.py" \
     --manifest "$manifest" \
     --requirements "$repo_root/docs/release/evidence/v${version}/required-evidence.json" \
     --schema "$repo_root/docs/release/evidence/v${version}/manifest.schema.json" \
     --version "$version" \
     --source-commit "$source_commit"
-elif [[ "$require_ready" == true && "$version" == "0.6.0" ]]; then
-  printf '%s\n' 'v0.6.0 READY verification requires --manifest and its target-version gate' >&2
+elif [[ "$require_ready" == true && -f "$requirements" ]]; then
+  printf 'READY verification requires --manifest and the target-version gate for %s\n' "$version" >&2
   exit 1
 fi
 

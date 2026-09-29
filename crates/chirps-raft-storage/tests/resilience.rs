@@ -75,7 +75,7 @@ async fn corrupted_and_truncated_wal_are_rejected_during_recovery() {
             let index = bytes.len() - 1;
             bytes[index] ^= 0xff;
         }
-        std::fs::write(&path, bytes).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
 
         let recovered = WalRaftStorage::recover(config, group, 7, TestStateMachine);
         assert!(
@@ -83,6 +83,7 @@ async fn corrupted_and_truncated_wal_are_rejected_during_recovery() {
             "{} WAL must fail closed",
             if truncate { "truncated" } else { "corrupted" }
         );
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 }
 

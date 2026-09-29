@@ -313,6 +313,11 @@ impl RetransmissionBuffer {
         }
     }
 
+    /// Returns the total number of bytes retained across all peers.
+    pub fn total_buffered_bytes(&self) -> usize {
+        self.buffers.values().map(|buffer| buffer.total_bytes).sum()
+    }
+
     /// Get the last acknowledged sequence number for a peer (used as ack_seq when sending).
     pub fn get_ack_seq(&self, peer: NodeId) -> u64 {
         self.buffers.get(&peer).map(|b| b.acked_seq).unwrap_or(0)

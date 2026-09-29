@@ -8,13 +8,15 @@ usage() {
   cat <<'USAGE' >&2
 Usage: publish-v0.7-bundle.sh --bundle FILE --candidate FILE --evidence FILE
        --require-environment-approval --resume-only-on-checksum-match
+       [--validate-only]
        [--fixture-registry URL --fixture-image URL --fixture-github URL]
 
 Production mode uploads the exact stored .crate archives to crates.io, copies
 the stored production OCI archive, and attaches the exact stored GitHub assets.
 The evidence index must bind the supplied manifest as the release-bundle artifact.
 Fixture endpoints replace all external services for the executable self-test.
-The command never invokes Cargo, packages source, or selects an implicit HEAD.
+Only isolated downstream consumers are compiled after registry upload.
+The command never rebuilds production packages/OCI bytes or selects an implicit HEAD.
 USAGE
 }
 
@@ -23,6 +25,7 @@ candidate=""
 evidence=""
 require_approval=false
 checksum_resume=false
+validate_only=false
 fixture_registry=""
 fixture_image=""
 fixture_github=""
@@ -34,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --evidence) evidence="${2:?missing value for --evidence}"; shift 2 ;;
     --require-environment-approval) require_approval=true; shift ;;
     --resume-only-on-checksum-match) checksum_resume=true; shift ;;
+    --validate-only) validate_only=true; shift ;;
     --fixture-registry) fixture_registry="${2:?missing fixture registry URL}"; shift 2 ;;
     --fixture-image) fixture_image="${2:?missing fixture image URL}"; shift 2 ;;
     --fixture-github) fixture_github="${2:?missing fixture GitHub URL}"; shift 2 ;;
@@ -71,6 +75,20 @@ trap cleanup EXIT
 python3 "$repo_root/scripts/release/verify-v0.7-evidence.py" \
   --schema "$repo_root/docs/release/v0.7.0-evidence-schema.json" \
   "$evidence" >/dev/null
+
+python3 - "$repo_root/scripts/release" "$bundle" "$evidence" <<'PY_CONSUMER'
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from v07_consumer_evidence import verify_report
+bundle = Path(sys.argv[2]).resolve()
+evidence = Path(sys.argv[3]).resolve()
+entries = [entry for entry in json.loads(evidence.read_text())["evidence"] if entry["kind"] == "package"]
+if len(entries) != 1:
+    raise SystemExit("one stored archive consumer report is required")
+verify_report(bundle, evidence.parent / entries[0]["path"], "stored-archives")
+PY_CONSUMER
 
 python3 - "$bundle" "$candidate" "$evidence" "$test_server_manifest" "$scratch" <<'PY'
 from __future__ import annotations
@@ -133,113 +151,9 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def oci_blob(files: dict[str, bytes], descriptor: dict, label: str) -> bytes:
-    if not isinstance(descriptor, dict):
-        fail(f"{label} descriptor must be an object")
-    descriptor_digest = descriptor.get("digest")
-    descriptor_size = descriptor.get("size")
-    if not isinstance(descriptor_digest, str) or re.fullmatch(
-        r"sha256:[0-9a-f]{64}", descriptor_digest
-    ) is None:
-        fail(f"{label} descriptor digest is invalid")
-    path = f"blobs/sha256/{descriptor_digest.removeprefix('sha256:')}"
-    value = files.get(path)
-    if value is None:
-        fail(f"{label} blob is missing")
-    if descriptor_size != len(value) or descriptor_digest != f"sha256:{sha256_bytes(value)}":
-        fail(f"{label} descriptor does not match its blob")
-    return value
-
-
-def inspect_oci_server(path: Path, expected_manifest_digest: str) -> tuple[str, dict]:
-    try:
-        with tarfile.open(path, mode="r:*") as archive:
-            files: dict[str, bytes] = {}
-            for member in archive.getmembers():
-                name = member.name.removeprefix("./")
-                if name in files:
-                    fail(f"OCI archive contains duplicate entry {name}")
-                if member.isfile():
-                    source = archive.extractfile(member)
-                    if source is None:
-                        fail(f"OCI archive entry {name} is unreadable")
-                    files[name] = source.read()
-                elif name in {"index.json", "oci-layout"} or name.startswith("blobs/"):
-                    fail(f"OCI archive metadata entry {name} is not a regular file")
-    except (OSError, tarfile.TarError) as exc:
-        fail(f"production image is not a readable OCI archive: {exc}")
-
-    try:
-        index = json.loads(files["index.json"])
-    except (KeyError, json.JSONDecodeError) as exc:
-        fail(f"OCI index is missing or invalid: {exc}")
-    manifests = index.get("manifests") if isinstance(index, dict) else None
-    if not isinstance(manifests, list) or len(manifests) != 1:
-        fail("OCI archive must contain exactly one image manifest")
-    manifest_descriptor = manifests[0]
-    manifest_bytes = oci_blob(files, manifest_descriptor, "OCI manifest")
-    if manifest_descriptor.get("digest") != expected_manifest_digest:
-        fail("OCI index manifest digest differs from the release bundle")
-    try:
-        manifest = json.loads(manifest_bytes)
-    except json.JSONDecodeError as exc:
-        fail(f"OCI manifest is invalid: {exc}")
-    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
-        fail("OCI manifest schema is invalid")
-    try:
-        config = json.loads(oci_blob(files, manifest["config"], "OCI config"))
-    except (KeyError, json.JSONDecodeError) as exc:
-        fail(f"OCI config is missing or invalid: {exc}")
-    labels = config.get("config", {}).get("Labels") if isinstance(config, dict) else None
-    if not isinstance(labels, dict) or not all(
-        isinstance(key, str) and isinstance(value, str) for key, value in labels.items()
-    ):
-        fail("OCI config labels are missing or invalid")
-
-    layers = manifest.get("layers")
-    if not isinstance(layers, list) or not layers:
-        fail("OCI manifest has no filesystem layers")
-    server_bytes: bytes | None = None
-    server_whiteouts = {
-        ".wh..wh..opq",
-        ".wh.usr",
-        "usr/.wh..wh..opq",
-        "usr/.wh.local",
-        "usr/local/.wh..wh..opq",
-        "usr/local/.wh.bin",
-        "usr/local/bin/.wh..wh..opq",
-        "usr/local/bin/.wh.iggy-server",
-    }
-    for index, descriptor in enumerate(layers):
-        layer_bytes = oci_blob(files, descriptor, f"OCI layer[{index}]")
-        try:
-            with tarfile.open(fileobj=io.BytesIO(layer_bytes), mode="r:*") as layer:
-                deletes_lower_server = False
-                layer_server: bytes | None = None
-                for member in layer.getmembers():
-                    name = member.name.removeprefix("./").lstrip("/")
-                    if name in server_whiteouts:
-                        deletes_lower_server = True
-                    elif name in {"usr", "usr/local", "usr/local/bin"} and not member.isdir():
-                        fail(f"OCI layer[{index}] replaces a server path directory")
-                    elif name == "usr/local/bin/iggy-server":
-                        if not member.isfile():
-                            fail("OCI iggy-server is not a regular file")
-                        if layer_server is not None:
-                            fail(f"OCI layer[{index}] contains duplicate iggy-server entries")
-                        source = layer.extractfile(member)
-                        if source is None:
-                            fail("OCI iggy-server is unreadable")
-                        layer_server = source.read()
-                if deletes_lower_server:
-                    server_bytes = None
-                if layer_server is not None:
-                    server_bytes = layer_server
-        except tarfile.TarError as exc:
-            fail(f"OCI layer[{index}] is not a readable layer archive: {exc}")
-    if server_bytes is None:
-        fail("OCI image does not contain /usr/local/bin/iggy-server")
-    return sha256_bytes(server_bytes), labels
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(test_server_manifest_path.parents[2] / "scripts" / "release"))
+from oci_artifact import inspect_oci_server
 
 
 def stored_file(root: Path, entry: dict, label: str) -> Path:
@@ -518,6 +432,11 @@ for index, item in enumerate(assets):
 )
 PY
 
+if [[ "$validate_only" == true ]]; then
+  printf '%s\n' 'publication bundle local validation passed; no remote operations performed'
+  exit 0
+fi
+
 IFS=$'\t' read -r source_commit release_tag image_path image_sha256 \
   image_reference image_manifest_digest github_repository < "$scratch/identity.tsv"
 
@@ -630,9 +549,32 @@ PY
   return 1
 }
 
+if [[ "$fixture_count" == 0 && -z "${CHIRPS_POSTPUBLISH_EVIDENCE_DIR:-}" ]]; then
+  printf '%s\n' 'CHIRPS_POSTPUBLISH_EVIDENCE_DIR is required before uploading archives' >&2
+  exit 1
+fi
+
 while IFS=$'\t' read -r package_name package_path package_sha256 metadata_base64; do
   publish_registry_archive "$package_name" "$package_path" "$package_sha256" "$metadata_base64"
 done < "$scratch/packages.tsv"
+
+# Publication is incomplete until a fresh consumer resolves the exact uploaded bytes.
+# Failure here leaves resumable crate uploads and prevents image/Release promotion.
+consumer_phase=registry
+consumer_output="${CHIRPS_POSTPUBLISH_EVIDENCE_DIR:-$scratch/registry-consumer}"
+if [[ "$fixture_count" == 0 && -z "${CHIRPS_POSTPUBLISH_EVIDENCE_DIR:-}" ]]; then
+  printf '%s\n' 'CHIRPS_POSTPUBLISH_EVIDENCE_DIR is required to retain registry verification evidence' >&2
+  exit 1
+fi
+consumer_args=()
+if [[ "$fixture_count" == 3 ]]; then
+  consumer_phase=fixture-registry
+  consumer_args=(--fixture-registry "$fixture_registry")
+fi
+python3 "$repo_root/scripts/release/v07_consumer_evidence.py" \
+  --bundle "$bundle" --phase "$consumer_phase" --output "$consumer_output" "${consumer_args[@]}"
+python3 "$repo_root/scripts/release/v07_consumer_evidence.py" \
+  --bundle "$bundle" --phase "$consumer_phase" --verify-report "$consumer_output/report.json"
 
 if [[ "$fixture_count" == 3 ]]; then
   fixture_transfer "$fixture_image" "production/0.7.0" \
@@ -669,7 +611,7 @@ if [[ "$fixture_count" == 0 ]]; then
   [[ -n "${GH_TOKEN:-}" ]] || { printf '%s\n' 'GH_TOKEN is required for GitHub assets' >&2; exit 1; }
   if ! gh release view "$release_tag" --repo "$github_repository" >/dev/null 2>&1; then
     gh release create "$release_tag" --repo "$github_repository" \
-      --verify-tag --title "Alopex Chirps $release_tag" --generate-notes
+      --verify-tag --draft --title "Alopex Chirps $release_tag" --generate-notes
   fi
 fi
 
@@ -695,5 +637,20 @@ while IFS=$'\t' read -r asset_name asset_path asset_sha256; do
       --repo "$github_repository"
   fi
 done < "$scratch/assets.tsv"
+
+if [[ "$fixture_count" == 0 ]]; then
+  # Read the dedicated paginated API and download IDs from that exact snapshot.
+  python3 - "$repo_root/scripts/release/verify-published-v0.7.py" "$bundle" <<'PY_PROMOTION'
+import importlib.util
+import json
+import sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("published", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.verify_promotion_assets(json.loads(Path(sys.argv[2]).read_bytes()), module.Remote())
+PY_PROMOTION
+  gh release edit "$release_tag" --repo "$github_repository" --draft=false
+fi
 
 printf 'v0.7 exact-byte bundle publication completed for %s\n' "$source_commit"

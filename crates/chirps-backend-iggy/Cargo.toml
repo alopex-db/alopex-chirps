@@ -22,7 +22,7 @@ fs2 = "0.4"
 iggy = "=0.10.0"
 iggy_binary_protocol = "=0.10.0"
 iggy_common = "=0.10.0"
-rustls = "0.23"
+rustls = "0.23.45"
 serde.workspace = true
 sha2 = "0.10"
 thiserror.workspace = true

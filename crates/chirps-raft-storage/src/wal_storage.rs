@@ -7,7 +7,7 @@ use crate::types::{
     LogState, OptionalSend, RaftLogReader, RaftSnapshotBuilder, Snapshot, SnapshotMeta,
     StorageError, StoredMembership, Vote,
 };
-use alopex_core::log::wal::{WalReader, WalRecord as CoreWalRecord};
+use alopex_core::log::wal::{WalReader, WalRecord as CoreWalRecord, WalWriter};
 use alopex_core::types::TxnId;
 use anyhow::{Context, Result, anyhow};
 use openraft::{ErrorSubject, ErrorVerb};
@@ -17,8 +17,8 @@ use sha2::{Digest, Sha256};
 use std::any::Any;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fmt::Debug;
-use std::fs::{File, OpenOptions};
-use std::io::{self, BufWriter, Cursor, Read, Write};
+use std::fs::OpenOptions;
+use std::io::{self, Cursor, Read, Write};
 use std::ops::{RangeBounds, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -148,10 +148,12 @@ struct CoordinatorGate {
     syncing: bool,
     generation: u64,
     last_error: Option<String>,
+    #[cfg(test)]
+    waiters: usize,
 }
 
 struct DurabilityParticipant {
-    writer: Weak<Mutex<BufWriter<File>>>,
+    writer: Weak<Mutex<WalWriter>>,
     dirty: Weak<AtomicBool>,
 }
 
@@ -182,6 +184,8 @@ impl WalDurabilityCoordinator {
                 syncing: false,
                 generation: 0,
                 last_error: None,
+                #[cfg(test)]
+                waiters: 0,
             }),
             wake: Condvar::new(),
             batch_wait,
@@ -189,7 +193,7 @@ impl WalDurabilityCoordinator {
         }
     }
 
-    fn register(&self, writer: &Arc<Mutex<BufWriter<File>>>, dirty: &Arc<AtomicBool>) {
+    fn register(&self, writer: &Arc<Mutex<WalWriter>>, dirty: &Arc<AtomicBool>) {
         let mut participants = self.participants.lock().unwrap();
         participants
             .retain(|entry| entry.writer.strong_count() > 0 && entry.dirty.strong_count() > 0);
@@ -200,17 +204,40 @@ impl WalDurabilityCoordinator {
     }
 
     fn sync(&self) -> Result<()> {
+        self.sync_with(RealWalSink::sync_writer)
+    }
+
+    fn sync_with(&self, sync_writer: impl FnMut(&mut WalWriter) -> Result<()>) -> Result<()> {
         let mut gate = self.gate.lock().unwrap();
         if gate.syncing {
             let generation = gate.generation;
+            #[cfg(test)]
+            {
+                gate.waiters += 1;
+            }
             while gate.syncing || gate.generation == generation {
                 gate = self.wake.wait(gate).unwrap();
             }
-            return gate
-                .last_error
-                .as_ref()
-                .map(|error| Err(anyhow!(error.clone())))
-                .unwrap_or(Ok(()));
+            #[cfg(test)]
+            {
+                gate.waiters -= 1;
+            }
+            if let Some(error) = &gate.last_error {
+                return Err(anyhow!(error.clone()));
+            }
+            // An append may have joined after the active barrier selected its
+            // writers. Completion alone cannot acknowledge that append. Keep
+            // the gate locked while deciding who starts its required barrier.
+            let pending = self.participants.lock().unwrap().iter().any(|entry| {
+                entry.writer.strong_count() > 0
+                    && entry
+                        .dirty
+                        .upgrade()
+                        .is_some_and(|dirty| dirty.load(Ordering::Acquire))
+            });
+            if !pending {
+                return Ok(());
+            }
         }
         gate.syncing = true;
         let generation = gate.generation + 1;
@@ -222,7 +249,7 @@ impl WalDurabilityCoordinator {
         if self.diagnostics_enabled {
             PROCESS_DURABILITY_BARRIERS.fetch_add(1, Ordering::Relaxed);
         }
-        let result = self.sync_participants();
+        let result = self.sync_participants_with(sync_writer);
 
         let mut gate = self.gate.lock().unwrap();
         gate.last_error = result.as_ref().err().map(ToString::to_string);
@@ -232,7 +259,10 @@ impl WalDurabilityCoordinator {
         result
     }
 
-    fn sync_participants(&self) -> Result<()> {
+    fn sync_participants_with(
+        &self,
+        mut sync_writer: impl FnMut(&mut WalWriter) -> Result<()>,
+    ) -> Result<()> {
         let writers = {
             let mut participants = self.participants.lock().unwrap();
             let mut writers = Vec::with_capacity(participants.len());
@@ -250,13 +280,17 @@ impl WalDurabilityCoordinator {
             });
             writers
         };
-        for (writer, dirty) in writers {
+        for (index, (writer, _)) in writers.iter().enumerate() {
             if self.diagnostics_enabled {
                 PROCESS_DURABILITY_PARTICIPANT_SYNCS.fetch_add(1, Ordering::Relaxed);
             }
             let mut guard = writer.lock().unwrap();
-            if let Err(error) = RealWalSink::sync_writer(&mut guard) {
-                dirty.store(true, Ordering::Release);
+            if let Err(error) = sync_writer(&mut guard) {
+                // Collection cleared every selected dirty flag. Preserve retry
+                // eligibility for this failed sync and all unattempted writers.
+                for (_, dirty) in &writers[index..] {
+                    dirty.store(true, Ordering::Release);
+                }
                 return Err(error);
             }
         }
@@ -315,15 +349,19 @@ pub(crate) trait WalSink: Send + Sync {
 }
 
 struct RealWalSink {
-    inner: Arc<Mutex<BufWriter<File>>>,
+    inner: Arc<Mutex<WalWriter>>,
     dirty: Arc<AtomicBool>,
     coordinator: Arc<WalDurabilityCoordinator>,
 }
 
 impl RealWalSink {
     fn new(path: &Path, coordinator: Arc<WalDurabilityCoordinator>) -> Result<Self> {
-        let file = OpenOptions::new().append(true).create(true).open(path)?;
-        let inner = Arc::new(Mutex::new(BufWriter::new(file)));
+        // Core repairs torn tails on open. Raft instead rejects damaged logs,
+        // so validate before giving the writer permission to change the file.
+        if path.try_exists()? {
+            validate_wal_framing(path)?;
+        }
+        let inner = Arc::new(Mutex::new(WalWriter::new(path)?));
         let dirty = Arc::new(AtomicBool::new(false));
         coordinator.register(&inner, &dirty);
         Ok(Self {
@@ -333,18 +371,8 @@ impl RealWalSink {
         })
     }
 
-    fn append_record(writer: &mut BufWriter<File>, record: &CoreWalRecord) -> Result<()> {
-        let data = bincode::serialize(record)?;
-        let checksum = crc32fast::hash(&data);
-        writer.write_all(&(data.len() as u32).to_le_bytes())?;
-        writer.write_all(&checksum.to_le_bytes())?;
-        writer.write_all(&data)?;
-        Ok(())
-    }
-
-    fn sync_writer(writer: &mut BufWriter<File>) -> Result<()> {
-        writer.flush()?;
-        writer.get_ref().sync_all()?;
+    fn sync_writer(writer: &mut WalWriter) -> Result<()> {
+        writer.sync()?;
         PROCESS_FSYNC_CALLS.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -354,7 +382,7 @@ impl WalSink for RealWalSink {
     fn append(&mut self, record: &CoreWalRecord, sync: bool) -> Result<()> {
         {
             let mut guard = self.inner.lock().unwrap();
-            Self::append_record(&mut guard, record)?;
+            guard.append(record)?;
         }
         self.dirty.store(true, Ordering::Release);
         if sync {
@@ -639,14 +667,19 @@ where
 
     fn insert_entry(&mut self, entry: Entry<ChirpsTypeConfig>) {
         let index = entry.log_id.index;
-        let replaced = self.log_cache.insert(index, entry).is_some();
-        if !replaced {
-            self.log_order.push_back(index);
-        }
+        self.log_cache.insert(index, entry);
+        self.touch_cache(index);
         while self.log_cache.len() > self.config.log_cache_size {
-            if let Some(oldest) = self.log_order.pop_front() {
-                self.log_cache.remove(&oldest);
+            if let Some(least_recently_used) = self.log_order.pop_front() {
+                self.log_cache.remove(&least_recently_used);
             }
+        }
+    }
+
+    fn touch_cache(&mut self, index: u64) {
+        self.log_order.retain(|cached| *cached != index);
+        if self.log_cache.contains_key(&index) {
+            self.log_order.push_back(index);
         }
     }
 
@@ -700,6 +733,8 @@ where
     /// LogIdベースの取得ヘルパー。
     ///
     /// openraft標準のindex指定APIを補完するために用意されたラッパー。
+    // Keep the established public Openraft error type; boxing would break callers.
+    #[allow(clippy::result_large_err)]
     pub async fn get_entries_by_log_id(
         &mut self,
         range: RangeInclusive<LogId<ChirpsNodeId>>,
@@ -723,9 +758,9 @@ where
     where
         RB: RangeBounds<u64> + Clone,
     {
-        let reader = WalReader::new(&self.wal_path)?;
+        let mut reader = WalReader::new(&self.wal_path)?;
         let mut entries: BTreeMap<u64, Entry<ChirpsTypeConfig>> = BTreeMap::new();
-        for record in reader {
+        for record in reader.by_ref() {
             let frame = match record? {
                 CoreWalRecord::Put(_, _, bytes) => decode_frame::<WalFrame>(&bytes)?,
                 _ => continue,
@@ -764,6 +799,12 @@ where
                 }
                 _ => {}
             }
+        }
+
+        // Core's reader treats checksum damage as a recoverable tail. Raft must
+        // still reject that damage instead of returning cached/partial entries.
+        if reader.valid_prefix_len() != std::fs::metadata(&self.wal_path)?.len() {
+            return Err(anyhow!("WAL read stopped before the end of the file"));
         }
 
         let filtered = entries
@@ -847,6 +888,9 @@ fn validate_wal_framing(path: &Path) -> Result<()> {
         if crc32fast::hash(&record) != expected_checksum {
             return Err(anyhow!("WAL checksum mismatch at byte {offset}"));
         }
+        // A checksum-valid but undecodable record is also a torn tail to Core.
+        // Reject it before opening WalWriter so failed recovery preserves bytes.
+        bincode::deserialize::<CoreWalRecord>(&record).context("invalid WAL record encoding")?;
     }
     Ok(())
 }
@@ -875,26 +919,32 @@ where
     where
         RB: RangeBounds<u64> + Clone + Debug + OptionalSend,
     {
-        let mut seen = HashSet::new();
-        let mut entries: Vec<Entry<ChirpsTypeConfig>> = self
+        let cached_entries: Vec<Entry<ChirpsTypeConfig>> = self
             .log_cache
             .range(range.clone())
-            .map(|(_, e)| {
-                seen.insert(e.log_id.index);
-                e.clone()
-            })
+            .map(|(_, e)| e.clone())
             .collect();
+        let mut seen = HashSet::new();
+        let mut entries = Vec::with_capacity(cached_entries.len());
+        for entry in cached_entries {
+            seen.insert(entry.log_id.index);
+            entries.push(entry);
+        }
 
         let wal_entries = with_blocking_wal_io(|| self.read_entries_from_wal(range.clone()))
             .map_err(|e| self.to_storage_io_error(e, ErrorSubject::Logs, ErrorVerb::Read))?;
 
         for entry in wal_entries {
             if seen.insert(entry.log_id.index) {
+                self.insert_entry(entry.clone());
                 entries.push(entry);
             }
         }
 
         entries.sort_by_key(|e| e.log_id.index);
+        for entry in &entries {
+            self.touch_cache(entry.log_id.index);
+        }
         Ok(entries)
     }
 
@@ -1277,8 +1327,7 @@ fn durably_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
         file.sync_all()?;
         drop(file);
         std::fs::rename(&temp, path)?;
-        #[cfg(unix)]
-        OpenOptions::new().read(true).open(parent)?.sync_all()?;
+        crate::fs::sync_directory(parent)?;
         Ok(())
     })();
     if result.is_err() {
@@ -1442,6 +1491,21 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
 
+    #[test]
+    fn durable_replacement_reopens_exact_bytes_and_cleans_failed_temporary_file() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("snapshot");
+        durably_replace(&path, b"first snapshot").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"first snapshot");
+        durably_replace(&path, b"replacement").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        let blocked = root.path().join("directory");
+        std::fs::create_dir(&blocked).unwrap();
+        assert!(durably_replace(&blocked, b"cannot replace directory").is_err());
+        assert!(blocked.is_dir());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
+    }
+
     #[derive(Default)]
     struct MockStateMachine;
 
@@ -1573,6 +1637,89 @@ mod tests {
     }
 
     #[test]
+    fn core_writer_preserves_legacy_bytes_and_defers_durability() {
+        // v0.3 framing: u32 length, CRC32, then bincode Put(TxnId(7), "k", "v").
+        // Fixed bytes keep this compatibility check independent of the writer.
+        const LEGACY_RECORD: &[u8] = &[
+            0x1e, 0x00, 0x00, 0x00, 0xb7, 0x2f, 0xef, 0x8c, 0x01, 0x00, 0x00, 0x00, 0x07, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x6b, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76,
+        ];
+        let root = tempdir().unwrap();
+        let path = root.path().join("legacy.wal");
+        std::fs::write(&path, LEGACY_RECORD).unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+        let mut sink = RealWalSink::new(&path, coordinator).unwrap();
+        let record = CoreWalRecord::Put(TxnId(7), b"k".to_vec(), b"v".to_vec());
+        sink.append(&record, false).unwrap();
+        assert!(sink.dirty.load(Ordering::Acquire));
+        assert_eq!(std::fs::read(&path).unwrap(), LEGACY_RECORD);
+        sink.sync().unwrap();
+        assert!(!sink.dirty.load(Ordering::Acquire));
+        assert_eq!(std::fs::read(&path).unwrap(), LEGACY_RECORD.repeat(2));
+        let recovered = WalReader::new(&path)
+            .unwrap()
+            .collect::<alopex_core::error::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            recovered,
+            vec![
+                record,
+                CoreWalRecord::Put(TxnId(7), b"k".to_vec(), b"v".to_vec())
+            ]
+        );
+    }
+
+    #[test]
+    fn core_writer_rejects_invalid_record_encoding_without_repairing_it() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("invalid.wal");
+        let payload = u32::MAX.to_le_bytes(); // Not a valid CoreWalRecord variant.
+        let mut bytes = (payload.len() as u32).to_le_bytes().to_vec();
+        bytes.extend_from_slice(&crc32fast::hash(&payload).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        std::fs::write(&path, &bytes).unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+        assert!(RealWalSink::new(&path, coordinator).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(24))]
+
+        #[test]
+        fn core_writer_accepts_only_complete_record_prefixes(
+            values in proptest::collection::vec(
+                proptest::collection::vec(proptest::prelude::any::<u8>(), 0..24), 1..4
+            )
+        ) {
+            let root = tempdir().unwrap();
+            let path = root.path().join("prefix.wal");
+            let mut bytes = Vec::new();
+            let mut boundaries = vec![0];
+            for value in values {
+                let record = CoreWalRecord::Put(TxnId(1), b"raft".to_vec(), value);
+                let body = bincode::serialize(&record).unwrap();
+                bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                bytes.extend_from_slice(&crc32fast::hash(&body).to_le_bytes());
+                bytes.extend_from_slice(&body);
+                boundaries.push(bytes.len());
+            }
+            // The reference model is the set of original append boundaries,
+            // independent of the parser's header/length/EOF branches.
+            for length in 0..=bytes.len() {
+                let prefix = &bytes[..length];
+                std::fs::write(&path, prefix).unwrap();
+                let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+                let result = RealWalSink::new(&path, coordinator);
+                proptest::prop_assert_eq!(result.is_ok(), boundaries.contains(&length));
+                drop(result);
+                proptest::prop_assert_eq!(std::fs::read(&path).unwrap(), prefix);
+            }
+        }
+    }
+
+    #[test]
     fn durability_coordinator_flushes_concurrent_group_wals() {
         let root = tempfile::tempdir().unwrap();
         let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::from_millis(1)));
@@ -1592,6 +1739,130 @@ mod tests {
         right_thread.join().unwrap().unwrap();
         assert!(root.path().join("left.wal").metadata().unwrap().len() > 0);
         assert!(root.path().join("right.wal").metadata().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn append_after_barrier_selection_is_synced_before_waiter_returns() {
+        check_waiter_barrier(true);
+    }
+
+    #[test]
+    fn already_selected_append_reuses_the_completed_barrier() {
+        check_waiter_barrier(false);
+    }
+
+    fn check_waiter_barrier(append_after_selection: bool) {
+        let root = tempdir().unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+        let mut first =
+            RealWalSink::new(&root.path().join("first.wal"), Arc::clone(&coordinator)).unwrap();
+        let mut late =
+            RealWalSink::new(&root.path().join("late.wal"), Arc::clone(&coordinator)).unwrap();
+        let record = CoreWalRecord::Put(TxnId(7), b"k".to_vec(), b"v".to_vec());
+        first.append(&record, false).unwrap();
+        if !append_after_selection {
+            late.append(&record, false).unwrap();
+        }
+        let (selected_tx, selected_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let first_coordinator = Arc::clone(&coordinator);
+        let leader = thread::spawn(move || {
+            let mut first_writer = true;
+            first_coordinator.sync_with(|writer| {
+                if first_writer {
+                    first_writer = false;
+                    selected_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                }
+                RealWalSink::sync_writer(writer)
+            })
+        });
+        selected_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Model an owner being torn down after selection: its writer has gone,
+        // while the dirty allocation is still alive. It cannot join a barrier.
+        let retired_writer = Arc::new(Mutex::new(
+            WalWriter::new(&root.path().join("retired.wal")).unwrap(),
+        ));
+        let retired_dirty = Arc::new(AtomicBool::new(true));
+        coordinator.register(&retired_writer, &retired_dirty);
+        drop(retired_writer);
+        // Appends after selection need a new barrier; already-selected appends
+        // must reuse the completed barrier without redundant synchronization.
+        if append_after_selection {
+            late.append(&record, false).unwrap();
+        }
+        let late_coordinator = Arc::clone(&coordinator);
+        let waiter = thread::spawn(move || late_coordinator.sync());
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let entered_wait = loop {
+            if coordinator.gate.lock().unwrap().waiters == 1 {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+            thread::yield_now();
+        };
+        release_tx.send(()).unwrap();
+        leader.join().unwrap().unwrap();
+        waiter.join().unwrap().unwrap();
+        assert!(
+            entered_wait,
+            "the late caller must exercise the in-flight barrier path"
+        );
+        assert!(!late.dirty.load(Ordering::Acquire));
+        assert_eq!(
+            coordinator.gate.lock().unwrap().generation,
+            if append_after_selection { 2 } else { 1 }
+        );
+        let records = WalReader::new(&root.path().join("late.wal"))
+            .unwrap()
+            .collect::<alopex_core::error::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(records, vec![record]);
+    }
+
+    #[test]
+    fn failed_group_sync_keeps_unflushed_participants_dirty_for_retry() {
+        let root = tempdir().unwrap();
+        let coordinator = Arc::new(WalDurabilityCoordinator::new(Duration::ZERO));
+        let record = CoreWalRecord::Put(TxnId(7), b"k".to_vec(), b"v".to_vec());
+        let mut sinks = (0..3)
+            .map(|index| {
+                RealWalSink::new(
+                    &root.path().join(format!("{index}.wal")),
+                    Arc::clone(&coordinator),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        for sink in &mut sinks {
+            sink.append(&record, false).unwrap();
+        }
+        let mut attempts = 0;
+        let result = coordinator.sync_participants_with(|writer| {
+            attempts += 1;
+            if attempts == 2 {
+                Err(anyhow!("injected sync failure"))
+            } else {
+                RealWalSink::sync_writer(writer)
+            }
+        });
+        assert!(result.is_err());
+        assert_eq!(attempts, 2);
+        assert!(!sinks[0].dirty.load(Ordering::Acquire));
+        assert!(sinks[1].dirty.load(Ordering::Acquire));
+        assert!(sinks[2].dirty.load(Ordering::Acquire));
+        coordinator.sync().unwrap();
+        for (index, sink) in sinks.iter().enumerate() {
+            assert!(!sink.dirty.load(Ordering::Acquire));
+            let records = WalReader::new(&root.path().join(format!("{index}.wal")))
+                .unwrap()
+                .collect::<alopex_core::error::Result<Vec<_>>>()
+                .unwrap();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0], record);
+        }
     }
 
     #[test]
@@ -1617,6 +1888,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wal_read_rejects_checksum_damage_after_open() {
+        let dir = tempdir().unwrap();
+        let cfg = base_config(dir.path());
+        let mut storage = WalRaftStorage::new(cfg, GroupId(1), 1, MockStateMachine).unwrap();
+        storage
+            .append_for_test(vec![sample_entry(1)])
+            .await
+            .unwrap();
+        let path = storage.wal_path.clone();
+        let mut bytes = std::fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 0xff;
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(storage.try_get_log_entries(1..=1).await.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
+
+    #[tokio::test]
     async fn append_and_get_entries() {
         let dir = tempdir().unwrap();
         let cfg = base_config(dir.path());
@@ -1631,6 +1919,28 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].log_id.index, 1);
         assert_eq!(entries[1].log_id.index, 2);
+    }
+
+    #[tokio::test]
+    async fn log_cache_evicts_least_recently_used_entry() {
+        let dir = tempdir().unwrap();
+        let mut cfg = base_config(dir.path());
+        cfg.log_cache_size = 2;
+        let mut storage = WalRaftStorage::new(cfg, GroupId(40), 40, MockStateMachine).unwrap();
+
+        storage
+            .append_for_test(vec![sample_entry(1), sample_entry(2)])
+            .await
+            .unwrap();
+        storage.try_get_log_entries(1..=1).await.unwrap();
+        storage
+            .append_for_test(vec![sample_entry(3)])
+            .await
+            .unwrap();
+
+        assert!(storage.log_cache.contains_key(&1));
+        assert!(!storage.log_cache.contains_key(&2));
+        assert!(storage.log_cache.contains_key(&3));
     }
 
     #[tokio::test]

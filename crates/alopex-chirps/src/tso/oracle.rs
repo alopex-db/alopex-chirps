@@ -21,6 +21,22 @@ impl Default for TsoConfig {
     }
 }
 
+/// Additive allocation controls, separate from the v0.6.1 configuration literal.
+#[derive(Clone, Copy, Debug)]
+pub struct TsoOracleOptions {
+    pub batch_size: u32,
+    pub prefetch_threshold: u32,
+}
+
+impl Default for TsoOracleOptions {
+    fn default() -> Self {
+        Self {
+            batch_size: 10_000,
+            prefetch_threshold: 1_000,
+        }
+    }
+}
+
 /// Leader-side facade over the dedicated, durable OpenRaft TSO group.
 pub struct TimestampOracle {
     node_id: u64,
@@ -38,11 +54,32 @@ impl TimestampOracle {
         clock: Arc<dyn Clock>,
         config: TsoConfig,
     ) -> Result<Self, TsoError> {
+        Self::with_options(node_id, group, clock, config, TsoOracleOptions::default())
+    }
+
+    /// Creates an oracle with explicit allocation validation controls.
+    pub fn with_options(
+        node_id: u64,
+        group: Arc<GroupHandle>,
+        clock: Arc<dyn Clock>,
+        config: TsoConfig,
+        options: TsoOracleOptions,
+    ) -> Result<Self, TsoError> {
         if group.group_id() != TSO_GROUP_ID {
             return Err(TsoError::InvalidTsoGroup {
                 expected: TSO_GROUP_ID,
                 actual: group.group_id(),
             });
+        }
+        if options.batch_size == 0 {
+            return Err(TsoError::InvalidConfig(
+                "batch_size must be greater than zero".into(),
+            ));
+        }
+        if options.prefetch_threshold > options.batch_size {
+            return Err(TsoError::InvalidConfig(
+                "prefetch_threshold must not exceed batch_size".into(),
+            ));
         }
         let lease_duration_ms: u64 = config.timestamp_ttl.as_millis().try_into().map_err(|_| {
             TsoError::InvalidConfig("timestamp_ttl exceeds u64 milliseconds".into())
@@ -81,6 +118,10 @@ impl TimestampOracle {
 
     pub fn leader_id(&self) -> Option<u64> {
         self.group.metrics().current_leader
+    }
+
+    pub(crate) fn node_id(&self) -> u64 {
+        self.node_id
     }
 
     pub async fn get_timestamp(&self) -> Result<super::HybridTimestamp, TsoError> {

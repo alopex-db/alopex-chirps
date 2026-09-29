@@ -5,6 +5,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scratch="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/chirps-v07-publication-test.XXXXXX")"
 fixture_repo="$scratch/repo"
 publisher="$fixture_repo/scripts/release/publish-v0.7-bundle.sh"
+source_commit="$(git -C "$repo_root" rev-parse HEAD)"
+export CHIRPS_SOURCE_ROOT="$repo_root"
+export CHIRPS_IGGY_SOURCE_ROOT="$scratch/synthetic-foreign-source"
+export CHIRPS_RELEASE_TOOLS_COMMIT="$source_commit"
+export CHIRPS_PERF_VERIFIER="$scratch/trusted-tool/chirps-durable-perf"
 server_pid=""
 
 cleanup() {
@@ -22,6 +27,45 @@ mkdir -p "$scratch/bundle" "$scratch/server" \
 cp "$repo_root/scripts/release/publish-v0.7-bundle.sh" "$publisher"
 cp "$repo_root/scripts/release/verify-v0.7-evidence.py" \
   "$fixture_repo/scripts/release/verify-v0.7-evidence.py"
+cp "$repo_root/scripts/release/v07_e2e_evidence.py" \
+  "$repo_root/scripts/release/test-v07-e2e-evidence.py" \
+  "$repo_root/scripts/release/v07_consumer_evidence.py" \
+  "$repo_root/scripts/release/v07_api_evidence.py" \
+  "$repo_root/scripts/release/v07_compatibility_matrix.py" \
+  "$repo_root/scripts/release/v07_official_evidence.py" \
+  "$repo_root/scripts/release/v07_official_run.py" \
+  "$repo_root/scripts/release/v07_wire_evidence.py" \
+  "$repo_root/scripts/release/test-v07-compatibility-matrix.py" \
+  "$repo_root/scripts/release/test-v07-official-evidence.py" \
+  "$repo_root/scripts/release/test-v07-official-run.py" \
+  "$repo_root/scripts/release/test-v07-wire-evidence.py" \
+  "$repo_root/scripts/release/v07_perf_verifier.py" \
+  "$repo_root/scripts/release/v07_environment_evidence.py" \
+  "$repo_root/scripts/release/test-v07-environment-evidence.py" \
+  "$repo_root/scripts/release/test-v07-consumer-evidence.py" \
+  "$repo_root/scripts/release/test-v07-api-evidence.py" \
+  "$repo_root/scripts/release/test-v07-perf-verifier.py" \
+  "$repo_root/scripts/release/oci_artifact.py" "$fixture_repo/scripts/release/"
+# This temporary publisher repository uses an explicit unit mock for model
+# execution. Its synthetic bytes are not release model evidence. Production
+# v07_formal_release.py has no mock switch; strict verifier tests run separately.
+cat > "$fixture_repo/scripts/release/v07_formal_release.py" <<'PY'
+"""Publication protocol fixture only; never install as a release verifier."""
+def verify_release_models(source_root, iggy_root, report_path, source_commit, iggy_commit):
+    if report_path.read_bytes() != b"fixture-model\n":
+        raise ValueError("unexpected synthetic publication model fixture")
+    return {"synthetic_unit_mock": True}
+PY
+# Explicit security unit mock: actual diagnostic/canary tests run separately.
+cat > "$fixture_repo/scripts/release/v07_security_evidence.py" <<'PYSECURITY'
+"""Publication protocol fixture only; not production security evidence."""
+def verify(source_root, report_path, source_commit, iggy_commit):
+    import json
+    value = json.loads(report_path.read_bytes())
+    if value.get("synthetic_unit_mock") is not True:
+        raise ValueError("unexpected synthetic publication security fixture")
+    return value
+PYSECURITY
 cp "$repo_root/docs/release/v0.7.0-evidence-schema.json" \
   "$fixture_repo/docs/release/v0.7.0-evidence-schema.json"
 test_server_sha256="$(printf '%s\n' 'fixture-publish-disabled-test-server' | sha256sum | awk '{print $1}')"
@@ -32,15 +76,29 @@ python3 - "$scratch/bundle" "$fixture_repo/docs/release/v0.7.0-evidence-schema.j
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import json
+import os
 import sys
 import tarfile
 from pathlib import Path
 
 root = Path(sys.argv[1])
 schema_path = Path(sys.argv[2])
-source_commit = "1" * 40
+sys.dont_write_bytecode = True
+fixture_script = schema_path.parents[2] / "scripts/release/test-v07-e2e-evidence.py"
+fixture_spec = importlib.util.spec_from_file_location("e2e_fixtures", fixture_script)
+fixture_module = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(fixture_module)
+sys.path.insert(0, str(fixture_script.parent))
+source_commit = os.environ["CHIRPS_RELEASE_TOOLS_COMMIT"]
+def load_fixture(name):
+    spec = importlib.util.spec_from_file_location(name, fixture_script.with_name(f"test-v07-{name}.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+load_fixture("perf-verifier").write_tool_fixture(Path(os.environ["CHIRPS_PERF_VERIFIER"]).parent, source_commit)
 production_server = b"fixture-production-server\n"
 test_server = b"fixture-publish-disabled-test-server\n"
 required_kinds = {
@@ -198,31 +256,16 @@ evidence_files = {
     )
     for kind in required_kinds - {"process"}
 }
-
-candidate = {
-    "schema": "chirps.v0.7.candidate/v1",
-    "release_version": "0.7.0",
-    "source_commit": source_commit,
-    "iggy_commit": "2" * 40,
-    "source_sha256": evidence_files["source"]["sha256"],
-    "specification_sha256": evidence_files["specification"]["sha256"],
-    "model_sha256": evidence_files["model"]["sha256"],
-    "configuration_sha256": evidence_files["configuration"]["sha256"],
-    "tool_sha256": evidence_files["tool"]["sha256"],
-    "environment_sha256": evidence_files["environment"]["sha256"],
-    "server_sha256": production_image["server_sha256"],
-    "package_graph_sha256": evidence_files["package"]["sha256"],
-    "performance": {"fixture": True},
-}
-candidate_path = root / "candidate.json"
-candidate_path.write_text(json.dumps(candidate, sort_keys=True) + "\n", encoding="utf-8")
+for kind, lane in (("process", "production"), ("fault", "fault")):
+    lane_path = fixture_module.write_lane_fixture(root / "runtime" / lane, lane, source_commit, "2" * 40)
+    evidence_files[kind] = {"path": lane_path.relative_to(root).as_posix(), "sha256": hashlib.sha256(lane_path.read_bytes()).hexdigest()}
 
 packages = []
 for index, name in enumerate(package_names):
-    stored = write(
-        root / "packages" / f"{name}-0.7.0.crate",
-        f"stored-crate-{index}-{name}\n".encode(),
-    )
+    path = root / "packages" / f"{name}-0.7.0.crate"
+    path.parent.mkdir(exist_ok=True)
+    load_fixture("consumer-evidence").archive(path, name, source_commit=source_commit)
+    stored = write(path, path.read_bytes())
     packages.append(
         {
             "name": name,
@@ -238,6 +281,56 @@ for index, name in enumerate(package_names):
             },
         }
     )
+
+catalog = root / "package-set.json"
+catalog.write_text(json.dumps({"source_commit": source_commit, "packages": packages}))
+consumer = load_fixture("consumer-evidence").write_consumer_fixture(root / "consumer", source_commit, catalog)
+api = load_fixture("api-evidence").write_api_fixture(root / "api", Path(os.environ["CHIRPS_SOURCE_ROOT"]), source_commit)
+compatibility = load_fixture("compatibility-matrix").write_matrix_fixture(
+    root, Path(os.environ["CHIRPS_SOURCE_ROOT"]), source_commit, "2" * 40, api,
+    root / evidence_files["process"]["path"], root / evidence_files["fault"]["path"],
+)
+for kind in ("process", "fault"):
+    evidence_files[kind]["sha256"] = hashlib.sha256((root / evidence_files[kind]["path"]).read_bytes()).hexdigest()
+environment_fixture = load_fixture("environment-evidence")
+axes = environment_fixture.axes_fixture()
+from v07_e2e_evidence import resolve_reference, TARGETS
+first_lane = root / evidence_files["process"]["path"]
+first_target = resolve_reference(first_lane.parent, json.loads(first_lane.read_bytes())["targets"][TARGETS["production"][0]])
+observed_environment = resolve_reference(first_target.parent, json.loads(first_target.read_bytes())["environment"])
+environment = environment_fixture.write_environment_fixture(root / "environment", source_commit, "2" * 40, axes, observed_environment)
+evidence_files["environment"] = {"path":environment.relative_to(root).as_posix(),"sha256":hashlib.sha256(environment.read_bytes()).hexdigest()}
+security = {"synthetic_unit_mock": True}
+for kind,lane in (("process","production"),("fault","fault")):
+    security[lane] = json.loads((root / evidence_files[kind]["path"]).read_bytes())["targets"]["durable_diagnostics"]
+security_path = root / "artifacts/security.json"
+write(security_path, (json.dumps(security,sort_keys=True)+'\n').encode())
+evidence_files["security"] = {"path":security_path.relative_to(root).as_posix(),"sha256":hashlib.sha256(security_path.read_bytes()).hexdigest()}
+performance = root / "performance/paired/paired.json"
+write(performance, b'{"synthetic_fixture":true}\n')
+for kind, path in (("package", consumer), ("compatibility", compatibility), ("performance", performance)):
+    evidence_files[kind] = {"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+candidate = {
+    "schema": "chirps.v0.7.candidate/v1",
+    "release_version": "0.7.0",
+    "source_commit": source_commit,
+    "iggy_commit": "2" * 40,
+    "source_sha256": evidence_files["source"]["sha256"],
+    "specification_sha256": evidence_files["specification"]["sha256"],
+    "model_sha256": evidence_files["model"]["sha256"],
+    "configuration_sha256": evidence_files["configuration"]["sha256"],
+    "tool_sha256": evidence_files["tool"]["sha256"],
+    "environment_sha256": evidence_files["environment"]["sha256"],
+    "server_sha256": production_image["server_sha256"],
+    "package_graph_sha256": evidence_files["package"]["sha256"],
+    "performance": {"fixture": True, "axes": axes},
+}
+candidate_path = root / "candidate.json"
+candidate_path.write_text(json.dumps(candidate, sort_keys=True) + "\n", encoding="utf-8")
+environment_fixture.write_perf_identity_fixture(root / "performance", candidate_path)
+evidence_files["performance"]["sha256"] = hashlib.sha256(performance.read_bytes()).hexdigest()
+
 
 asset = write(root / "assets" / "v0.7.0-evidence.json", b'{"fixture":"evidence"}\n')
 bundle = {
@@ -296,7 +389,7 @@ def write_evidence(index_name: str, bundle_name: str, release_name: str) -> None
         )
         entries.append(
             {
-                "id": "release-bundle" if kind == "process" else f"fixture-{kind}",
+                "id": "release-bundle" if kind == "process" else "formal-models" if kind == "model" else "compatibility-matrix" if kind == "compatibility" else f"fixture-{kind}",
                 "kind": kind,
                 "result": "pass",
                 "candidate_sha256": candidate_sha256,
@@ -305,6 +398,12 @@ def write_evidence(index_name: str, bundle_name: str, release_name: str) -> None
                 "sha256": stored["sha256"],
             }
         )
+    entries.append({
+        "id": "fixture-production-e2e", "kind": "process", "result": "pass",
+        "candidate_sha256": candidate_sha256,
+        "environment_sha256": candidate["environment_sha256"],
+        **evidence_files["process"],
+    })
     entries.sort(key=lambda entry: entry["id"])
     evidence_bundle = {
         "schema": "chirps.v0.7.bundle/v1",
@@ -417,9 +516,54 @@ bundle="$scratch/bundle/release-bundle.json"
 candidate="$scratch/bundle/candidate.json"
 evidence="$scratch/bundle/evidence.json"
 mkdir -p "$scratch/bin"
-printf '#!/usr/bin/env bash\nexit 97\n' > "$scratch/bin/cargo"
-printf '#!/usr/bin/env bash\nexit 98\n' > "$scratch/bin/git"
-chmod 755 "$scratch/bin/cargo" "$scratch/bin/git"
+# This shim emits explicitly synthetic Cargo records; it cannot build release evidence.
+export CHIRPS_FIXTURE_BUNDLE="$bundle"
+export CHIRPS_FIXTURE_HELPERS="$fixture_repo/scripts/release"
+export CHIRPS_FIXTURE_CALLS="$scratch/cargo-calls.log"
+cat > "$scratch/bin/cargo" <<'PY_CARGO'
+#!/usr/bin/env python3
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sys
+sys.path.insert(0, os.environ["CHIRPS_FIXTURE_HELPERS"])
+import v07_consumer_evidence as consumer
+spec = importlib.util.spec_from_file_location("fixtures", Path(os.environ["CHIRPS_FIXTURE_HELPERS"]) / "test-v07-consumer-evidence.py")
+fixtures = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fixtures)
+with Path(os.environ["CHIRPS_FIXTURE_CALLS"]).open("a") as log:
+    log.write(" ".join(sys.argv[1:]) + "\n")
+if Path("FIXTURE_FAIL_PATH").exists():
+    raise SystemExit(71)
+if sys.argv[1] == "metadata":
+    metadata, lock, checksums = fixtures.graph("--features" in sys.argv)
+    bundle, archives = consumer.archives(Path(os.environ["CHIRPS_FIXTURE_BUNDLE"]))
+    for item in lock["package"]:
+        if item["name"] in archives:
+            item["checksum"] = archives[item["name"]][1]
+    Path("Cargo.lock").write_text("\n".join("[[package]]\n" + "\n".join(f"{key} = {json.dumps(value)}" for key, value in item.items() if value is not None) for item in lock["package"]))
+    print(json.dumps(metadata))
+elif sys.argv[1] == "build":
+    binary = Path.cwd() / "synthetic-consumer"
+    binary.write_text("synthetic fixture; not release evidence\n")
+    print(json.dumps({"reason":"compiler-artifact", "target":{"name":"chirps-v07-exact-consumer"}, "executable":str(binary)}))
+    print(json.dumps({"reason":"build-finished", "success":True}))
+else:
+    raise SystemExit("unexpected Cargo command")
+PY_CARGO
+python3 - "$scratch/bin/cargo" "$fixture_repo/scripts/release" "$bundle" "$CHIRPS_FIXTURE_CALLS" "$scratch/cargo-fail" <<'PY_PIN_SHIM'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+value = path.read_text()
+for name, content in zip(("CHIRPS_FIXTURE_HELPERS", "CHIRPS_FIXTURE_BUNDLE", "CHIRPS_FIXTURE_CALLS"), sys.argv[2:5]):
+    value = value.replace(f'os.environ["{name}"]', json.dumps(content))
+value = value.replace('"FIXTURE_FAIL_PATH"', json.dumps(sys.argv[5]))
+path.write_text(value)
+PY_PIN_SHIM
+chmod 755 "$scratch/bin/cargo"
 fixture_path="$scratch/bin:$PATH"
 common=(
   --bundle "$bundle"
@@ -428,6 +572,15 @@ common=(
   --require-environment-approval
   --resume-only-on-checksum-match
 )
+
+PATH="$fixture_path" "$publisher" "${common[@]}" --validate-only \
+  --fixture-registry "$endpoint/readonly-registry" \
+  --fixture-image "$endpoint/readonly-image" \
+  --fixture-github "$endpoint/readonly-github" >/dev/null
+[[ ! -e "$scratch/server/requests.log" ]] || {
+  printf '%s\n' 'local validation contacted a remote endpoint' >&2
+  exit 1
+}
 
 if PATH="$fixture_path" "$publisher" "${common[@]}" \
   --fixture-registry "$endpoint/approval-registry" \
@@ -442,7 +595,7 @@ fi
 }
 
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" \
   --bundle "$scratch/bundle/test-release-bundle.json" \
   --candidate "$candidate" \
@@ -461,7 +614,7 @@ fi
 }
 
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" \
   --bundle "$bundle" \
   --candidate "$candidate" \
@@ -480,7 +633,7 @@ fi
 }
 
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" \
   --bundle "$scratch/bundle/hidden-release-bundle.json" \
   --candidate "$candidate" \
@@ -498,8 +651,30 @@ fi
   exit 1
 }
 
+# A failed post-upload consumer must stop before any image/GitHub write.
+touch "$scratch/cargo-fail"
+if PATH="$fixture_path" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
+  "$publisher" "${common[@]}" \
+  --fixture-registry "$endpoint/consumer-failure-registry" \
+  --fixture-image "$endpoint/consumer-failure-image" \
+  --fixture-github "$endpoint/consumer-failure-github" >/dev/null 2>&1; then
+  printf '%s\n' 'publisher accepted a failed post-upload consumer' >&2
+  exit 1
+fi
+python3 - "$scratch/server/requests.log" <<'PY_FAILED_CONSUMER'
+import sys
+from pathlib import Path
+log = Path(sys.argv[1])
+lines = log.read_text().splitlines()
+if len(lines) != 9 or any("/consumer-failure-registry/" not in line for line in lines):
+    raise SystemExit("failed consumer did not stop publication immediately after nine archives")
+log.unlink()
+PY_FAILED_CONSUMER
+rm "$scratch/cargo-fail"
+
 PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" "${common[@]}" \
   --fixture-registry "$endpoint/registry" \
   --fixture-image "$endpoint/image" \
@@ -526,14 +701,20 @@ if actual != expected:
 PY
 
 request_count="$(wc -l < "$scratch/server/requests.log")"
+cargo_call_count="$(wc -l < "$CHIRPS_FIXTURE_CALLS")"
 PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" "${common[@]}" \
   --fixture-registry "$endpoint/registry" \
   --fixture-image "$endpoint/image" \
   --fixture-github "$endpoint/github" >/dev/null
 [[ "$(wc -l < "$scratch/server/requests.log")" == "$request_count" ]] || {
   printf '%s\n' 'checksum-matched resume uploaded bytes again' >&2
+  exit 1
+}
+
+(( $(wc -l < "$CHIRPS_FIXTURE_CALLS") == cargo_call_count + 4 )) || {
+  printf '%s\n' 'resume skipped fresh feature-off/on registry consumer checks' >&2
   exit 1
 }
 
@@ -548,7 +729,7 @@ curl --fail --silent --request PUT --header "X-Chirps-SHA256: $wrong_sha" \
   --data-binary "@$wrong" "$endpoint/mismatch-registry/alopex-chirps-raft-storage/0.7.0" >/dev/null
 mismatch_count="$(wc -l < "$scratch/server/requests.log")"
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" "${common[@]}" \
   --fixture-registry "$endpoint/mismatch-registry" \
   --fixture-image "$endpoint/mismatch-image" \
@@ -570,7 +751,7 @@ test_common=(
   --resume-only-on-checksum-match
 )
 if PATH="$fixture_path" \
-  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$(printf '1%.0s' {1..40})" \
+  CHIRPS_RELEASE_ENVIRONMENT_APPROVAL="release:$source_commit" \
   "$publisher" "${test_common[@]}" \
   --fixture-registry "$endpoint/test-registry" \
   --fixture-image "$endpoint/test-image" \
@@ -584,3 +765,37 @@ fi
 }
 
 printf '%s\n' 'v0.7 publication structure passed: approval, exact order, resume, mismatch, and test-artifact controls'
+
+# Exercise the actual wrapper -> Python -> local publisher validation chain.
+# The test interpreter substitutes read-only remotes and remains inside the
+# scoped fixture repository (including its explicit synthetic model mock).
+# Production has no fixture switch that could be mistaken for release evidence.
+cp "$repo_root/scripts/release/verify-published-v0.7.sh" "$fixture_repo/scripts/release/"
+cp "$repo_root/scripts/release/verify-published-v0.7.py" "$fixture_repo/scripts/release/"
+cp "$repo_root/scripts/release/test-verify-published-v0.7.py" "$fixture_repo/scripts/release/"
+mkdir -p "$scratch/readonly-bin"
+export CHIRPS_TEST_REAL_PYTHON="$(command -v python3)"
+export CHIRPS_TEST_VERIFY_TESTS="$fixture_repo/scripts/release/test-verify-published-v0.7.py"
+cat > "$scratch/readonly-bin/python3" <<'PYTHON_SH'
+#!/usr/bin/env bash
+if [[ "${1##*/}" == "verify-published-v0.7.py" ]]; then
+  exec "$CHIRPS_TEST_REAL_PYTHON" "$CHIRPS_TEST_VERIFY_TESTS" --fixture-cli "$@"
+fi
+exec "$CHIRPS_TEST_REAL_PYTHON" "$@"
+PYTHON_SH
+chmod +x "$scratch/readonly-bin/python3"
+readonly_args=(
+  --candidate "$candidate" --candidate-sha256 "$(sha256sum "$candidate" | awk '{print $1}')"
+  --evidence "$evidence" --evidence-sha256 "$(sha256sum "$evidence" | awk '{print $1}')"
+  --bundle "$scratch/bundle/bundle.json"
+  --bundle-sha256 "$(sha256sum "$scratch/bundle/bundle.json" | awk '{print $1}')"
+  --tag-object "$(printf 'a%.0s' {1..40})"
+)
+PATH="$scratch/readonly-bin:$PATH" PYTHONDONTWRITEBYTECODE=1 \
+  bash "$fixture_repo/scripts/release/verify-published-v0.7.sh" "${readonly_args[@]}" >/dev/null
+if PATH="$scratch/readonly-bin:$PATH" PYTHONDONTWRITEBYTECODE=1 CHIRPS_TEST_REMOTE_DRIFT=1 \
+  bash "$fixture_repo/scripts/release/verify-published-v0.7.sh" "${readonly_args[@]}" >/dev/null 2>&1; then
+  printf '%s\n' 'published CLI accepted remote archive substitution' >&2
+  exit 1
+fi
+printf '%s\n' 'published CLI fixture passed: full wrapper chain and remote substitution rejection'

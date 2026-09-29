@@ -110,9 +110,9 @@ The matrix is deliberately narrow. Both profiles require TCP/TLS server authenti
 
 | Dimension | Official development profile | Compatible production/strong profile |
 | --- | --- | --- |
-| Public selector | `DurableProfile::broker_accepted(actual_startup_config)` | `DurableProfile::OsSyncedAccepted` |
-| Server source | Apache Iggy `server-0.8.0`, baseline commit `f5350d999d883fd3ca9dd33b3dc2754ddb0df049` | Chirps-compatible source commit `76dcccf24b27c61a9434a79b3f81f065c4d3a832`, tree `c63cdecf5edb11650e7db85db3f7ad168a2103f7`, based on the same Iggy commit |
-| Published/attested artifact | Chirps v0.7 does not declare an official development image digest; the exact startup configuration is supplied and hashed at connect time | Candidate server binary SHA-256 `254865eb345fd2c095513e95c449d183bef9801f472f6dd50310a2d2421e297c`; runtime base image `debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16` |
+| Public selector | `DurableConfig::broker_accepted(..., actual_startup_config, ..., DurableDevelopmentResourceConfig, ...)` | `DurableProfile::OsSyncedAccepted` |
+| Server source | Apache Iggy `server-0.8.0`, baseline commit `f5350d999d883fd3ca9dd33b3dc2754ddb0df049` | Chirps-compatible source commit `336d20c53b4bba663c257bdc0271373cfc2f1864`, tree `b2099c2dc404534429e210069990a10496d4fefd`, based on the same Iggy commit |
+| Published/attested artifact | Chirps v0.7 does not declare an official development image digest; the exact startup configuration is supplied and hashed at connect time | Candidate server binary SHA-256 `3840ead85e35a20c0c86b519c15b87edf2fe08a9dc866b4746915ed8cb312f88`; runtime base image `debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16` |
 | Transport/protocol | Adapter-owned TCP/TLS; official Iggy protocol/model crates `0.10.0`; standard login/resource readback/send | Adapter-owned TCP/TLS; official outer framing `0.10.0` plus private extension v1 |
 | Private extension | Not used | Schema SHA-256 `71e462395675017a7fd5be74d2f71b0a2488da882aca52d27bd1916d93c3d6a2`; `CapabilityBind`, `LeaseRenew`, `AppendOneSynced`, `CheckedPoll` |
 | Topology | One broker resource, replication factor `1`, one configured connection per explicit partition | One compatible broker resource, replication factor `1`, one bound/leased connection per explicit partition |
@@ -121,6 +121,8 @@ The matrix is deliberately narrow. Both profiles require TCP/TLS server authenti
 | Not guaranteed | Exact location, OS sync, restart presence, delivery, subscription recovery, replication | Device power-loss durability, replication/quorum/HA/failover, exactly-once effects, unlimited replay, cross-host rebalance |
 
 The failpoint-enabled server is a distinct `publish-disabled-test` artifact. It is evidence tooling, not a deployable profile.
+
+Container runtimes must allow `io_uring_setup`, `io_uring_enter`, and `io_uring_register`. The tested Podman default seccomp profile rejects these calls with `ENOSYS`, including during `--version` startup. Startup verification passed with only these three calls added to that default profile, with networking disabled; it does not establish support for the unmodified default profile. Retain the default profile, the three-call delta, and their digests with deployment evidence.
 
 ## Point-to-point flow
 

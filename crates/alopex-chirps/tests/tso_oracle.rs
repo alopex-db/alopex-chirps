@@ -5,8 +5,8 @@ mod support;
 use alopex_chirps::RaftMetricsCollector;
 use alopex_chirps::multi_raft::GroupId;
 use alopex_chirps::tso::{
-    NodeAuthenticator, TSO_GROUP_ID, TimestampOracle, TsoConfig, TsoError, TsoRequest, TsoService,
-    TsoState, TsoStateMachine,
+    NodeAuthenticator, TSO_GROUP_ID, TimestampOracle, TsoConfig, TsoError, TsoOracleOptions,
+    TsoRequest, TsoService, TsoState, TsoStateMachine,
 };
 use alopex_chirps_raft_storage::traits::{AsyncSnapshotData, StateMachine};
 use async_trait::async_trait;
@@ -253,5 +253,34 @@ async fn oracle_rejects_non_dedicated_group() {
             actual: data_group,
         }
     );
+    manager.shutdown_all().await.unwrap();
+}
+
+#[tokio::test]
+async fn additive_oracle_options_reject_invalid_bounds_and_accept_equal_threshold() {
+    let root = tempfile::tempdir().unwrap();
+    let manager = manager(root.path(), 1).await;
+    manager
+        .create_group_uninitialized(TSO_GROUP_ID, TsoStateMachine::default())
+        .await
+        .unwrap();
+    for (batch_size, prefetch_threshold, valid) in
+        [(0, 0, false), (1, 2, false), (1, 1, true), (1, 0, true)]
+    {
+        let result = TimestampOracle::with_options(
+            1,
+            manager.get_group(TSO_GROUP_ID).unwrap(),
+            Arc::new(ManualClock::new(1_000)),
+            TsoConfig::default(),
+            TsoOracleOptions {
+                batch_size,
+                prefetch_threshold,
+            },
+        );
+        assert_eq!(result.is_ok(), valid);
+        if !valid {
+            assert!(matches!(result, Err(TsoError::InvalidConfig(_))));
+        }
+    }
     manager.shutdown_all().await.unwrap();
 }

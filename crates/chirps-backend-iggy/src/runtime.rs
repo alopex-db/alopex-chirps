@@ -277,13 +277,78 @@ pub enum SessionProfileInput {
     BrokerAccepted { broker_startup_config: Vec<u8> },
 }
 
-#[derive(Clone, Copy)]
-enum SessionProfile {
-    OsSyncedAccepted,
-    BrokerAccepted(DevelopmentBrokerConfigReadback),
+/// Standard-protocol connection inputs with no compatible-server capability claims.
+pub struct DevelopmentSessionConnectionInput {
+    pub address: SocketAddr,
+    pub tls_server_name: String,
+    pub trusted_roots_der: Vec<Vec<u8>>,
+    pub max_frame_len: usize,
+    pub credential: Option<SessionCredentialInput>,
+    pub broker_startup_config: Vec<u8>,
+    pub stream_id: u32,
+    pub topic_id: u32,
+    pub partition_id: u32,
 }
 
-/// Complete connection and capability projection for one explicit partition.
+#[derive(Debug, Clone, Copy)]
+enum SessionBindingConfig {
+    Strong {
+        expected: ExpectedCapability,
+        renew_interval: Duration,
+    },
+    Development {
+        location: ResourceLocation,
+        broker_config: DevelopmentBrokerConfigReadback,
+    },
+}
+
+struct PreparedSessionTransport {
+    server_name: ServerName<'static>,
+    client_config: Arc<ClientConfig>,
+    limits: TransportLimits,
+    login: Option<LoginRequestFrame>,
+}
+
+fn prepare_session_transport(
+    tls_server_name: String,
+    trusted_roots_der: Vec<Vec<u8>>,
+    max_frame_len: usize,
+    credential: Option<SessionCredentialInput>,
+) -> Result<PreparedSessionTransport, RuntimeBuildError> {
+    let mut roots = RootCertStore::empty();
+    if trusted_roots_der.is_empty() {
+        return Err(RuntimeBuildError::InvalidTlsIdentity);
+    }
+    for certificate in trusted_roots_der {
+        roots
+            .add(CertificateDer::from(certificate))
+            .map_err(|_| RuntimeBuildError::InvalidTlsIdentity)?;
+    }
+    let client_config = Arc::new(
+        ClientConfig::builder_with_provider(
+            Arc::new(rustls::crypto::aws_lc_rs::default_provider()),
+        )
+        .with_safe_default_protocol_versions()
+        .map_err(|_| RuntimeBuildError::InvalidTlsIdentity)?
+        .with_root_certificates(roots)
+        .with_no_client_auth(),
+    );
+    let server_name =
+        ServerName::try_from(tls_server_name).map_err(|_| RuntimeBuildError::InvalidTlsIdentity)?;
+    let limits = TransportLimits::new(max_frame_len)
+        .map_err(|_| RuntimeBuildError::InvalidTransportLimits)?;
+    let login = credential.map(encode_login).transpose()?;
+
+    Ok(PreparedSessionTransport {
+        server_name,
+        client_config,
+        limits,
+        login,
+    })
+}
+
+/// One TLS/login connection bound either to exact strong capabilities or an
+/// independently verified official numeric resource and weak startup profile.
 #[derive(Clone)]
 pub struct SessionConnectConfig {
     address: SocketAddr,
@@ -291,9 +356,7 @@ pub struct SessionConnectConfig {
     client_config: Arc<ClientConfig>,
     limits: TransportLimits,
     login: Option<LoginRequestFrame>,
-    expected: ExpectedCapability,
-    renew_interval: Duration,
-    profile: SessionProfile,
+    binding: SessionBindingConfig,
 }
 
 impl std::fmt::Debug for SessionConnectConfig {
@@ -303,48 +366,37 @@ impl std::fmt::Debug for SessionConnectConfig {
             .field("address", &self.address)
             .field("server_name", &self.server_name)
             .field("limits", &self.limits)
-            .field("expected", &self.expected)
-            .field("renew_interval", &self.renew_interval)
+            .field("binding", &self.binding)
             .finish_non_exhaustive()
     }
 }
 
 impl SessionConnectConfig {
-    /// Converts provider-neutral connection inputs into backend-owned values.
+    /// Converts the original explicit projection inputs. Weak profiles use only
+    /// numeric resource coordinates and the actual startup configuration.
     pub fn from_neutral(input: SessionConnectionInput) -> Result<Self, RuntimeBuildError> {
-        let mut roots = RootCertStore::empty();
-        if input.trusted_roots_der.is_empty() {
-            return Err(RuntimeBuildError::InvalidTlsIdentity);
-        }
-        for certificate in input.trusted_roots_der {
-            roots
-                .add(CertificateDer::from(certificate))
-                .map_err(|_| RuntimeBuildError::InvalidTlsIdentity)?;
-        }
-        let client_config = Arc::new(
-            ClientConfig::builder_with_provider(Arc::new(
-                rustls::crypto::aws_lc_rs::default_provider(),
-            ))
-            .with_safe_default_protocol_versions()
-            .map_err(|_| RuntimeBuildError::InvalidTlsIdentity)?
-            .with_root_certificates(roots)
-            .with_no_client_auth(),
-        );
-        let server_name = ServerName::try_from(input.tls_server_name)
-            .map_err(|_| RuntimeBuildError::InvalidTlsIdentity)?;
-        let limits = TransportLimits::new(input.max_frame_len)
-            .map_err(|_| RuntimeBuildError::InvalidTransportLimits)?;
-        let login = input.credential.map(encode_login).transpose()?;
-        let profile = match input.profile {
-            SessionProfileInput::OsSyncedAccepted => SessionProfile::OsSyncedAccepted,
-            SessionProfileInput::BrokerAccepted {
+        if let SessionProfileInput::BrokerAccepted {
+            broker_startup_config,
+        } = input.profile
+        {
+            return Self::from_development(DevelopmentSessionConnectionInput {
+                address: input.address,
+                tls_server_name: input.tls_server_name,
+                trusted_roots_der: input.trusted_roots_der,
+                max_frame_len: input.max_frame_len,
+                credential: input.credential,
                 broker_startup_config,
-            } => SessionProfile::BrokerAccepted(
-                DevelopmentBrokerConfigReadback::verify_actual_startup_config(
-                    &broker_startup_config,
-                )?,
-            ),
-        };
+                stream_id: input.projection.stream_id,
+                topic_id: input.projection.topic_id,
+                partition_id: input.projection.partition_id,
+            });
+        }
+        let transport = prepare_session_transport(
+            input.tls_server_name,
+            input.trusted_roots_der,
+            input.max_frame_len,
+            input.credential,
+        )?;
         let projection = input.projection;
         let location = ResourceLocation::new(
             ResourceId::from_bytes(projection.resource_id),
@@ -369,20 +421,66 @@ impl SessionConnectConfig {
             projection.capability_digest,
             projection.lease_millis,
         )?;
-        Self::new(
-            input.address,
-            server_name,
-            client_config,
-            limits,
-            login,
-            expected,
-            input.renew_interval,
-            profile,
-        )
+
+        if input.renew_interval.is_zero()
+            || input.renew_interval >= Duration::from_millis(u64::from(expected.lease_millis()))
+        {
+            return Err(RuntimeBuildError::InvalidRenewInterval);
+        }
+        Ok(Self {
+            address: input.address,
+            server_name: transport.server_name,
+            client_config: transport.client_config,
+            limits: transport.limits,
+            login: transport.login,
+            binding: SessionBindingConfig::Strong {
+                expected,
+                renew_interval: input.renew_interval,
+            },
+        })
     }
 
-    /// Installs validated credential material after every non-secret
-    /// connection and capability input has passed validation.
+    /// Binds official numeric resource coordinates without fabricating a strong
+    /// capability projection, lease, broker UUID, or OS-sync claim.
+    pub fn from_development(
+        input: DevelopmentSessionConnectionInput,
+    ) -> Result<Self, RuntimeBuildError> {
+        if input.stream_id == 0 || input.topic_id == 0 {
+            return Err(RuntimeBuildError::InvalidResourceProjection);
+        }
+        let broker_config = DevelopmentBrokerConfigReadback::verify_actual_startup_config(
+            &input.broker_startup_config,
+        )?;
+        let transport = prepare_session_transport(
+            input.tls_server_name,
+            input.trusted_roots_der,
+            input.max_frame_len,
+            input.credential,
+        )?;
+        // The standard protocol has no resource incarnation. This value is only
+        // local attempt correlation and can never produce a strong receipt.
+        let location = ResourceLocation::new(
+            ResourceId::from_bytes(*uuid::Uuid::new_v4().as_bytes()),
+            0,
+            input.stream_id,
+            input.topic_id,
+            input.partition_id,
+        )
+        .map_err(|_| RuntimeBuildError::InvalidResourceProjection)?;
+        Ok(Self {
+            address: input.address,
+            server_name: transport.server_name,
+            client_config: transport.client_config,
+            limits: transport.limits,
+            login: transport.login,
+            binding: SessionBindingConfig::Development {
+                location,
+                broker_config,
+            },
+        })
+    }
+
+    /// Installs credentials only after non-secret configuration was validated.
     pub fn bind_credential(
         &mut self,
         credential: SessionCredentialInput,
@@ -394,37 +492,11 @@ impl SessionConnectConfig {
         Ok(())
     }
 
-    /// Binds one production connection input to one exact capability projection.
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        address: SocketAddr,
-        server_name: ServerName<'static>,
-        client_config: Arc<ClientConfig>,
-        limits: TransportLimits,
-        login: Option<LoginRequestFrame>,
-        expected: ExpectedCapability,
-        renew_interval: Duration,
-        profile: SessionProfile,
-    ) -> Result<Self, RuntimeBuildError> {
-        if renew_interval.is_zero()
-            || renew_interval >= Duration::from_millis(u64::from(expected.lease_millis()))
-        {
-            return Err(RuntimeBuildError::InvalidRenewInterval);
-        }
-        Ok(Self {
-            address,
-            server_name,
-            client_config,
-            limits,
-            login,
-            expected,
-            renew_interval,
-            profile,
-        })
-    }
-
     fn partition(&self) -> u32 {
-        self.expected.location().partition_id()
+        match self.binding {
+            SessionBindingConfig::Strong { expected, .. } => expected.location().partition_id(),
+            SessionBindingConfig::Development { location, .. } => location.partition_id(),
+        }
     }
 
     async fn connect(&self, deadline: Instant) -> Result<RuntimeSession, RuntimeBuildError> {
@@ -432,8 +504,8 @@ impl SessionConnectConfig {
             .login
             .clone()
             .ok_or(RuntimeBuildError::InvalidCredential)?;
-        match self.profile {
-            SessionProfile::OsSyncedAccepted => {
+        match self.binding {
+            SessionBindingConfig::Strong { expected, .. } => {
                 let authenticated = AuthenticatedConnection::connect_tls_and_authenticate(
                     self.address,
                     self.server_name.clone(),
@@ -443,7 +515,7 @@ impl SessionConnectConfig {
                     deadline,
                 )
                 .await?;
-                match authenticated.bind(self.expected).await {
+                match authenticated.bind(expected).await {
                     Ok(session) => Ok(RuntimeSession::Strong(Arc::new(session))),
                     Err(failure) => {
                         let error = failure.error().clone();
@@ -452,21 +524,22 @@ impl SessionConnectConfig {
                     }
                 }
             }
-            SessionProfile::BrokerAccepted(broker_config) => {
-                DevelopmentAppendConnection::connect_tls_and_authenticate(
-                    self.address,
-                    self.server_name.clone(),
-                    Arc::clone(&self.client_config),
-                    self.limits,
-                    login,
-                    self.expected.location(),
-                    broker_config,
-                    deadline,
-                )
-                .await
-                .map(|connection| RuntimeSession::Development(Arc::new(connection)))
-                .map_err(Into::into)
-            }
+            SessionBindingConfig::Development {
+                location,
+                broker_config,
+            } => DevelopmentAppendConnection::connect_tls_and_authenticate(
+                self.address,
+                self.server_name.clone(),
+                Arc::clone(&self.client_config),
+                self.limits,
+                login,
+                location,
+                broker_config,
+                deadline,
+            )
+            .await
+            .map(|connection| RuntimeSession::Development(Arc::new(connection)))
+            .map_err(Into::into),
         }
     }
 }
@@ -525,11 +598,11 @@ impl SendCapacityRelease {
 
 impl Drop for SendCapacityRelease {
     fn drop(&mut self) {
-        if let Some(tokens) = self.tokens.take() {
-            if let Ok(mut capacity) = self.capacity.lock() {
-                for token in tokens {
-                    let _ = capacity.release_terminal(token);
-                }
+        if let Some(tokens) = self.tokens.take()
+            && let Ok(mut capacity) = self.capacity.lock()
+        {
+            for token in tokens {
+                let _ = capacity.release_terminal(token);
             }
         }
     }
@@ -545,6 +618,7 @@ impl LocalStateRuntime {
         fs::create_dir_all(checkpoint_root).map_err(|_| RuntimeBuildError::Compaction)?;
         let lock = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(checkpoint_root.join(".chirps-compaction.lock"))
@@ -955,7 +1029,13 @@ impl DurableRuntime {
             let RuntimeSession::Strong(session) = session else {
                 continue;
             };
-            let interval = connection.renew_interval;
+            let SessionBindingConfig::Strong {
+                renew_interval: interval,
+                ..
+            } = connection.binding
+            else {
+                return Err(RuntimeBuildError::InvalidResourceProjection);
+            };
             let ticket = lifecycle.admission_ticket()?;
             lifecycle.register_worker(ticket, move |mut cancelled| async move {
                 loop {
@@ -1058,15 +1138,14 @@ impl DurableRuntime {
             };
             let capacity_release =
                 SendCapacityRelease::new(self.local_state.capacity.clone(), payload, concurrency);
-            let result = execute_send(
+            execute_send(
                 &mut self.lifecycle,
                 port,
                 prepared,
                 boundary,
                 capacity_release,
             )
-            .await;
-            result
+            .await
         }
         .await;
         let labels = send_metric_labels(boundary, &result);
@@ -1374,16 +1453,14 @@ impl DurableRuntime {
                 .subscriptions
                 .get_mut(&subscription_id)
                 .and_then(|subscription| subscription.in_flight_token.take())
-            {
-                if self
+                && self
                     .local_state
                     .capacity
                     .lock()
                     .and_then(|mut capacity| capacity.release_terminal(token))
                     .is_err()
-                {
-                    self.local_state.faulted = true;
-                }
+            {
+                self.local_state.faulted = true;
             }
         } else {
             self.local_state
@@ -1475,7 +1552,7 @@ impl DurableRuntime {
 
     /// Returns the recovered compaction generation and exact capacity usage.
     pub fn local_state_status(&self) -> Result<RuntimeLocalStateStatus, RuntimeLocalStateError> {
-        self.local_state.status().map_err(Into::into)
+        self.local_state.status()
     }
 
     /// Runs one fault-free generation cutover using the configured durable clock.

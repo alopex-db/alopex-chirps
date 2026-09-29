@@ -253,7 +253,13 @@ fn facade_checkpoint_root(
 ) -> Result<std::path::PathBuf> {
     let facade_root = root.join(name);
     std::fs::create_dir(&facade_root)?;
+    #[cfg(unix)]
     std::os::unix::fs::symlink(
+        directory,
+        subscription_directory(&facade_root, subscription_id),
+    )?;
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(
         directory,
         subscription_directory(&facade_root, subscription_id),
     )?;
@@ -261,7 +267,8 @@ fn facade_checkpoint_root(
 }
 
 fn lock_probe(path: &std::path::Path, available: bool) -> Result<()> {
-    let status = Command::new(std::env::current_exe()?)
+    // Keep the child harness's result lines out of the parent result stream.
+    let output = Command::new(std::env::current_exe()?)
         .args([
             "--exact",
             "durable_owner::owner_lock_chain_and_stale_recovery_are_fenced",
@@ -270,8 +277,12 @@ fn lock_probe(path: &std::path::Path, available: bool) -> Result<()> {
         ])
         .env("CHIRPS_OWNER_LOCK_PROBE", path)
         .envs(available.then_some(("CHIRPS_OWNER_LOCK_AVAILABLE", "1")))
-        .status()
+        .output()
         .context("launch cross-process owner-lock probe")?;
-    ensure!(status.success(), "owner-lock probe failed");
+    ensure!(
+        output.status.success(),
+        "owner-lock probe failed: {}",
+        output.status
+    );
     Ok(())
 }

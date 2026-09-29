@@ -10,6 +10,7 @@ use alopex_chirps_file_transfer::{
     TransferMode, TransferOptions, TransferSessionId,
 };
 use alopex_chirps_mock::{MockBackend, MockNetwork};
+use alopex_chirps_transport_quic::TransportResourceConfig;
 use alopex_chirps_wire::file_transfer::{
     CancelRequest, FileTransferFrame, FileTransferMessage, ManifestAck, TransferResponse,
 };
@@ -36,9 +37,12 @@ const SERVER_NAME: &str = "localhost";
 // The Quinn 0.10 defaults are tuned for a 100 Mbps / 100 ms path.  The
 // release performance gate is explicitly a 1 Gbps profile, so its test
 // endpoint must advertise enough flow-control credit for that contract.
-const PERFORMANCE_STREAM_WINDOW_BYTES: u32 = 16 * 1024 * 1024;
-const PERFORMANCE_CONNECTION_WINDOW_BYTES: u32 = 64 * 1024 * 1024;
-const PERFORMANCE_MAX_UNI_STREAMS: u32 = 256;
+const PERFORMANCE_STREAM_WINDOW_BYTES: u64 =
+    alopex_chirps_transport_quic::FILE_TRANSFER_STREAM_RECEIVE_WINDOW_BYTES;
+const PERFORMANCE_CONNECTION_WINDOW_BYTES: u64 =
+    alopex_chirps_transport_quic::FILE_TRANSFER_CONNECTION_RECEIVE_WINDOW_BYTES;
+const PERFORMANCE_MAX_UNI_STREAMS: u32 =
+    alopex_chirps_transport_quic::FILE_TRANSFER_MAX_CONCURRENT_UNI_STREAMS;
 
 fn build_tls_configs(transport: Option<Arc<TransportConfig>>) -> (ServerConfig, ClientConfig) {
     let cert = generate_simple_self_signed([SERVER_NAME.to_string()]).expect("cert");
@@ -62,13 +66,14 @@ fn build_tls_configs(transport: Option<Arc<TransportConfig>>) -> (ServerConfig, 
 }
 
 fn performance_transport_config() -> Arc<TransportConfig> {
-    let mut transport = TransportConfig::default();
-    transport
-        .stream_receive_window(PERFORMANCE_STREAM_WINDOW_BYTES.into())
-        .receive_window(PERFORMANCE_CONNECTION_WINDOW_BYTES.into())
-        .send_window(PERFORMANCE_CONNECTION_WINDOW_BYTES as u64)
-        .max_concurrent_uni_streams(PERFORMANCE_MAX_UNI_STREAMS.into());
-    Arc::new(transport)
+    let profile = TransportResourceConfig::file_transfer_performance();
+    assert_eq!(
+        profile.max_concurrent_uni_streams,
+        PERFORMANCE_MAX_UNI_STREAMS
+    );
+    profile
+        .to_quinn_transport_config()
+        .expect("valid File Transfer performance profile")
 }
 
 struct TestChunkNetwork {
@@ -287,6 +292,44 @@ impl ChunkStreamOpener for GateFirstChunkOpener {
     }
 }
 
+fn take_fault(remaining: &AtomicUsize) -> bool {
+    let mut current = remaining.load(Ordering::SeqCst);
+    while current != 0 {
+        match remaining.compare_exchange_weak(
+            current,
+            current - 1,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => return true,
+            Err(actual) => current = actual,
+        }
+    }
+    false
+}
+
+#[test]
+fn concurrent_faults_consume_each_budget_entry_once() {
+    let remaining = AtomicUsize::new(100);
+    let consumed = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            let remaining = &remaining;
+            let consumed = &consumed;
+            scope.spawn(move || {
+                for _ in 0..40 {
+                    if take_fault(remaining) {
+                        consumed.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            });
+        }
+    });
+    assert_eq!(consumed.load(Ordering::SeqCst), 100);
+    assert_eq!(remaining.load(Ordering::SeqCst), 0);
+    assert!(!take_fault(&remaining));
+}
+
 impl FlakyChunkOpener {
     fn new(inner: Arc<dyn ChunkStreamOpener>, failures: usize) -> Arc<Self> {
         Arc::new(FlakyChunkOpener {
@@ -306,17 +349,7 @@ impl ChunkStreamOpener for FlakyChunkOpener {
         &self,
         target: NodeId,
     ) -> Result<quinn::SendStream, FileTransferError> {
-        if self
-            .remaining_failures
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-                if current == 0 {
-                    None
-                } else {
-                    Some(current - 1)
-                }
-            })
-            .is_ok()
-        {
+        if take_fault(&self.remaining_failures) {
             return Err(FileTransferError::Transport(
                 "simulated stream failure".to_string(),
             ));
@@ -444,11 +477,7 @@ impl CorruptingChunkProxy {
                             Ok(frame) => frame,
                             Err(_) => break,
                         };
-                        let corrupted = remaining_corruptions
-                            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
-                                (remaining > 0).then(|| remaining - 1)
-                            })
-                            .is_ok();
+                        let corrupted = take_fault(&remaining_corruptions);
                         if corrupted {
                             const PAYLOAD_OFFSET: usize = 1 + 16 + 4 + 4;
                             if let Some(byte) = frame.get_mut(PAYLOAD_OFFSET) {

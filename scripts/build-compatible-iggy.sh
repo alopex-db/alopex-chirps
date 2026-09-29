@@ -9,14 +9,14 @@ if ! command -v rtk >/dev/null 2>&1; then
 fi
 
 readonly EXPECTED_BASELINE_COMMIT="f5350d999d883fd3ca9dd33b3dc2754ddb0df049"
-readonly EXPECTED_SOURCE_COMMIT="76dcccf24b27c61a9434a79b3f81f065c4d3a832"
-readonly EXPECTED_SOURCE_TREE="c63cdecf5edb11650e7db85db3f7ad168a2103f7"
-readonly EXPECTED_LOCK_SHA256="0e4ac6717cfb6ba04894f734b8f56afc56e265925fdd805242b6e39d4d676b41"
+readonly EXPECTED_SOURCE_COMMIT="336d20c53b4bba663c257bdc0271373cfc2f1864"
+readonly EXPECTED_SOURCE_TREE="b2099c2dc404534429e210069990a10496d4fefd"
+readonly EXPECTED_LOCK_SHA256="9b601087feed75db7cc6e3e5bbe185fbc1cd5ef9ea2d84dbda8b6a9deb40f6c8"
 readonly EXPECTED_TOOLCHAIN_SHA256="c73ceece264a4826462f5e22926b8909955e5c98cd391733846540d4ed9e6f21"
 readonly EXPECTED_RUSTC_COMMIT="4a4ef493e3a1488c6e321570238084b38948f6db"
 readonly EXPECTED_CARGO_COMMIT="85eff7c80277b57f78b11e28d14154ab12fcf643"
 readonly EXPECTED_RUNTIME_IMAGE="docker.io/library/debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16"
-readonly EXPECTED_DOCKERFILE_SHA256="d7af12e2b6909836975a0aea197dbf6682bcb57dcb81cbeea09367e9fcf4638d"
+readonly EXPECTED_DOCKERFILE_SHA256="04adcdf8441d27d97ec0074cb78ad424d0253ab48d80ac7fc76b311345bdad71"
 readonly SOURCE_DATE_EPOCH="1790115008"
 TASK_TARGET=""
 readonly SOURCE_REPOSITORY="${IGGY_SOURCE_DIR:-/home/roomtv/works/alopex-db/iggy-worktrees/v0.7.0-compatible}"
@@ -30,6 +30,7 @@ readonly CARGO_BIN RUSTC_BIN CARGO_HOME_VALUE
 
 ROOT="$(cd "$(rtk dirname "${BASH_SOURCE[0]}")/.." && rtk pwd)"
 readonly ROOT
+source "${ROOT}/scripts/release/owned-target.sh"
 readonly MANIFEST="${ROOT}/server/iggy-compatible/manifest.toml"
 readonly DOCKERFILE="${ROOT}/server/iggy-compatible/Dockerfile"
 STAGING=""
@@ -49,14 +50,10 @@ cleanup() {
     local status="$1" cleanup_failed=0
     trap - EXIT HUP INT TERM
     if [[ -n "${TASK_TARGET}" ]]; then
-        if ! rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
+        if ! chirps_target_clean "${TASK_TARGET}" rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
             "${CARGO_BIN}" clean --manifest-path "${SOURCE_REPOSITORY}/Cargo.toml" \
                 --target-dir "${TASK_TARGET}" >/dev/null; then
             rtk echo "build-compatible-iggy: cargo cleanup failed" >&2
-            cleanup_failed=1
-        fi
-        if [[ -d "${TASK_TARGET}" ]] && ! rtk rmdir "${TASK_TARGET}"; then
-            rtk echo "build-compatible-iggy: task target remains non-empty" >&2
             cleanup_failed=1
         fi
         if [[ -e "${TASK_TARGET}" ]]; then
@@ -269,7 +266,7 @@ verify_reproducible() {
     build_once "${STAGING}/source" "${STAGING}/first.sha256"
     first_digest="$(<"${STAGING}/first.sha256")"
     rtk cp --no-dereference "${TASK_TARGET}/release/iggy-server" "${STAGING}/iggy-server.first"
-    rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
+    chirps_target_clean "${TASK_TARGET}" rtk env CARGO_HOME="${CARGO_HOME_VALUE}" RUSTC="${RUSTC_BIN}" \
         "${CARGO_BIN}" clean --manifest-path "${SOURCE_REPOSITORY}/Cargo.toml" \
             --target-dir "${TASK_TARGET}" >/dev/null
     [[ ! -e "${TASK_TARGET}" ]] || die "full target clean did not remove the first build"
