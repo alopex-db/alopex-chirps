@@ -750,6 +750,7 @@ fn runtime_permissions(stream_id: u32, topic_id: u32) -> Permissions {
                 topics: Some(BTreeMap::from([(
                     topic_id as usize,
                     TopicPermissions {
+                        read_topic: true,
                         poll_messages: true,
                         send_messages: true,
                         ..TopicPermissions::default()
