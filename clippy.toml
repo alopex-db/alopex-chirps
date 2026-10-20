@@ -1,0 +1,6 @@
+# openraft's error types (StorageError, RaftError and friends) are 224-256 bytes
+# and appear in every signature that wraps an openraft trait method, so they
+# cannot be boxed without diverging from the trait. Raise the threshold above
+# them rather than scattering allow attributes; genuinely oversized errors of
+# our own still trip the lint.
+large-error-threshold = 320

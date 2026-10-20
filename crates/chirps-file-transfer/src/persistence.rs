@@ -118,7 +118,7 @@ impl SessionPersistence {
             .map_err(|e| FileTransferError::Serialization(e.to_string()))?;
         match fs::read(self.progress_path(&id)).await {
             Ok(progress) => {
-                for record in progress.chunks_exact(PROGRESS_RECORD_BYTES) {
+                for record in progress.as_chunks::<PROGRESS_RECORD_BYTES>().0 {
                     let index =
                         u32::from_le_bytes(record[..4].try_into().expect("four index bytes"));
                     let complement =
