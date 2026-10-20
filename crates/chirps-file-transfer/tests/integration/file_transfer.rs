@@ -313,7 +313,7 @@ impl ChunkStreamOpener for FlakyChunkOpener {
     ) -> Result<quinn::SendStream, FileTransferError> {
         if self
             .remaining_failures
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
                 if current == 0 {
                     None
                 } else {
@@ -450,7 +450,7 @@ impl CorruptingChunkProxy {
                             Err(_) => break,
                         };
                         let corrupted = remaining_corruptions
-                            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                            .try_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
                                 (remaining > 0).then(|| remaining - 1)
                             })
                             .is_ok();
