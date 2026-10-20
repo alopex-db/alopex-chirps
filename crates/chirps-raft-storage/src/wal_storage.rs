@@ -705,9 +705,6 @@ where
     /// LogIdベースの取得ヘルパー。
     ///
     /// openraft標準のindex指定APIを補完するために用意されたラッパー。
-    // Errの型はopenraftのStorageErrorで、ラップしているtraitメソッドと揃える必要が
-    // あるため、clippy::result_large_errの指摘どおりにBoxへ包むことはできない。
-    #[allow(clippy::result_large_err)]
     pub async fn get_entries_by_log_id(
         &mut self,
         range: RangeInclusive<LogId<ChirpsNodeId>>,
